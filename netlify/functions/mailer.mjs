@@ -106,9 +106,17 @@ function testEmailHtml(admin_email) {
 </body></html>`
 }
 
-const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+// CORS：管理后台（v3.lrcshare.com）跨域调用，需允许并响应 OPTIONS 预检
+const CORS_HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+const json = (status, body) => new Response(JSON.stringify(body), { status, headers: CORS_HEADERS })
 
 export default async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
   if (req.method !== 'POST') return json(405, { success: false, error: 'Method not allowed' })
   try {
     const { action, to, user_name, song_title, reject_reason } = await req.json()
