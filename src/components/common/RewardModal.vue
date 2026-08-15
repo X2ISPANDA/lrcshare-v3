@@ -14,13 +14,13 @@
         <div class="flex justify-center gap-4">
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img src="/assets/img/Wechat.jpg" class="w-full h-full object-cover" alt="微信赞助" />
+              <img src="https://i0.hdslb.com/bfs/openplatform/954a7ef000973598f054011146df90b5c3f2a71f.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover" alt="微信赞助" />
             </div>
             <div class="text-sm text-gray-600">微信赞助</div>
           </div>
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img src="/assets/img/Alipay.jpg" class="w-full h-full object-cover" alt="支付宝赞助" />
+              <img src="https://i0.hdslb.com/bfs/openplatform/a5de338082f11e2f2876bc7059cde436af978568.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover" alt="支付宝赞助" />
             </div>
             <div class="text-sm text-gray-600">支付宝赞助</div>
           </div>
