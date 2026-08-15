@@ -34,23 +34,25 @@
 
         <hr class="border-gray-100 mb-8" />
 
-        <div class="article-content" v-html="renderedContent"></div>
+        <div ref="contentRef" class="article-content cursor-default" v-html="renderedContent" @click="onContentClick"></div>
       </template>
     </div>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
+import { useUiStore } from '@/stores/ui'
 import type { Article, Contributor } from '@/lib/types'
 
 const route = useRoute()
 const slug = route.params.slug as string
+const ui = useUiStore()
 
 const TYPE_LABEL: Record<string, { label: string; class: string }> = {
   news: { label: '喜报', class: 'bg-yellow-100 text-yellow-700' },
@@ -81,6 +83,19 @@ const displayName = computed(() => {
 })
 
 const renderedContent = computed(() => mdToHtml(article.value?.content))
+
+// 文章内图片点击进统一预览（事件委托：v-html 内容无法直接绑定）；
+// 多图文章自动组成列表，可左右翻页
+const contentRef = ref<HTMLElement | null>(null)
+function onContentClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (target.tagName !== 'IMG') return
+  const imgs = [...(contentRef.value?.querySelectorAll('img') || [])] as HTMLImageElement[]
+  const urls = imgs.map(i => i.getAttribute('src')).filter((s): s is string => !!s)
+  const idx = imgs.indexOf(target as HTMLImageElement)
+  if (!urls.length) return
+  ui.openPreview(urls, Math.max(0, idx))
+}
 
 function formatDate(dateStr: string | null): string {
   return dateStr ? new Date(dateStr).toISOString().slice(0, 10) : ''

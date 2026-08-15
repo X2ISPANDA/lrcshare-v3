@@ -1,5 +1,19 @@
 import { marked } from 'marked'
 
+// 图片统一带 referrerpolicy（B 站图床 hdslb.com 防盗链，缺它 403）
+marked.use({
+  renderer: {
+    image(token) {
+      const { href, title, text } = token
+      const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+      const src = escape(href)
+      const alt = escape(text || '')
+      const t = title ? ` title="${escape(title)}"` : ''
+      return `<img src="${src}" alt="${alt}"${t} referrerpolicy="no-referrer" loading="lazy" />`
+    },
+  },
+})
+
 /** Markdown 转 HTML（文章详情页渲染，逻辑迁移自 v2 post.html） */
 export function mdToHtml(md: string | null | undefined): string {
   if (!md) return ''

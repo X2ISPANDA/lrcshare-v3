@@ -34,69 +34,75 @@
         </div>
       </div>
 
-      <!-- 歌曲列表 -->
+      <!-- 歌曲列表（多碟专辑按 Disc 分组，单碟维持原样） -->
       <template v-if="songs.length">
-        <!-- 桌面端：表格 -->
-        <div class="hidden md:block album-table-wrap">
-          <table class="album-table">
-            <thead>
-              <tr>
-                <th class="col-num">#</th>
-                <th class="col-song">歌曲</th>
-                <th class="col-singer">歌手</th>
-                <th class="col-dur">时长</th>
-              </tr>
-            </thead>
-            <tbody>
-              <RouterLink
-                v-for="song in songs"
-                :key="song.id"
-                :to="`/song/${song.id}`"
-                custom
-                v-slot="{ navigate }"
-              >
-                <tr @click="navigate">
-                  <td class="col-num text-xs text-gray-400">{{ song.track && song.track > 0 ? song.track : '—' }}</td>
-                  <td class="col-song text-gray-800 font-medium"><span class="ellipsis">{{ song.title }}</span></td>
-                  <td class="col-singer text-sm">
-                    <template v-if="song.artist_ids?.length">
-                      <template v-for="(id, i) in song.artist_ids" :key="id">
-                        <span v-if="i > 0"> / </span>
-                        <RouterLink
-                          v-if="artistMap.get(id)"
-                          :to="`/artist/${id}`"
-                          class="text-gray-500 hover:text-pink-600 hover:underline"
-                          @click.stop
-                        >{{ artistMap.get(id)!.name }}</RouterLink>
-                        <span v-else class="text-gray-500">未知</span>
-                      </template>
-                    </template>
-                    <span v-else class="text-gray-500">{{ song.artist_name }}</span>
-                  </td>
-                  <td class="col-dur text-gray-400 text-sm">{{ formatDuration(song.duration) }}</td>
-                </tr>
-              </RouterLink>
-            </tbody>
-          </table>
-        </div>
+        <div v-for="group in discGroups" :key="group.disc">
+          <div v-if="hasMultipleDiscs" class="px-4 md:px-6 pt-5 pb-1 text-sm font-semibold text-gray-500 tracking-wide">
+            Disc {{ group.disc }}
+          </div>
 
-        <!-- 移动端：列表 -->
-        <div class="md:hidden px-4 flex flex-col">
-          <RouterLink
-            v-for="song in songs"
-            :key="song.id"
-            :to="`/song/${song.id}`"
-            class="flex items-center gap-3 py-3 border-b border-gray-100 last:border-b-0"
-          >
-            <span class="w-7 h-7 flex items-center justify-center text-[13px] font-semibold text-pink-500 bg-pink-50 rounded-lg shrink-0">
-              {{ song.track && song.track > 0 ? String(song.track).padStart(2, '0') : '♪' }}
-            </span>
-            <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-              <span class="text-[15px] font-semibold text-gray-800 truncate">{{ song.title }}</span>
-              <span class="text-xs text-gray-400 truncate">{{ songNames(song) }}</span>
-            </div>
-            <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ formatDuration(song.duration) }}</span>
-          </RouterLink>
+          <!-- 桌面端：表格 -->
+          <div class="hidden md:block album-table-wrap">
+            <table class="album-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th class="col-song">歌曲</th>
+                  <th class="col-singer">歌手</th>
+                  <th class="col-dur">时长</th>
+                </tr>
+              </thead>
+              <tbody>
+                <RouterLink
+                  v-for="song in group.songs"
+                  :key="song.id"
+                  :to="`/song/${song.id}`"
+                  custom
+                  v-slot="{ navigate }"
+                >
+                  <tr @click="navigate">
+                    <td class="col-num text-xs text-gray-400">{{ song.track && song.track > 0 ? song.track : '—' }}</td>
+                    <td class="col-song text-gray-800 font-medium"><span class="ellipsis">{{ song.title }}</span></td>
+                    <td class="col-singer text-sm">
+                      <template v-if="song.artist_ids?.length">
+                        <template v-for="(id, i) in song.artist_ids" :key="id">
+                          <span v-if="i > 0"> / </span>
+                          <RouterLink
+                            v-if="artistMap.get(id)"
+                            :to="`/artist/${id}`"
+                            class="text-gray-500 hover:text-pink-600 hover:underline"
+                            @click.stop
+                          >{{ artistMap.get(id)!.name }}</RouterLink>
+                          <span v-else class="text-gray-500">未知</span>
+                        </template>
+                      </template>
+                      <span v-else class="text-gray-500">{{ song.artist_name }}</span>
+                    </td>
+                    <td class="col-dur text-gray-400 text-sm">{{ formatDuration(song.duration) }}</td>
+                  </tr>
+                </RouterLink>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 移动端：列表 -->
+          <div class="md:hidden px-4 flex flex-col">
+            <RouterLink
+              v-for="song in group.songs"
+              :key="song.id"
+              :to="`/song/${song.id}`"
+              class="flex items-center gap-3 py-3 border-b border-gray-100 last:border-b-0"
+            >
+              <span class="w-7 h-7 flex items-center justify-center text-[13px] font-semibold text-pink-500 bg-pink-50 rounded-lg shrink-0">
+                {{ song.track && song.track > 0 ? String(song.track).padStart(2, '0') : '♪' }}
+              </span>
+              <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+                <span class="text-[15px] font-semibold text-gray-800 truncate">{{ song.title }}</span>
+                <span class="text-xs text-gray-400 truncate">{{ songNames(song) }}</span>
+              </div>
+              <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ formatDuration(song.duration) }}</span>
+            </RouterLink>
+          </div>
         </div>
       </template>
       <div v-else class="p-8 text-center text-gray-400">暂无歌曲</div>
@@ -128,8 +134,11 @@ interface AlbumPageData {
 const { data: page, loading } = useSSGData<AlbumPageData>(`album:${albumId}`, async () => {
   const [album, songs] = await Promise.all([api.getAlbum(albumId), api.getAlbumSongs(albumId)])
 
-  // 按曲目号排序，曲目号相同时按标题（迁移自 v2）
+  // 按碟号+曲目号排序，曲目号相同时按标题（多碟专辑支持 Disc 分组展示）
   songs.sort((a, b) => {
+    const da = a.disc || 1
+    const db = b.disc || 1
+    if (da !== db) return da - db
     const ta = a.track || 0
     const tb = b.track || 0
     if (ta !== tb) return ta - tb
@@ -149,6 +158,21 @@ const album = computed(() => page.value?.album)
 const songs = computed(() => page.value?.songs || [])
 const artistMap = computed(() => new Map((page.value?.artists || []).map(a => [a.id, a])))
 const cover = computed(() => album.value?.cover || LOGO_URL)
+
+/** 按碟号分组（disc 为空视为 Disc 1）；单碟时 hasMultipleDiscs=false，不显示分组标题 */
+const discGroups = computed(() => {
+  const groups = new Map<number, SongWithNames[]>()
+  for (const s of songs.value) {
+    const d = s.disc || 1
+    if (!groups.has(d)) groups.set(d, [])
+    groups.get(d)!.push(s)
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([disc, list]) => ({ disc, songs: list }))
+})
+/** 是否展示碟号标题：专辑内任一歌曲 disc>1 即分碟展示（全为 Disc 1 的维持原样，含只有一首歌但在 Disc 3 的情况） */
+const hasMultipleDiscs = computed(() => discGroups.value.some(g => g.disc > 1))
 
 useHead({
   title: computed(() => (album.value ? `${album.value.name} - LrcShare` : '专辑详情 - LrcShare')),

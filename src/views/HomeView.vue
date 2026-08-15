@@ -176,23 +176,28 @@
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-2xl font-bold text-gray-800">🆕 最新歌词</h2>
           </div>
-          <div v-if="songsLoading" class="bg-white rounded-2xl shadow-sm divide-y">
-            <div v-for="i in 6" :key="i" class="flex items-center gap-4 p-4">
-              <div class="w-10 h-10 bg-gray-100 rounded-full shrink-0"></div>
+          <div v-if="songsLoading" class="bg-white rounded-2xl shadow-sm divide-y divide-gray-50">
+            <div v-for="i in 6" :key="i" class="flex items-center gap-4 p-3">
+              <div class="w-12 h-12 bg-gray-100 rounded-lg shrink-0"></div>
               <div class="flex-1"><div class="h-4 bg-gray-100 rounded w-2/3 mb-2"></div><div class="h-3 bg-gray-100 rounded w-1/3"></div></div>
             </div>
           </div>
           <div v-else-if="!recentSongs?.length" class="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">暂无歌词</div>
-          <div v-else class="bg-white rounded-2xl shadow-sm divide-y">
+          <div v-else class="bg-white rounded-2xl shadow-sm divide-y divide-gray-50">
             <RouterLink
               v-for="song in recentSongs"
               :key="song.id"
               :to="`/song/${song.id}`"
-              class="flex items-center gap-4 p-4 hover:bg-gray-50 transition"
+              class="group flex items-center gap-4 p-3 hover:bg-pink-50/60 transition"
             >
-              <div class="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold shrink-0">🎵</div>
+              <!-- 封面（无封面用渐变占位），hover 显示播放图标 -->
+              <div class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
+                <img v-if="song.album_cover" :src="song.album_cover" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition" :alt="song.title" />
+                <span v-else class="text-white/90 text-lg">🎵</span>
+                <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-sm">▶</span>
+              </div>
               <div class="flex-1 min-w-0">
-                <div class="font-semibold text-gray-800 truncate">{{ song.title }}</div>
+                <div class="font-semibold text-gray-800 truncate group-hover:text-pink-600 transition">{{ song.title }}</div>
                 <div class="text-sm text-gray-500 truncate">{{ song.artist_name || '未知' }}{{ song.album_name ? ` · ${song.album_name}` : '' }}</div>
               </div>
               <div class="text-sm text-gray-400 shrink-0 tabular-nums">{{ formatDuration(song.duration) }}</div>

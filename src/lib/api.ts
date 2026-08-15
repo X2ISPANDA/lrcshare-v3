@@ -253,7 +253,7 @@ export const api = {
     let query = supabase
       .from('songs')
       .select(
-        'id, title, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, created_at, albums(name)',
+        'id, title, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, created_at, albums(name, cover)',
       )
       .eq('status', 'published')
       .order('created_at', { ascending: false })
@@ -268,6 +268,7 @@ export const api = {
         ...rest,
         artist_name: joinNames(s.artist_ids, nameMap) || '未知',
         album_name: (albums as unknown as { name?: string })?.name || '',
+        album_cover: (albums as unknown as { cover?: string | null })?.cover || null,
       } as SongWithNames
     })
   },

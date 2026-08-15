@@ -55,8 +55,13 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_MAIL_BASE: ${{ secrets.VITE_MAIL_BASE }}
 
+      # GitHub Pages 404 兜底：未知路径无预渲染 HTML 时返回 404.html（状态码 404），
+      # SPA 加载后由 vue-router catch-all 路由渲染自定义 404 页，替代 GitHub 默认 404
+      - name: Generate 404.html fallback
+        run: cp dist/index.html dist/404.html
+
       - uses: actions/upload-pages-artifact@v4
-        with:
+        with: 
           path: dist
 
   deploy:
