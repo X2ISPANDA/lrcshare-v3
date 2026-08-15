@@ -1,0 +1,19 @@
+# LrcShare 邮件服务站点配置（仅部署 Netlify Functions，前台主站走 GitHub Pages）
+# 部署：将本仓库接入 Netlify（站点任意命名），环境变量配置：
+#   SUPABASE_URL / SUPABASE_ANON_KEY
+# 前端通过 VITE_MAIL_BASE 指向本站点地址（如 https://mail.lrcshare.netlify.app）
+
+[build]
+  command = "echo 'mail functions only'"
+  publish = "netlify/static"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# /api/mailer → function（与前端 callMailServer('/api/mailer') 对应）
+[[redirects]]
+  from = "/api/mailer"
+  to = "/.netlify/functions/mailer"
+  status = 200
+  force = true

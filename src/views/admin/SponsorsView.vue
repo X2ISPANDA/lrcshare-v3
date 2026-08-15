@@ -1,0 +1,237 @@
+<template>
+  <div class="space-y-4">
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
+        <div class="text-xs text-gray-400">赞助总人数</div>
+        <div class="text-xl font-semibold text-gray-800 mt-1">{{ sponsors.length }}</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
+        <div class="text-xs text-gray-400">赞助总金额</div>
+        <div class="text-xl font-semibold text-pink-500 mt-1">¥{{ totalAmount }}</div>
+      </div>
+    </div>
+
+    <!-- 工具条 -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
+      <el-input v-model="keyword" placeholder="搜索名称 / 描述" clearable class="!w-64" :prefix-icon="Search" />
+      <div class="flex-1"></div>
+      <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增赞助</el-button>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
+      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+        <el-table-column type="selection" width="45" />
+        <el-table-column label="赞助者" min-width="140">
+          <template #default="{ row }">
+            <div class="flex items-center gap-2">
+              <img v-if="row.avatar" :src="row.avatar" referrerpolicy="no-referrer" class="w-7 h-7 rounded-full object-cover" />
+              <span class="font-medium text-gray-800">{{ row.name }}</span>
+            </div>
+            <div v-if="row.title" class="text-xs text-gray-400 mt-0.5 truncate max-w-52" :title="row.title">{{ row.title }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="金额" width="110" align="right">
+          <template #default="{ row }">
+            <span class="text-pink-500 font-medium">{{ row.amount }}{{ row.suffix || '元' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="日期" width="110" align="center">
+          <template #default="{ row }">{{ row.datatime || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="描述" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.descr || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="130" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
+        <div class="flex gap-2">
+          <el-button size="small" :disabled="!selected.length" plain @click="clearSelection">取消选择</el-button>
+          <el-button size="small" type="danger" :disabled="!selected.length" @click="batchRemove">批量删除</el-button>
+        </div>
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="filteredList.length"
+          layout="total, sizes, prev, pager, next"
+          background
+        />
+      </div>
+    </div>
+
+    <!-- 新增 / 编辑弹窗 -->
+    <el-dialog v-model="showDialog" :title="editing ? '编辑赞助' : '新增赞助'" width="520px" :close-on-click-modal="false">
+      <el-form :model="form" label-width="84px">
+        <el-row :gutter="16">
+          <el-col :span="12"><el-form-item label="名称" required><el-input v-model="form.name" placeholder="赞助者名称" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="日期"><el-input v-model="form.datatime" placeholder="2024-01-01" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="金额" required>
+              <div class="flex gap-2 w-full">
+                <el-input-number v-model="form.amount" :min="0" :precision="2" class="!w-full" />
+                <el-input v-model="form.suffix" class="!w-16" placeholder="元" />
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12"><el-form-item label="头像 URL"><el-input v-model="form.avatar" placeholder="选填" /></el-form-item></el-col>
+        </el-row>
+        <el-form-item label="描述"><el-input v-model="form.descr" type="textarea" :rows="2" placeholder="赞助留言 / 描述（选填）" /></el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12"><el-form-item label="广告标题"><el-input v-model="form.title" placeholder="超链接文字（选填）" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="广告链接"><el-input v-model="form.url" placeholder="https://... （选填）" /></el-form-item></el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="showDialog = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { Search } from '@element-plus/icons-vue'
+import { adminApi } from '@/lib/adminApi'
+import type { Sponsor } from '@/lib/types'
+
+/** 赞助管理：统计 + 列表 + 新增/编辑（广告位字段） */
+
+const sponsors = ref<Sponsor[]>([])
+const loading = ref(false)
+const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+const selected = ref<Sponsor[]>([])
+const tableRef = ref()
+
+const totalAmount = computed(() => sponsors.value.reduce((s, x) => s + parseFloat(x.amount || '0'), 0).toFixed(2))
+
+const filteredList = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return sponsors.value
+  return sponsors.value.filter(s => s.name?.toLowerCase().includes(kw) || s.descr?.toLowerCase().includes(kw))
+})
+const pagedList = computed(() => filteredList.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
+
+async function load() {
+  loading.value = true
+  try {
+    sponsors.value = await adminApi.getAll<Sponsor>('sponsors', { order: 'datatime', ascending: false })
+  } catch (e: any) {
+    ElMessage.error('加载失败：' + e.message)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+function clearSelection() {
+  tableRef.value?.clearSelection()
+  selected.value = []
+}
+
+const showDialog = ref(false)
+const editing = ref<Sponsor | null>(null)
+const saving = ref(false)
+
+const form = reactive({
+  name: '',
+  amount: 0,
+  datatime: '',
+  suffix: '元',
+  descr: '',
+  title: '',
+  url: '',
+  avatar: '',
+})
+
+function openNew() {
+  editing.value = null
+  Object.assign(form, { name: '', amount: 0, datatime: new Date().toISOString().slice(0, 10), suffix: '元', descr: '', title: '', url: '', avatar: '' })
+  showDialog.value = true
+}
+
+function openEdit(row: Sponsor) {
+  editing.value = row
+  Object.assign(form, {
+    name: row.name || '',
+    amount: parseFloat(row.amount || '0'),
+    datatime: row.datatime || '',
+    suffix: row.suffix || '元',
+    descr: row.descr || '',
+    title: row.title || '',
+    url: row.url || '',
+    avatar: (row as any).avatar || '',
+  })
+  showDialog.value = true
+}
+
+async function save() {
+  if (!form.name.trim()) {
+    ElMessage.warning('请输入赞助者名称')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = {
+      name: form.name.trim(),
+      amount: String(form.amount),
+      datatime: form.datatime,
+      suffix: form.suffix || '元',
+      descr: form.descr || null,
+      title: form.title.trim() || null,
+      url: form.url.trim() || null,
+    }
+    if (editing.value) {
+      await adminApi.update('sponsors', editing.value.id, payload)
+      ElMessage.success('保存成功')
+    } else {
+      await adminApi.insert('sponsors', { id: 'sp' + Date.now(), ...payload })
+      ElMessage.success('新增赞助成功')
+    }
+    showDialog.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error('保存失败：' + (e?.message || e))
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removeOne(row: Sponsor) {
+  try {
+    await ElMessageBox.confirm(`确定删除赞助记录「${row.name}」？`, '确认删除', { type: 'warning' })
+    await adminApi.remove('sponsors', row.id)
+    ElMessage.success('已删除')
+    await load()
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error('删除失败：' + e.message)
+  }
+}
+
+async function batchRemove() {
+  if (!selected.value.length) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 条赞助记录？`, '批量删除', { type: 'warning' })
+    await adminApi.removeBatch('sponsors', selected.value.map(s => s.id))
+    ElMessage.success('批量删除完成')
+    clearSelection()
+    await load()
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error('删除失败：' + e.message)
+  }
+}
+
+watch(keyword, () => (page.value = 1))
+watch(pageSize, () => (page.value = 1))
+</script>

@@ -1,0 +1,21 @@
+data-v-844b73e7="">🆕 最新歌词</h2>
+</div>
+<div class="bg-white rounded-2xl shadow-sm divide-y" data-v-844b73e7="">
+<!--[-->
+<a href="/song/s_linyujia_002" class="flex items-center gap-4 p-4 hover:bg-gray-50 transition" data-v-844b73e7="">
+<div class="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold shrink-0" data-v-844b73e7
+----
+宥嘉 / 陈升 · 口的形状</div>
+</div>
+<div class="text-sm text-gray-400 shrink-0 tabular-nums" data-v-844b73e7="">03:53</div>
+</a>
+<a href="/song/s_linyujia_001" class="flex items-center gap-4 p-4 hover:bg-gray-50 transition" data-v-844b73e7="">
+<div class="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold shrink-0" data-v-844b73e7
+----
+cert YY 黄伟文作品展</div>
+</div>
+<div class="text-sm text-gray-400 shrink-0 tabular-nums" data-v-844b73e7="">--:--</div>
+</a>
+<a href="/song/s_liyifeng_001" class="flex items-center gap-4 p-4 hover:bg-gray-50 transition" data-v-844b73e7="">
+<div class="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold shrink-0" data-v-844b73e7
+----

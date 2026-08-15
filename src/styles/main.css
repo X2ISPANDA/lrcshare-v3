@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/* Tailwind CSS 4：主题定制（CSS-first，无需 tailwind.config.js）
+   网站主色：LrcShare 粉 #ec4899 */
+@theme {
+  --color-primary: #ec4899;
+  --color-primary-light: #f472b6;
+  --color-primary-dark: #db2777;
+}
+
+/* 文章/富文本排版（关于页、文章详情页 v-html 共用，迁移自 v2） */
+.article-content h1 { font-size: 1.875rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: #1f2937; }
+.article-content h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; color: #1f2937; }
+.article-content h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #374151; }
+.article-content h4 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; color: #374151; }
+.article-content p { margin-bottom: 1rem; line-height: 1.75; color: #4b5563; }
+.article-content ul { padding-left: 1.5rem; margin-bottom: 1rem; list-style-type: disc; }
+.article-content ol { padding-left: 1.5rem; margin-bottom: 1rem; list-style-type: decimal; }
+.article-content li { margin-bottom: 0.25rem; line-height: 1.75; color: #4b5563; }
+.article-content a { color: #db2777; text-decoration: none; }
+.article-content a:hover { text-decoration: underline; }
+.article-content blockquote { border-left: 4px solid #ec4899; padding-left: 1rem; margin: 1rem 0; color: #6b7280; font-style: italic; }
+.article-content code { background-color: #f3f4f6; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875rem; }
+.article-content pre { background-color: #1f2937; color: #e5e7eb; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; }
+.article-content pre code { background-color: transparent; padding: 0; color: inherit; }
+.article-content img { max-width: 100%; border-radius: 0.5rem; margin: 1rem 0; }
+.article-content table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+.article-content th, .article-content td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+.article-content th { background-color: #f9fafb; font-weight: 600; }
+.article-content hr { margin: 1.5rem 0; border-color: #e5e7eb; }
+
+/* el-dialog 统一行为（管理后台）：弹窗垂直居中；内容超高时仅 body 内部滚动，
+   标题与底部按钮固定可见，页面不跟随滚动 */
+.el-overlay-dialog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.el-dialog {
+  margin: 0;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog__header,
+.el-dialog__footer {
+  flex-shrink: 0;
+}
+.el-dialog__body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 全局统一滚动条：细条 + 圆角，常态灰色、hover 粉色（替代浏览器原生粗滚动条） */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d8d8dc;
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #f472b6;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d8d8dc transparent;
+}
