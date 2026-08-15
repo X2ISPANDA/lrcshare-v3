@@ -230,21 +230,24 @@ function openReview(row: any) {
   if (!Array.isArray(edited.composer_arr)) edited.composer_arr = []
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
-      if (item && !item.id && item.is_show === undefined) item.is_show = true
+      if (!item) return
+      // _new 标记投稿时无 ID 的待创建艺术家（输入 ID 后仍保留在待创建清单）
+      if (!item.id) item._new = true
+      if (item.is_show === undefined) item.is_show = true
     })
   }
   review.value = { ...row, edited_data: edited }
   showReview.value = true
 }
 
-/** 收集投稿中所有无 ID 的新建艺术家（跨字段按名合并，types 取并集） */
+/** 收集投稿中所有待创建艺术家（_new 标记：投稿时无 ID；跨字段按名合并，types 取并集） */
 const newArtistsList = computed(() => {
   if (!review.value) return []
   const map = new Map<string, { item: any; source: string[]; types: Set<string> }>()
   for (const f of ARTIST_FIELDS) {
     const arr = review.value.edited_data[f.key] || []
     for (const item of arr) {
-      if (!item || item.id) continue
+      if (!item || !item._new) continue
       if (!map.has(item.name)) map.set(item.name, { item, source: [f.label], types: new Set([f.type]) })
       else {
         map.get(item.name)!.source.push(f.label)
