@@ -8,6 +8,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # 定时构建：每 6 小时（UTC 0/6/12/18 点 = 北京时间 8/14/20/2 点）
+    # 数据库新增/修改内容后，最迟 6 小时内自动上线（含首页快照与歌曲/艺术家详情页）
+    - cron: '0 */6 * * *'
   workflow_dispatch: # 支持手动触发（Actions 页面 Run workflow）
 
 permissions:

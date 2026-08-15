@@ -331,7 +331,7 @@ async function save() {
 
 async function removeOne(row: Artist) {
   try {
-    await ElMessageBox.confirm(`确定删除艺术家「${row.name}」？其关联的专辑和歌曲不会被删除，但会解除关联。`, '危险操作', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除艺术家「${row.name}」？关联的专辑和歌曲不会被删除，但作品中的该艺术家将显示为「未知」。`, '危险操作', { type: 'warning' })
     await adminApi.remove('artists', row.id)
     ElMessage.success('已删除')
     await load()
@@ -343,7 +343,7 @@ async function removeOne(row: Artist) {
 async function batchRemove() {
   if (!selected.value.length) return
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 位艺术家？关联作品会解除关联但不删除。`, '批量删除', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 位艺术家？关联作品不会被删除，但其中的这些艺术家将显示为「未知」。`, '批量删除', { type: 'warning' })
     await adminApi.removeBatch('artists', selected.value.map(a => a.id))
     ElMessage.success('批量删除完成')
     clearSelection()
