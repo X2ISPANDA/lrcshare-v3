@@ -95,17 +95,6 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
 </body></html>`
 }
 
-/** 测试邮件模板 */
-function testEmailHtml(admin_email) {
-  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:'Microsoft YaHei',Arial,sans-serif;">
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:40px 30px;text-align:center;">
-  <h2 style="margin:0 0 12px;color:#ec4899;">📮 LrcShare 邮件服务测试</h2>
-  <p style="margin:0 0 8px;font-size:15px;color:#374151;">恭喜！SMTP 邮件服务配置成功。</p>
-  <p style="margin:0;font-size:12px;color:#9ca3af;">${new Date().toISOString()}${admin_email ? ` · 管理员：${admin_email}` : ''}</p>
-</div>
-</body></html>`
-}
-
 // CORS：管理后台（v3.lrcshare.com）跨域调用，需允许并响应 OPTIONS 预检
 const CORS_HEADERS = {
   'Content-Type': 'application/json',
@@ -134,7 +123,7 @@ export default async (req) => {
     let mail
     if (action === 'test') {
       if (!to) return json(400, { success: false, error: '缺少收件人地址' })
-      mail = { to, subject: '【LrcShare】测试邮件', html: testEmailHtml(smtp.admin_email) }
+      mail = { to, subject: '【LrcShare】测试邮件', html: generateEmailHTML({ type: 'approve', user_name: '管理员', song_title: '测试歌曲', admin_email: smtp.admin_email }) }
     } else if (action === 'approve') {
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
       mail = { to, subject: '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
