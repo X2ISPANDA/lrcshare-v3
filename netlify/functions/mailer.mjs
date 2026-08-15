@@ -9,8 +9,8 @@
  * 在管理后台「系统设置」页维护），浏览器不传输 SMTP 凭据。
  *
  * 所需 Netlify 环境变量：
- *   SUPABASE_URL        Supabase 项目 URL
- *   SUPABASE_ANON_KEY   anon key（settings 表 SELECT 需开放，与 v2 行为一致）
+ *   SUPABASE_URL               Supabase 项目 URL
+ *   SUPABASE_SERVICE_ROLE_KEY  service_role key（settings 表 RLS 对 anon 隐藏敏感行，必须用它读）
  */
 import nodemailer from 'nodemailer'
 
@@ -18,11 +18,17 @@ const SITE_URL = 'https://lrcshare.com'
 const HERO_BG = 'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977624.jpg'
 const LOGO_URL = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
-/** 从 Supabase settings 表读 SMTP 配置 */
+/**
+ * 从 Supabase settings 表读 SMTP 配置。
+ * 注意：settings 表的 RLS 对 anon 隐藏敏感行（smtp_pass 等），必须用 service_role key 读取。
+ * 所需 Netlify 环境变量：
+ *   SUPABASE_URL              Supabase 项目 URL
+ *   SUPABASE_SERVICE_ROLE_KEY service_role key（Studio → Settings → API；本地调试可临时用 anon）
+ */
 async function loadSmtp() {
   const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Missing SUPABASE_URL / SUPABASE_ANON_KEY env')
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  if (!url || !key) throw new Error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env')
   const res = await fetch(`${url}/rest/v1/settings?select=key,value`, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
   })
