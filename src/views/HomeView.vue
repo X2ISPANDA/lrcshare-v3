@@ -2,9 +2,9 @@
   <div>
     <!-- Hero 区：背景图 + 艺术字标题 + 搜索框 -->
     <section class="hero-bg text-white py-20">
-      <img :src="HERO_BG_URL" alt="背景" class="hero-bg-img" referrerpolicy="no-referrer" />
+      <img :src="HERO_BG_URL" alt="背景" class="hero-bg-img" />
       <div class="hero-content max-w-3xl mx-auto px-4 text-center">
-        <img :src="LOGO_URL" alt="LrcShare Logo" referrerpolicy="no-referrer" class="w-24 h-24 mx-auto mb-4" />
+        <img :src="LOGO_URL" alt="LrcShare Logo" class="w-24 h-24 mx-auto mb-4" />
         <h1 class="text-4xl md:text-5xl font-bold mb-4">
           <span
             v-for="(c, i) in HERO_CHARS"
@@ -55,7 +55,7 @@
                     :to="`/artist/${artist.id}`"
                     class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50"
                   >
-                    <img :src="artist.avatar || LOGO_URL" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full bg-gray-200 object-cover" />
+                    <img :src="artist.avatar || LOGO_URL" class="w-8 h-8 rounded-full bg-gray-200 object-cover" />
                     <div class="flex-1">
                       <div class="text-sm font-medium text-gray-800">
                         <span v-html="hl(artist.name)"></span>
@@ -76,7 +76,7 @@
                     class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50"
                   >
                     <div class="w-8 h-8 bg-gradient-to-br from-pink-500 to-purple-600 rounded flex items-center justify-center overflow-hidden">
-                      <img v-if="album.cover" :src="album.cover" referrerpolicy="no-referrer" class="w-full h-full object-cover" />
+                      <img v-if="album.cover" :src="album.cover" class="w-full h-full object-cover" />
                       <span v-else class="text-white text-xs">💿</span>
                     </div>
                     <div class="flex-1">
@@ -160,7 +160,7 @@
             :to="`/artist/${artist.id}`"
             class="bg-white rounded-2xl p-4 shadow-sm hover:shadow-lg transition text-center"
           >
-            <img :src="artist.avatar || LOGO_URL" :alt="artist.name" referrerpolicy="no-referrer" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain cursor-zoom-in" @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])" />
+            <img :src="artist.avatar || LOGO_URL" :alt="artist.name" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain cursor-zoom-in" @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])" />
             <div class="font-semibold text-gray-800 truncate">{{ artist.name }}</div>
             <div v-if="artist.disambiguation" class="text-xs text-purple-500 truncate">{{ artist.disambiguation }}</div>
             <div class="mt-1 text-xs text-gray-400">{{ artistTypeIcons(artist.types) }}</div>
@@ -192,7 +192,7 @@
             >
               <!-- 封面（无封面用渐变占位），hover 显示查看提示 -->
               <div class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
-                <img v-if="song.album_cover" :src="song.album_cover" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.album_cover!])" />
+                <img v-if="song.album_cover" :src="song.album_cover" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.album_cover!])" />
                 <span v-else class="text-white/90 text-lg">🎵</span>
                 <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs">查看</span>
               </div>
@@ -254,7 +254,7 @@
                 :to="`/contributor/${c.id}`"
                 class="flex flex-col items-center p-2 rounded-lg hover:bg-pink-50/50 transition text-center"
               >
-                <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
+                <img :src="c.avatar || LOGO_URL" :alt="c.name" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
                 <span class="font-medium text-sm text-gray-800 truncate w-full">{{ c.name }}</span>
               </RouterLink>
             </div>

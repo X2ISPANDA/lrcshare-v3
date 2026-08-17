@@ -11,7 +11,6 @@
               v-if="cover"
               :src="cover"
               alt="专辑封面"
-              referrerpolicy="no-referrer"
               class="w-full h-full rounded-xl cursor-zoom-in"
               :class="cover === LOGO_URL ? 'object-contain p-2' : 'object-cover'"
               @click="ui.openPreview([cover], 0)"

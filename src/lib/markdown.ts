@@ -1,6 +1,6 @@
 import { marked } from 'marked'
 
-// 图片统一带 referrerpolicy（B 站图床 hdslb.com 防盗链，缺它 403）
+// referrer 由 index.html 的 <meta name="referrer" content="no-referrer"> 全局控制，这里不用管
 marked.use({
   renderer: {
     image(token) {
@@ -9,7 +9,7 @@ marked.use({
       const src = escape(href)
       const alt = escape(text || '')
       const t = title ? ` title="${escape(title)}"` : ''
-      return `<img src="${src}" alt="${alt}"${t} referrerpolicy="no-referrer" loading="lazy" />`
+      return `<img src="${src}" alt="${alt}"${t} loading="lazy" />`
     },
   },
 })

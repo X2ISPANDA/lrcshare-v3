@@ -25,7 +25,7 @@
         <el-table-column label="赞助者" min-width="140">
           <template #default="{ row }">
             <div class="flex items-center gap-2">
-              <img v-if="row.avatar" :src="row.avatar" referrerpolicy="no-referrer" class="w-7 h-7 rounded-full object-cover" />
+              <img v-if="row.avatar" :src="row.avatar" class="w-7 h-7 rounded-full object-cover" />
               <span class="font-medium text-gray-800">{{ row.name }}</span>
             </div>
             <div v-if="row.title" class="text-xs text-gray-400 mt-0.5 truncate max-w-52" :title="row.title">{{ row.title }}</div>

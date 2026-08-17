@@ -3,7 +3,7 @@
     <!-- 侧边栏：桌面展开 / 窄屏折叠为图标 -->
     <el-aside :width="collapsed ? '64px' : '220px'" class="admin-aside transition-all duration-200 flex flex-col">
       <RouterLink to="/admin/dashboard" class="h-14 flex items-center gap-2 px-4 border-b border-white/10 shrink-0">
-        <img :src="LOGO_URL" alt="logo" referrerpolicy="no-referrer" class="w-7 h-7 rounded-md shrink-0" />
+        <img :src="LOGO_URL" alt="logo" class="w-7 h-7 rounded-md shrink-0" />
         <span v-if="!collapsed" class="text-white font-bold tracking-wide">LrcShare</span>
       </RouterLink>
       <el-scrollbar class="flex-1">

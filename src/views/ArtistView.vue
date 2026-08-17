@@ -11,7 +11,6 @@
         <img
           :src="artist.bg_image || HERO_BG_URL"
           alt=""
-          referrerpolicy="no-referrer"
           class="artist-bg-img"
           :style="{ objectPosition: `center ${bgPosY}%` }"
           @click="ui.openPreview([artist.bg_image || HERO_BG_URL, avatar], 0)"
@@ -21,7 +20,6 @@
             <img
               :src="avatar"
               :alt="artist.name"
-              referrerpolicy="no-referrer"
               class="w-28 h-28 rounded-full border-4 border-white shadow-lg bg-gray-200 cursor-zoom-in"
               @click="ui.openPreview([avatar, artist.bg_image || HERO_BG_URL], 0)"
             />
@@ -91,11 +89,10 @@
                     v-if="album.cover"
                     :src="album.cover"
                     alt="专辑封面"
-                    referrerpolicy="no-referrer"
                     class="w-full h-full rounded-lg object-cover cursor-zoom-in"
                     @click.prevent.stop="ui.openPreview([album.cover!], 0)"
                   />
-                  <img v-else :src="LOGO_URL" alt="" referrerpolicy="no-referrer" class="w-full h-full rounded-lg object-contain p-1" />
+                  <img v-else :src="LOGO_URL" alt="" class="w-full h-full rounded-lg object-contain p-1" />
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="font-medium text-gray-800 truncate">{{ album.name }}</div>

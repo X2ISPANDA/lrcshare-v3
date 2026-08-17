@@ -80,7 +80,6 @@
               <img
                 :src="artist.avatar || LOGO_URL"
                 :alt="artist.name"
-                referrerpolicy="no-referrer"
                 class="w-20 h-20 rounded-full mx-auto mb-3 bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
                 @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])"
               />

@@ -4,7 +4,7 @@
 
     <!-- 隐藏歌词占位（未解锁） -->
     <div v-else-if="isHidden" class="flex flex-col items-center justify-center py-20">
-      <img :src="HIDDEN_PLACEHOLDER_IMG" alt="此歌词已被隐藏" referrerpolicy="no-referrer" class="max-w-md w-full rounded-2xl shadow-lg mb-8" />
+      <img :src="HIDDEN_PLACEHOLDER_IMG" alt="此歌词已被隐藏" class="max-w-md w-full rounded-2xl shadow-lg mb-8" />
       <p class="text-gray-400 text-lg text-center mb-6">此歌词已被隐藏</p>
       <button class="px-6 py-3 bg-pink-500 text-white rounded-xl hover:bg-pink-600 transition shadow-md" @click="unlock">
         🔑 输入口令解锁
@@ -20,7 +20,6 @@
               v-if="cover"
               :src="cover"
               alt="封面"
-              referrerpolicy="no-referrer"
               class="w-full h-full rounded-2xl cursor-zoom-in"
               :class="cover === LOGO_URL ? 'object-contain p-2' : 'object-cover'"
               @click="ui.openPreview([cover], 0)"

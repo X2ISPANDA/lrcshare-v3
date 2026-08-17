@@ -31,7 +31,7 @@
         >
           <RouterLink :to="`/contributor/${c.id}`" class="block">
             <div class="flex items-center gap-3">
-              <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-14 h-14 rounded-full object-cover ring-2 ring-pink-200 flex-shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
+              <img :src="c.avatar || LOGO_URL" :alt="c.name" class="w-14 h-14 rounded-full object-cover ring-2 ring-pink-200 flex-shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between gap-2">
                   <h3 class="font-bold text-gray-800 text-base truncate">{{ c.name }}</h3>

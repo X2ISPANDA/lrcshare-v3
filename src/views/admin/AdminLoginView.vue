@@ -6,7 +6,6 @@
           <img
             :src="LOGO_URL"
             alt="LrcShare"
-            referrerpolicy="no-referrer"
             class="w-16 h-16 mx-auto mb-3 rounded-xl"
           />
           <h1 class="text-2xl font-bold text-gray-800">管理后台</h1>

@@ -59,7 +59,6 @@
               <img
                 :src="album.cover || LOGO_URL"
                 :alt="album.name"
-                referrerpolicy="no-referrer"
                 class="w-24 h-24 rounded-xl mx-auto bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
                 @click.prevent.stop="ui.openPreview([album.cover || LOGO_URL], 0)"
               />

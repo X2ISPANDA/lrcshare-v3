@@ -17,7 +17,7 @@
         <el-table-column label="艺术家" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="flex items-center gap-2">
-              <img v-if="row.avatar" :src="row.avatar" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+              <img v-if="row.avatar" :src="row.avatar" class="w-8 h-8 rounded-full object-cover flex-shrink-0" />
               <div v-else class="w-8 h-8 rounded-full bg-pink-100 text-pink-500 flex items-center justify-center flex-shrink-0 text-sm">{{ row.name?.charAt(0) }}</div>
               <div class="min-w-0">
                 <div class="font-medium text-gray-800">{{ row.name }}</div>

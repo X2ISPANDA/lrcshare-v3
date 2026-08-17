@@ -13,7 +13,7 @@
         <el-table-column label="专辑" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="flex items-center gap-2">
-              <img v-if="row.cover" :src="row.cover" referrerpolicy="no-referrer" class="w-9 h-9 rounded object-cover flex-shrink-0" />
+              <img v-if="row.cover" :src="row.cover" class="w-9 h-9 rounded object-cover flex-shrink-0" />
               <div v-else class="w-9 h-9 rounded bg-gray-100 flex items-center justify-center flex-shrink-0 text-gray-300 text-sm">♪</div>
               <span class="font-medium text-gray-800">{{ row.name }}</span>
             </div>

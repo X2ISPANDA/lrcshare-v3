@@ -15,7 +15,7 @@
       <div class="bg-gradient-to-br from-pink-50 via-white to-purple-50 rounded-2xl shadow-sm p-8 mb-6 border border-pink-100">
         <div class="flex flex-col md:flex-row items-center md:items-start gap-8">
           <div class="flex-shrink-0">
-            <img :src="contributor.avatar || LOGO_URL" :alt="contributor.name" referrerpolicy="no-referrer" class="w-28 h-28 rounded-full object-cover ring-4 ring-pink-200 shadow-md cursor-zoom-in" @click="ui.openPreview([contributor.avatar || LOGO_URL])" />
+            <img :src="contributor.avatar || LOGO_URL" :alt="contributor.name" class="w-28 h-28 rounded-full object-cover ring-4 ring-pink-200 shadow-md cursor-zoom-in" @click="ui.openPreview([contributor.avatar || LOGO_URL])" />
           </div>
           <div class="flex-1 text-center md:text-left min-w-0">
             <h1 class="text-3xl font-bold text-gray-800">{{ contributor.name || '匿名贡献者' }}</h1>

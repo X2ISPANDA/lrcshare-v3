@@ -91,7 +91,7 @@
                     @click="ui.closeSearch()"
                   >
                     <div class="w-8 h-8 bg-gradient-to-br from-pink-500 to-purple-600 rounded flex items-center justify-center overflow-hidden shrink-0">
-                      <img v-if="album.cover" :src="album.cover" referrerpolicy="no-referrer" class="w-full h-full object-cover" />
+                      <img v-if="album.cover" :src="album.cover" class="w-full h-full object-cover" />
                       <span v-else class="text-white text-xs">💿</span>
                     </div>
                     <div class="text-sm font-medium text-gray-800 truncate">
@@ -109,7 +109,7 @@
                     class="flex items-center gap-2 px-3 py-2 hover:bg-pink-50 rounded-lg transition"
                     @click="ui.closeSearch()"
                   >
-                    <img :src="artist.avatar || DEFAULT_AVATAR" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full bg-gray-100 object-cover" />
+                    <img :src="artist.avatar || DEFAULT_AVATAR" class="w-8 h-8 rounded-full bg-gray-100 object-cover" />
                     <div class="text-sm font-medium text-gray-800 truncate">
                       <span v-html="highlight(artist.name)"></span>
                       <span v-if="artist.disambiguation" class="text-xs text-purple-500"> ({{ artist.disambiguation }})</span>
