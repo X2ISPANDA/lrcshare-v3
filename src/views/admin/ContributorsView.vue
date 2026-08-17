@@ -81,7 +81,9 @@
           <el-input v-model="form.avatar" placeholder="留空使用默认头像" />
         </el-form-item>
         <el-form-item label="身份标签">
-          <el-select v-model="form.tags" multiple filterable allow-create default-first-option placeholder="如：歌词贡献 / 投稿者（回车添加）" class="w-full" />
+          <el-select v-model="form.tags" multiple filterable allow-create default-first-option placeholder="选择预置标签，或直接输入回车添加" class="w-full">
+            <el-option v-for="t in PRESET_TAGS" :key="t" :label="t" :value="t" />
+          </el-select>
         </el-form-item>
         <el-form-item label="站长">
           <div class="flex items-center gap-3">
@@ -190,6 +192,7 @@ function clearSelection() {
 }
 
 // ============ 编辑弹窗 ============
+const PRESET_TAGS = ['歌词提交', 'Logo设计', '网站搭建', '资料核对']
 const showDialog = ref(false)
 const editing = ref<Contributor | null>(null)
 const saving = ref(false)
