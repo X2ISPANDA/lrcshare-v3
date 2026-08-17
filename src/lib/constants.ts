@@ -4,7 +4,13 @@ export const LOGO_URL =
   'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
 export const HERO_BG_URL =
-  'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977624.jpg'
+  'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977724.jpg'
+
+/** 赞赏二维码（微信 / 支付宝），SupportView 与 RewardModal 共用 */
+export const QR_CODES = [
+  'https://i0.hdslb.com/bfs/openplatform/954a7ef000973598f054011146df90b5c3f2a71f.jpg',
+  'https://i0.hdslb.com/bfs/openplatform/a5de338082f11e2f2876bc7059cde436af978568.jpg',
+]
 
 /** 艺术家身份类型 → 图标 */
 export const ARTIST_TYPE_ICONS: Record<string, string> = {

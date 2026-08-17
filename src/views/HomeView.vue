@@ -160,7 +160,7 @@
             :to="`/artist/${artist.id}`"
             class="bg-white rounded-2xl p-4 shadow-sm hover:shadow-lg transition text-center"
           >
-            <img :src="artist.avatar || LOGO_URL" :alt="artist.name" referrerpolicy="no-referrer" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain" />
+            <img :src="artist.avatar || LOGO_URL" :alt="artist.name" referrerpolicy="no-referrer" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain cursor-zoom-in" @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])" />
             <div class="font-semibold text-gray-800 truncate">{{ artist.name }}</div>
             <div v-if="artist.disambiguation" class="text-xs text-purple-500 truncate">{{ artist.disambiguation }}</div>
             <div class="mt-1 text-xs text-gray-400">{{ artistTypeIcons(artist.types) }}</div>
@@ -190,11 +190,11 @@
               :to="`/song/${song.id}`"
               class="group flex items-center gap-4 p-3 hover:bg-pink-50/60 transition"
             >
-              <!-- 封面（无封面用渐变占位），hover 显示播放图标 -->
+              <!-- 封面（无封面用渐变占位），hover 显示查看提示 -->
               <div class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
-                <img v-if="song.album_cover" :src="song.album_cover" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition" :alt="song.title" />
+                <img v-if="song.album_cover" :src="song.album_cover" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.album_cover!])" />
                 <span v-else class="text-white/90 text-lg">🎵</span>
-                <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-sm">▶</span>
+                <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs">查看</span>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="font-semibold text-gray-800 truncate group-hover:text-pink-600 transition">{{ song.title }}</div>
@@ -254,7 +254,7 @@
                 :to="`/contributor/${c.id}`"
                 class="flex flex-col items-center p-2 rounded-lg hover:bg-pink-50/50 transition text-center"
               >
-                <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2" />
+                <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
                 <span class="font-medium text-sm text-gray-800 truncate w-full">{{ c.name }}</span>
               </RouterLink>
             </div>

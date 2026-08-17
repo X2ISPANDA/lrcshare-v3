@@ -60,31 +60,35 @@
           <span class="inline-block text-xl font-bold text-pink-500">{{ g.letter === PINNED ? '⭐ 置顶' : g.letter }}</span>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <RouterLink
+          <!-- 外层不能用 a（RouterLink）：内部还有社交链接 a，SSG 预渲染的嵌套 a 会被浏览器解析拆散导致闪现错位 -->
+          <div
             v-for="artist in g.items"
             :key="artist.id"
-            :to="`/artist/${artist.id}`"
-            class="bg-white rounded-2xl p-5 shadow-sm hover:shadow-lg transition text-center group relative overflow-hidden"
+            class="bg-white rounded-2xl p-5 shadow-sm hover:shadow-lg transition text-center group relative overflow-hidden cursor-pointer"
+            @click="router.push(`/artist/${artist.id}`)"
           >
-            <!-- Type badges -->
-            <div class="absolute top-2 right-2 flex gap-1 flex-wrap justify-end max-w-[60%]">
-              <span
-                v-for="t in artist.types || ['singer']"
-                :key="t"
-                class="bg-gradient-to-r text-white px-2 py-0.5 rounded-full text-xs whitespace-nowrap"
-                :class="ARTIST_TYPE_GRADIENTS[t] || 'from-gray-500 to-gray-600'"
-              >{{ ARTIST_TYPE_ICONS[t] || '🎨' }} {{ ARTIST_TYPE_LABELS[t] || t }}</span>
-            </div>
-            <img
-              :src="artist.avatar || LOGO_URL"
-              :alt="artist.name"
-              referrerpolicy="no-referrer"
-              class="w-20 h-20 rounded-full mx-auto mb-3 bg-gray-100 object-contain group-hover:scale-105 transition shadow-md"
-            />
-            <div class="font-bold text-gray-800 text-lg truncate">
-              {{ artist.name }}
-              <span v-if="artist.disambiguation" class="text-xs font-normal text-purple-500 ml-1">({{ artist.disambiguation }})</span>
-            </div>
+            <RouterLink :to="`/artist/${artist.id}`" class="block">
+              <!-- Type badges -->
+              <div class="absolute top-2 right-2 flex gap-1 flex-wrap justify-end max-w-[60%]">
+                <span
+                  v-for="t in artist.types || ['singer']"
+                  :key="t"
+                  class="bg-gradient-to-r text-white px-2 py-0.5 rounded-full text-xs whitespace-nowrap"
+                  :class="ARTIST_TYPE_GRADIENTS[t] || 'from-gray-500 to-gray-600'"
+                >{{ ARTIST_TYPE_ICONS[t] || '🎨' }} {{ ARTIST_TYPE_LABELS[t] || t }}</span>
+              </div>
+              <img
+                :src="artist.avatar || LOGO_URL"
+                :alt="artist.name"
+                referrerpolicy="no-referrer"
+                class="w-20 h-20 rounded-full mx-auto mb-3 bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
+                @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])"
+              />
+              <div class="font-bold text-gray-800 text-lg truncate">
+                {{ artist.name }}
+                <span v-if="artist.disambiguation" class="text-xs font-normal text-purple-500 ml-1">({{ artist.disambiguation }})</span>
+              </div>
+            </RouterLink>
             <!-- 社交链接 -->
             <div v-if="socialEntries(artist).length" class="flex items-center justify-center gap-1 mt-1 relative z-10">
               <a
@@ -99,7 +103,7 @@
             </div>
             <div v-if="artist.aliases?.length" class="text-xs text-gray-400 mt-0.5 truncate">{{ artist.aliases.join(' / ') }}</div>
             <div v-if="artist.bio" class="text-xs text-gray-400 mt-2 line-clamp-2" :title="artist.bio">{{ artist.bio }}</div>
-          </RouterLink>
+          </div>
         </div>
       </section>
     </template>
@@ -123,9 +127,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
+import { useUiStore } from '@/stores/ui'
 import { LOGO_URL, ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'
 import { groupByInitial, type AlphaGroup } from '@/lib/pinyinGroup'
 import AppIcon from '@/components/common/AppIcon.vue'
@@ -145,6 +151,8 @@ const tabs = [
 ]
 
 const PINNED = '★'
+const router = useRouter()
+const ui = useUiStore()
 const currentType = ref('singer')
 const keyword = ref('')
 

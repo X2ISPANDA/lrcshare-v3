@@ -15,7 +15,7 @@
       <div class="bg-gradient-to-br from-pink-50 via-white to-purple-50 rounded-2xl shadow-sm p-8 mb-6 border border-pink-100">
         <div class="flex flex-col md:flex-row items-center md:items-start gap-8">
           <div class="flex-shrink-0">
-            <img :src="contributor.avatar || LOGO_URL" :alt="contributor.name" referrerpolicy="no-referrer" class="w-28 h-28 rounded-full object-cover ring-4 ring-pink-200 shadow-md" />
+            <img :src="contributor.avatar || LOGO_URL" :alt="contributor.name" referrerpolicy="no-referrer" class="w-28 h-28 rounded-full object-cover ring-4 ring-pink-200 shadow-md cursor-zoom-in" @click="ui.openPreview([contributor.avatar || LOGO_URL])" />
           </div>
           <div class="flex-1 text-center md:text-left min-w-0">
             <h1 class="text-3xl font-bold text-gray-800">{{ contributor.name || '匿名贡献者' }}</h1>
@@ -85,11 +85,13 @@ import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
+import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { Contributor } from '@/lib/types'
 
 const route = useRoute()
+const ui = useUiStore()
 const contributorId = route.params.id as string
 
 interface ContributorPageData {

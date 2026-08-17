@@ -22,26 +22,29 @@
         <div class="col-span-full text-center py-8 text-gray-400">暂无贡献者</div>
       </div>
       <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-        <RouterLink
+        <!-- 外层不能用 a（RouterLink）：内部还有联系方式 a，SSG 预渲染的嵌套 a 会被浏览器解析拆散导致闪现错位 -->
+        <div
           v-for="c in contributors"
           :key="c.id"
-          :to="`/contributor/${c.id}`"
-          class="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-5 border border-pink-100 hover:shadow-md transition relative"
+          class="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-5 border border-pink-100 hover:shadow-md transition relative cursor-pointer"
+          @click="router.push(`/contributor/${c.id}`)"
         >
-          <div class="flex items-center gap-3">
-            <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-14 h-14 rounded-full object-cover ring-2 ring-pink-200 flex-shrink-0" />
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2">
-                <h3 class="font-bold text-gray-800 text-base truncate">{{ c.name }}</h3>
-                <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-white text-pink-600 text-xs font-semibold rounded-full border border-pink-200 shadow-sm shrink-0">
-                  🎵 {{ c.song_count || 0 }} 首
-                </span>
-              </div>
-              <div class="mt-2">
-                <span v-for="t in tagArray(c.tags)" :key="t" class="chip" :class="chipColor(t)">{{ t }}</span>
+          <RouterLink :to="`/contributor/${c.id}`" class="block">
+            <div class="flex items-center gap-3">
+              <img :src="c.avatar || LOGO_URL" :alt="c.name" referrerpolicy="no-referrer" class="w-14 h-14 rounded-full object-cover ring-2 ring-pink-200 flex-shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="font-bold text-gray-800 text-base truncate">{{ c.name }}</h3>
+                  <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-white text-pink-600 text-xs font-semibold rounded-full border border-pink-200 shadow-sm shrink-0">
+                    🎵 {{ c.song_count || 0 }} 首
+                  </span>
+                </div>
+                <div class="mt-2">
+                  <span v-for="t in tagArray(c.tags)" :key="t" class="chip" :class="chipColor(t)">{{ t }}</span>
+                </div>
               </div>
             </div>
-          </div>
+          </RouterLink>
           <p v-if="c.public_bio !== false && c.bio" class="text-sm text-gray-600 mt-2">{{ c.bio }}</p>
           <!-- 联系方式（仅 URL 类型） -->
           <div v-if="urlContacts(c).length" class="flex items-center gap-1 mt-3 relative z-10">
@@ -56,7 +59,7 @@
               @click.stop
             ><AppIcon :name="key" class="w-5 h-5" /></a>
           </div>
-        </RouterLink>
+        </div>
       </div>
     </div>
 
@@ -71,8 +74,10 @@
 
 <script setup lang="ts">
 import { useHead } from '@unhead/vue'
+import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
+import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { Contributor } from '@/lib/types'
@@ -81,6 +86,9 @@ useHead({
   title: '贡献者名单 - LrcShare',
   meta: [{ name: 'description', content: '感谢每一位为 LrcShare 做出贡献的朋友们 - LrcShare' }],
 })
+
+const router = useRouter()
+const ui = useUiStore()
 
 const { data: contributors, loading } = useSSGData<Contributor[]>('contributors', () =>
   api.getContributors(),

@@ -120,13 +120,13 @@
         <div class="flex justify-center gap-4">
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img src="https://i0.hdslb.com/bfs/openplatform/954a7ef000973598f054011146df90b5c3f2a71f.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover" />
+              <img src="https://i0.hdslb.com/bfs/openplatform/954a7ef000973598f054011146df90b5c3f2a71f.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(QR_CODES, 0)" />
             </div>
             <div class="text-sm text-gray-600">微信赞助</div>
           </div>
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img src="https://i0.hdslb.com/bfs/openplatform/a5de338082f11e2f2876bc7059cde436af978568.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover" />
+              <img src="https://i0.hdslb.com/bfs/openplatform/a5de338082f11e2f2876bc7059cde436af978568.jpg" referrerpolicy="no-referrer" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(QR_CODES, 1)" />
             </div>
             <div class="text-sm text-gray-600">支付宝赞助</div>
           </div>
@@ -141,10 +141,13 @@ import { computed, ref } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
+import { useUiStore } from '@/stores/ui'
+import { QR_CODES } from '@/lib/constants'
 import type { Sponsor } from '@/lib/types'
 
 useHead({ title: '赞助名单 - LrcShare' })
 
+const ui = useUiStore()
 const { data: sponsors, loading } = useSSGData<Sponsor[]>('support', () => api.getSponsors())
 
 const showReward = ref(false)
