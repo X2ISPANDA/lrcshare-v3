@@ -477,19 +477,11 @@ export const api = {
   // ============ 贡献者 ============
 
   async getContributors(options: { limit?: number } = {}): Promise<Contributor[]> {
-    if (options.limit) {
-      const { data, error } = await supabase.rpc('get_top_contributors', {
-        limit_count: options.limit,
-      })
-      if (error) throw error
-      return (data || []) as Contributor[]
-    }
-    const { data, error } = await supabase
-      .from('contributors')
-      .select(
-        'id, name, avatar, bio, public_bio, contact_value, public_contact, is_owner, created_at, sort, tags',
-      )
-      .order('sort')
+    // 统一走 RPC：返回 song_count，并按置顶(sort>0)→歌曲数降序→加入时间排序；
+    // limit_count 传 null 时 PG 的 LIMIT NULL 等于不加限制（返回全部）
+    const { data, error } = await supabase.rpc('get_top_contributors', {
+      limit_count: options.limit ?? null,
+    })
     if (error) throw error
     return (data || []) as Contributor[]
   },
