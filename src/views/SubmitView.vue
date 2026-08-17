@@ -171,33 +171,46 @@
               <ArtistTagInput v-model="song.artists" :artists="allArtists" filter-type="singer" />
             </div>
 
-            <!-- 专辑（单选 + 自动填充专辑艺术家） -->
-            <div class="relative">
-              <label class="block text-sm font-medium text-gray-700 mb-1">专辑 <span class="text-red-500">*</span></label>
-              <input
-                v-model="albumName"
-                type="text"
-                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                placeholder="搜索已有专辑，或直接输入新专辑名"
-                @input="onAlbumInput"
-                @focus="albumName && onAlbumInput()"
-                @blur="albumDropdownOpen = false"
-              />
-              <div
-                v-if="albumDropdownOpen && albumDropdown.length"
-                class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto"
-              >
+            <!-- 专辑（单选 + 自动填充专辑艺术家/年份） -->
+            <div class="flex gap-3 items-start">
+              <div class="relative flex-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">专辑 <span class="text-red-500">*</span></label>
+                <input
+                  v-model="albumName"
+                  type="text"
+                  class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="搜索已有专辑，或直接输入新专辑名"
+                  @input="onAlbumInput"
+                  @focus="albumName && onAlbumInput()"
+                  @blur="albumDropdownOpen = false"
+                />
                 <div
-                  v-for="a in albumDropdown"
-                  :key="a.id"
-                  class="px-4 py-2 hover:bg-pink-50 cursor-pointer border-b border-gray-100"
-                  @mousedown.prevent="selectAlbum(a)"
+                  v-if="albumDropdownOpen && albumDropdown.length"
+                  class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto"
                 >
-                  <div class="text-sm font-medium text-gray-800">{{ a.name }}</div>
-                  <div v-if="a.year" class="text-xs text-gray-500">{{ a.year }}</div>
+                  <div
+                    v-for="a in albumDropdown"
+                    :key="a.id"
+                    class="px-4 py-2 hover:bg-pink-50 cursor-pointer border-b border-gray-100"
+                    @mousedown.prevent="selectAlbum(a)"
+                  >
+                    <div class="text-sm font-medium text-gray-800">{{ a.name }}</div>
+                    <div v-if="a.year" class="text-xs text-gray-500">{{ a.year }}</div>
+                  </div>
                 </div>
+                <div v-if="albumId" class="text-xs text-green-600 mt-1">已关联数据库专辑（审核时沿用该专辑信息）</div>
               </div>
-              <div v-if="albumId" class="text-xs text-green-600 mt-1">已关联数据库专辑（审核时沿用该专辑信息）</div>
+              <div class="w-28">
+                <label class="block text-sm font-medium text-gray-700 mb-1">年份</label>
+                <input
+                  v-model="albumYear"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="4"
+                  class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="如 2024"
+                />
+              </div>
             </div>
 
             <!-- 专辑艺术家（多选 tag，选已有专辑时自动填充） -->
@@ -428,8 +441,9 @@ const song = reactive({
   videoUrl: '',
 })
 
-// 专辑联想（单选；选中已有专辑 → 记录 id 并自动填充专辑艺术家）
+// 专辑联想（单选；选中已有专辑 → 记录 id 并自动填充专辑艺术家/年份）
 const albumName = ref('')
+const albumYear = ref('')
 const albumId = ref<string | null>(null)
 const albumDropdown = ref<AlbumWithArtists[]>([])
 const albumDropdownOpen = ref(false)
@@ -450,7 +464,8 @@ function selectAlbum(a: AlbumWithArtists) {
   albumName.value = a.name
   albumId.value = a.id
   albumDropdownOpen.value = false
-  // 用该专辑的 artist_ids 填充专辑艺术家 tag
+  // 用该专辑的 artist_ids 填充专辑艺术家 tag，年份一并填充
+  albumYear.value = a.year ? String(a.year) : ''
   const ids = a.artist_ids || []
   const artistObjs = ids
     .map(id => allArtists.value.find(x => x.id === id))
@@ -487,6 +502,10 @@ async function handleSubmit() {
     ElMessage.warning('请填写所有必填的歌曲字段（歌曲名/歌手/专辑/歌词）')
     return
   }
+  if (albumYear.value.trim() && !/^\d{4}$/.test(albumYear.value.trim())) {
+    ElMessage.warning('专辑年份请填写 4 位数字（如 2024），或留空')
+    return
+  }
   if (selectedContributor.value && userForm.request_clear && userForm.request_update) {
     ElMessage.warning('更新信息和清空信息不能同时勾选')
     return
@@ -515,6 +534,7 @@ async function handleSubmit() {
     composer: song.composers.map(a => a.name).join(' / '),
     album: albumName.value.trim(),
     album_id: albumId.value,
+    year: albumYear.value.trim() || undefined,
     duration: song.duration.trim(),
     lrc_text: song.lrcText.trim(),
     video_url: song.videoUrl.trim(),

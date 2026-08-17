@@ -355,7 +355,7 @@ async function approve(sub: ReviewItem | null) {
         id: albumId,
         name: sd.album,
         artist_ids: (sd.album_artists || []).map((a: any) => a.id).filter(Boolean),
-        year: sd.year ? parseInt(sd.year) : null,
+        year: sd.year ? (parseInt(sd.year) || null) : null,
       })
     }
 
