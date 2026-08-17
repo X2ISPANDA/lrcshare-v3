@@ -110,6 +110,12 @@
             </div>
           </div>
         </el-form-item>
+        <el-form-item label="首字母">
+          <div class="w-full">
+            <el-input v-model="form.initial" placeholder="留空自动按拼音" maxlength="1" class="!w-40" style="text-transform: uppercase" />
+            <div class="text-xs text-gray-400 mt-1">多音字分错组时手动指定，如「盛宇」填 C（读 chéng）</div>
+          </div>
+        </el-form-item>
         <el-form-item label="置顶排序">
           <div class="w-full">
             <el-input-number v-model="form.sort" :min="0" :step="1" class="!w-full" />
@@ -254,6 +260,7 @@ const form = reactive({
   aliases: [] as string[],
   urls: { instagram: '', weibo: '', bilibili: '', netease: '', qq: '' } as Record<string, string>,
   sort: 0,
+  initial: '',
   is_show: true,
 })
 
@@ -262,7 +269,7 @@ function openNew() {
   Object.assign(form, {
     name: '', disambiguation: '', types: ['singer'], avatar: '', bg_image: '', bg_position_y: 50,
     bio: '', aliases: [], urls: { instagram: '', weibo: '', bilibili: '', netease: '', qq: '' },
-    sort: 0, is_show: true,
+    sort: 0, initial: '', is_show: true,
   })
   showDialog.value = true
 }
@@ -281,6 +288,7 @@ function openEdit(row: Artist) {
     aliases: [...(row.aliases || [])],
     urls: { instagram: urls.instagram || '', weibo: urls.weibo || '', bilibili: urls.bilibili || '', netease: urls.netease || '', qq: urls.qq || '' },
     sort: row.sort || 0,
+    initial: row.initial || '',
     is_show: row.is_show !== false,
   })
   showDialog.value = true
@@ -310,6 +318,7 @@ async function save() {
       bio: form.bio || '',
       aliases: form.aliases,
       sort: form.sort || 0,
+      initial: form.initial.trim().toUpperCase() || null,
       is_show: form.is_show !== false,
       urls: form.urls,
     }

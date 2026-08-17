@@ -75,6 +75,12 @@
         <el-form-item label="年份">
           <el-input v-model="form.year" placeholder="2024" maxlength="4" class="!w-40" />
         </el-form-item>
+        <el-form-item label="首字母">
+          <div class="w-full">
+            <el-input v-model="form.initial" placeholder="留空自动按拼音" maxlength="1" class="!w-40" style="text-transform: uppercase" />
+            <div class="text-xs text-gray-400 mt-1">专辑名多音字分错组时手动指定</div>
+          </div>
+        </el-form-item>
         <el-form-item label="封面 URL">
           <el-input v-model="form.cover" placeholder="留空使用默认封面" />
         </el-form-item>
@@ -162,6 +168,7 @@ const form = reactive({
   artists: [] as { id: string | null; name: string }[],
   year: '',
   cover: '',
+  initial: '',
 })
 /** 新建实体（无 id tag）的前台展示开关，默认不展示（多为唱片公司/平台） */
 const newArtistShow = reactive<Record<string, boolean>>({})
@@ -170,7 +177,7 @@ const newArtistNames = computed(() => form.artists.filter(t => !t.id).map(t => t
 
 function openNew() {
   editing.value = null
-  Object.assign(form, { name: '', artists: [], year: '', cover: '' })
+  Object.assign(form, { name: '', artists: [], year: '', cover: '', initial: '' })
   Object.keys(newArtistShow).forEach(k => delete newArtistShow[k])
   showDialog.value = true
 }
@@ -182,6 +189,7 @@ function openEdit(row: Album) {
     artists: (row.artist_ids || []).map(id => ({ id, name: artistMap.value.get(id)?.name || id })),
     year: row.year ? String(row.year) : '',
     cover: row.cover || '',
+    initial: row.initial || '',
   })
   Object.keys(newArtistShow).forEach(k => delete newArtistShow[k])
   showDialog.value = true
@@ -217,6 +225,7 @@ async function save() {
       artist_ids: ids,
       year: form.year.trim() ? parseInt(form.year.trim()) : null,
       cover: form.cover.trim() || '',
+      initial: form.initial.trim().toUpperCase() || null,
     }
     if (editing.value) {
       await adminApi.update('albums', editing.value.id, payload)

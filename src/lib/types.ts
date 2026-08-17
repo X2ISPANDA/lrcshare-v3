@@ -26,6 +26,8 @@ export interface Artist {
   sort: number
   /** 是否前台展示（false 仅用于唱片公司等非创作者实体） */
   is_show: boolean
+  /** 人工覆盖的拼音首字母（A-Z 或 #），空则前端自动计算（多音字兜底） */
+  initial?: string | null
   created_at?: string
 }
 
@@ -35,8 +37,10 @@ export interface Album {
   name: string
   cover: string | null
   year: string | null
-  /** 专辑艺术家（可含唱片公司等非艺术家实体） */
+  /** 专辑艺术家（可含唱片公司等非创作者实体） */
   artist_ids: string[] | null
+  /** 人工覆盖的拼音首字母（A-Z 或 #），空则前端自动计算（多音字兜底） */
+  initial?: string | null
   created_at?: string
 }
 

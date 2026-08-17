@@ -16,7 +16,7 @@ import type {
 } from './types'
 
 /** 歌手字段精简选择（列表场景，避免拉全量） */
-const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls'
+const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls, initial'
 
 /** 批量取艺术家 id→name 映射 */
 async function getArtistNameMap(ids: Iterable<string>): Promise<Map<string, string>> {
