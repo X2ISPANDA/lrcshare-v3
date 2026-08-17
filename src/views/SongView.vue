@@ -101,12 +101,11 @@
         </div>
       </div>
 
-      <!-- Lyrics Section（tab 行吸顶：滚动歌词时 tab + 复制按钮常驻导航栏下方） -->
-      <div class="bg-white rounded-2xl shadow-sm mb-6">
+      <!-- Lyrics Section（tab 行吸顶：滚动歌词时 tab 常驻导航栏下方） -->
+      <div ref="lyricsCardRef" class="bg-white rounded-2xl shadow-sm mb-6">
         <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
-          <button class="self-center shrink-0 mr-3 px-3 py-1.5 text-sm text-gray-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition" @click="copyLrc">📋 复制LRC</button>
         </div>
         <div class="p-6 md:p-8">
           <div v-show="activeTab === 'text'" class="text-center leading-loose text-gray-700 text-lg" v-html="textLyricsHtml"></div>
@@ -154,6 +153,22 @@
   </main>
 
   <RewardModal v-model="showReward" />
+
+  <!-- 复制 LRC 浮动胶囊：歌词区可见且滚过页头时出现 -->
+  <Transition
+    enter-active-class="transition duration-200 ease-out"
+    enter-from-class="opacity-0 translate-y-2"
+    enter-to-class="opacity-100 translate-y-0"
+    leave-active-class="transition duration-150 ease-in"
+    leave-from-class="opacity-100 translate-y-0"
+    leave-to-class="opacity-0 translate-y-2"
+  >
+    <button
+      v-if="showCopyFab"
+      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-full bg-white/90 backdrop-blur shadow-lg border border-gray-100 text-sm font-medium text-gray-600 hover:text-pink-600 hover:border-pink-200 transition-colors"
+      @click="copyLrc"
+    >📋 复制 LRC</button>
+  </Transition>
 </template>
 
 <script setup lang="ts">
@@ -161,6 +176,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { ElMessage } from 'element-plus'
+// 显式导入 ElMessage 不会附带样式（自动导入才有），需手动补 message 样式，否则提示框无定位不可见
+import 'element-plus/es/components/message/style/css'
+import { useElementVisibility, useWindowScroll } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
@@ -350,6 +368,12 @@ const lrcLines = computed<{ time: string; text: string }[]>(() => {
 
 // ============ 操作 ============
 const showReward = ref(false)
+
+// 复制 LRC 浮动胶囊：歌词卡片可见且已滚过页头时出现（SSG 安全：回调内才读 window）
+const lyricsCardRef = ref<HTMLElement | null>(null)
+const lyricsVisible = useElementVisibility(lyricsCardRef)
+const { y: scrollY } = useWindowScroll()
+const showCopyFab = computed(() => lyricsVisible.value && scrollY.value > 300)
 
 async function copyText(text: string) {
   if (navigator.clipboard && window.isSecureContext) {

@@ -20,5 +20,10 @@ export const createApp = ViteSSG(App, { routes }, ({ app, router, initialState }
   setupAdminGuard(router)
 
   // 客户端导航：回到顶部。文档标题由各页面 useHead 统一管理（SSG 构建时同样生效）
-  router.options.scrollBehavior = (_to, _from, savedPosition) => savedPosition || { top: 0 }
+  // 同路径仅 query 变化（如歌词页切 tab ?tab=lrc）保持滚动位置，避免弹回页首
+  router.options.scrollBehavior = (to, from, savedPosition) => {
+    if (savedPosition) return savedPosition
+    if (to.path === from.path) return false
+    return { top: 0 }
+  }
 })
