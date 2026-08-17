@@ -26,7 +26,7 @@
               rel="noopener"
               class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition"
             >
-              <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+              <img :src="item.avatar || LOGO_URL" referrerpolicy="no-referrer" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
               <div class="min-w-0 flex-1">
                 <div class="font-bold text-gray-800 mb-1 truncate">{{ item.name }}</div>
                 <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>
@@ -51,7 +51,7 @@
               rel="noopener"
               class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition"
             >
-              <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+              <img :src="item.avatar || LOGO_URL" referrerpolicy="no-referrer" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
               <div class="min-w-0 flex-1">
                 <div class="font-bold text-gray-800 mb-1 truncate">{{ item.name }}</div>
                 <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>

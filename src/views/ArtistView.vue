@@ -95,7 +95,7 @@
                     class="w-full h-full rounded-lg object-cover cursor-zoom-in"
                     @click.prevent.stop="ui.openPreview([album.cover!], 0)"
                   />
-                  <img v-else :src="LOGO_URL" alt="" class="w-full h-full rounded-lg object-contain p-1" />
+                  <img v-else :src="LOGO_URL" alt="" referrerpolicy="no-referrer" class="w-full h-full rounded-lg object-contain p-1" />
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="font-medium text-gray-800 truncate">{{ album.name }}</div>

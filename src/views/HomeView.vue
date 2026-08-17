@@ -4,7 +4,7 @@
     <section class="hero-bg text-white py-20">
       <img :src="HERO_BG_URL" alt="背景" class="hero-bg-img" referrerpolicy="no-referrer" />
       <div class="hero-content max-w-3xl mx-auto px-4 text-center">
-        <img :src="LOGO_URL" alt="LrcShare Logo" class="w-24 h-24 mx-auto mb-4" />
+        <img :src="LOGO_URL" alt="LrcShare Logo" referrerpolicy="no-referrer" class="w-24 h-24 mx-auto mb-4" />
         <h1 class="text-4xl md:text-5xl font-bold mb-4">
           <span
             v-for="(c, i) in HERO_CHARS"
