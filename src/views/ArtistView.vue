@@ -65,16 +65,16 @@
       <div class="bg-white rounded-2xl shadow-sm">
         <div class="flex border-b border-gray-100 px-6 overflow-x-auto">
           <button
-            v-for="(tab, i) in tabs"
+            v-for="tab in tabs"
             :key="tab.key"
             class="px-4 py-3 font-medium whitespace-nowrap transition"
-            :class="currentTab === tab.key || (currentTab === '' && i === 0) ? 'tab-active' : 'tab-inactive'"
+            :class="activeTab === tab.key ? 'tab-active' : 'tab-inactive'"
             @click="switchTab(tab.key)"
           >{{ tab.label }} <span class="text-xs text-gray-400 ml-1">({{ tab.count }})</span></button>
         </div>
         <div class="p-6">
           <!-- 专辑 -->
-          <template v-if="currentTab === 'albums'">
+          <template v-if="activeTab === 'albums'">
             <div v-if="!albums.length" class="text-center py-12 text-gray-400">
               <div class="text-4xl mb-3">📀</div>
               <p>暂无专辑</p>
@@ -279,9 +279,12 @@ watch(tabs, (list) => {
   if (currentTab.value && !list.some(t => t.key === currentTab.value)) currentTab.value = ''
 })
 
+// 实际生效的 tab：currentTab 为空表示第一个 tab（如 label 类艺术家首个 tab 可能是 albums）
+const activeTab = computed(() => currentTab.value || tabs.value[0]?.key || '')
+
 const tabSongs = computed(() => {
-  if (!currentTab.value || currentTab.value === 'songs' || currentTab.value === 'albums') return songs.value
-  return songs.value.filter(s => s.contributions.includes(currentTab.value))
+  if (!activeTab.value || activeTab.value === 'songs' || activeTab.value === 'albums') return songs.value
+  return songs.value.filter(s => s.contributions.includes(activeTab.value))
 })
 
 // ============ 背景图上下调整（滚轮 + 拖拽，仅本地视觉，迁移自 v2） ============

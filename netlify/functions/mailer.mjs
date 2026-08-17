@@ -53,8 +53,8 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
   const badge = `<a href="${SITE_URL}" style="display:inline-block;padding:4px 16px;background:linear-gradient(135deg,#ec4899 0%,#a855f7 100%);color:#fff;font-weight:900;text-decoration:none;border-radius:8px;letter-spacing:2px;font-size:18px;box-shadow:0 2px 8px rgba(236,72,153,0.3);">LrcShare</a>`
 
   const config = type === 'approve'
-    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: `歌曲《${song_title}》已正式发布到 ${link} 网站` }
-    : { color: '#ef4444', bgColor: '#fee2e2', title: '审核未通过', emoji: '😢', mainText: '很遗憾，您的投稿未通过审核', detail: reject_reason ? `拒绝原因：${reject_reason}` : '请参考拒绝原因修改后重新提交' }
+    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: song_title ? `歌曲《${song_title}》已正式发布到 ${link} 网站` : `您的歌词作品已正式发布到 ${link} 网站` }
+    : { color: '#ef4444', bgColor: '#fee2e2', title: '审核未通过', emoji: '😢', mainText: song_title ? `很遗憾，您投稿的歌曲《${song_title}》未通过审核` : '很遗憾，您的投稿未通过审核', detail: reject_reason ? `拒绝原因：${reject_reason}` : '请参考拒绝原因修改后重新提交' }
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Microsoft YaHei',Arial,sans-serif;">
@@ -126,10 +126,10 @@ export default async (req) => {
       mail = { to, subject: '【LrcShare】测试邮件', html: generateEmailHTML({ type: 'approve', user_name: '管理员', song_title: '测试歌曲', admin_email: smtp.admin_email }) }
     } else if (action === 'approve') {
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
-      mail = { to, subject: '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
+      mail = { to, subject: song_title ? `【LrcShare】恭喜！《${song_title}》审核通过` : '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'reject') {
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
-      mail = { to, subject: '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
+      mail = { to, subject: song_title ? `【LrcShare】很遗憾，《${song_title}》审核未通过` : '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
     } else {
       return json(400, { success: false, error: '未知 action: ' + action })
     }
