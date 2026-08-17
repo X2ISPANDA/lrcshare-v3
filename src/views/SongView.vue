@@ -104,8 +104,8 @@
       <!-- Lyrics Section -->
       <div class="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
         <div class="flex border-b">
-          <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="activeTab = 'text'">📖 文本歌词</button>
-          <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="activeTab = 'lrc'">⏱️ LRC 歌词</button>
+          <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
+          <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
         </div>
         <div class="p-6 md:p-8">
           <div v-show="activeTab === 'text'" class="text-center leading-loose text-gray-700 text-lg" v-html="textLyricsHtml"></div>
@@ -158,7 +158,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { ElMessage } from 'element-plus'
 import { api, formatDuration } from '@/lib/api'
@@ -171,6 +171,7 @@ import CreditLinks from '@/components/song/CreditLinks.vue'
 import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
 
 const route = useRoute()
+const router = useRouter()
 const songId = route.params.id as string
 const ui = useUiStore()
 
@@ -307,7 +308,13 @@ const video = computed<{ type: 'iframe' | 'link'; src: string } | null>(() => {
 })
 
 // ============ 歌词 ============
-const activeTab = ref<'text' | 'lrc'>('text')
+// 歌词视图 tab 写入路由 query（?tab=lrc），从歌手/专辑页返回时保持所在视图
+const activeTab = ref<'text' | 'lrc'>(route.query.tab === 'lrc' ? 'lrc' : 'text')
+
+function switchLyricsTab(key: 'text' | 'lrc') {
+  activeTab.value = key
+  router.replace({ query: key === 'lrc' ? { ...route.query, tab: 'lrc' } : { ...route.query, tab: undefined } })
+}
 
 /** 文本歌词：lyrics_text（富文本）优先，否则从 LRC 提取纯文本 */
 const textLyricsHtml = computed(() => {

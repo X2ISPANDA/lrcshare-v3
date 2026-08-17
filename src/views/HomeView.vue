@@ -39,7 +39,7 @@
                   v-for="t in SEARCH_TABS"
                   :key="t.key"
                   :class="activeTab === t.key ? 'font-semibold text-pink-600 border-b-2 border-pink-600 pb-1' : 'text-gray-500 pb-1'"
-                  @click="activeTab = t.key; keyword.trim() && doSearch()"
+                  @click="switchTab(t.key)"
                 >{{ t.label }}</button>
               </div>
             </div>
@@ -266,7 +266,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useDebounceFn, onClickOutside } from '@vueuse/core'
 import { useHead } from '@unhead/vue'
 import { api, formatDuration } from '@/lib/api'
@@ -317,6 +318,9 @@ const HERO_CHARS = [
 ]
 
 // ============ 搜索下拉建议 ============
+// 搜索状态（关键词 + 分类 tab）写入路由 query（?q=xxx&tab=xxx），点结果跳详情后返回时可恢复
+const route = useRoute()
+const router = useRouter()
 const SEARCH_TABS = [
   { key: 'all', label: '全部' },
   { key: 'songs', label: '单曲' },
@@ -326,8 +330,11 @@ const SEARCH_TABS = [
 ] as const
 type TabKey = (typeof SEARCH_TABS)[number]['key']
 
-const keyword = ref('')
-const activeTab = ref<TabKey>('all')
+const initialQ = typeof route.query.q === 'string' ? route.query.q : ''
+const keyword = ref(initialQ)
+const activeTab = ref<TabKey>(
+  SEARCH_TABS.some(t => t.key === route.query.tab) ? (route.query.tab as TabKey) : 'all',
+)
 const dropdownOpen = ref(false)
 const searching = ref(false)
 const searchWrapRef = ref<HTMLElement>()
@@ -337,6 +344,29 @@ const results = ref<{ artists: Artist[]; albums: Album[]; songs: SongWithNames[]
   songs: [],
   lyrics: [],
 })
+
+// 带 query 返回首页时自动恢复搜索结果（仅客户端）
+onMounted(() => {
+  if (keyword.value.trim()) doSearch()
+})
+
+/** 搜索状态同步到 query（replace 不产生多余历史记录；空值清除保持 URL 干净） */
+function syncQuery() {
+  const kw = keyword.value.trim()
+  const tab = activeTab.value
+  router.replace({
+    query: {
+      ...route.query,
+      q: kw || undefined,
+      tab: kw && tab !== 'all' ? tab : undefined,
+    },
+  })
+}
+
+function switchTab(key: TabKey) {
+  activeTab.value = key
+  if (keyword.value.trim()) doSearch()
+}
 
 const totalCount = computed(
   () => results.value.artists.length + results.value.albums.length + results.value.songs.length + results.value.lyrics.length,
@@ -351,6 +381,7 @@ async function doSearch() {
   if (!kw) return
   dropdownOpen.value = true
   searching.value = true
+  syncQuery()
   try {
     results.value = await api.search(kw)
   } catch {
@@ -364,6 +395,7 @@ const debouncedSearch = useDebounceFn(doSearch, 300)
 function onInput() {
   if (!keyword.value.trim()) {
     dropdownOpen.value = false
+    syncQuery()
     return
   }
   debouncedSearch()

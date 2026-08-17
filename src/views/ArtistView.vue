@@ -69,7 +69,7 @@
             :key="tab.key"
             class="px-4 py-3 font-medium whitespace-nowrap transition"
             :class="currentTab === tab.key || (currentTab === '' && i === 0) ? 'tab-active' : 'tab-inactive'"
-            @click="currentTab = tab.key"
+            @click="switchTab(tab.key)"
           >{{ tab.label }} <span class="text-xs text-gray-400 ml-1">({{ tab.count }})</span></button>
         </div>
         <div class="p-6">
@@ -171,7 +171,7 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { useEventListener } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
@@ -182,6 +182,7 @@ import AppIcon from '@/components/common/AppIcon.vue'
 import type { AlbumWithArtists, Artist, SongWithNames } from '@/lib/types'
 
 const route = useRoute()
+const router = useRouter()
 const artistId = route.params.id as string
 const ui = useUiStore()
 
@@ -261,7 +262,23 @@ const tabs = computed(() => {
   return result
 })
 
-const currentTab = ref('')
+// tab 状态写入路由 query（?tab=xxx），进入专辑/歌曲详情后返回时可恢复所在 tab
+const currentTab = ref(typeof route.query.tab === 'string' ? route.query.tab : '')
+
+function switchTab(key: string) {
+  currentTab.value = key
+  // 第一个 tab 不带 query，保持 URL 干净；replace 不产生多余历史记录
+  router.replace({ query: key === tabs.value[0]?.key ? { ...route.query, tab: undefined } : { ...route.query, tab: key } })
+}
+
+// 浏览器后退/前进同路由 query 变化时同步；非法 tab 值回退到第一个
+watch(() => route.query.tab, (t) => {
+  if (typeof t === 'string' && t !== currentTab.value) currentTab.value = t
+})
+watch(tabs, (list) => {
+  if (currentTab.value && !list.some(t => t.key === currentTab.value)) currentTab.value = ''
+})
+
 const tabSongs = computed(() => {
   if (!currentTab.value || currentTab.value === 'songs' || currentTab.value === 'albums') return songs.value
   return songs.value.filter(s => s.contributions.includes(currentTab.value))
