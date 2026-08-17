@@ -101,11 +101,12 @@
         </div>
       </div>
 
-      <!-- Lyrics Section -->
-      <div class="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
-        <div class="flex border-b">
+      <!-- Lyrics Section（tab 行吸顶：滚动歌词时 tab + 复制按钮常驻导航栏下方） -->
+      <div class="bg-white rounded-2xl shadow-sm mb-6">
+        <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
+          <button class="self-center shrink-0 mr-3 px-3 py-1.5 text-sm text-gray-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition" @click="copyLrc">📋 复制LRC</button>
         </div>
         <div class="p-6 md:p-8">
           <div v-show="activeTab === 'text'" class="text-center leading-loose text-gray-700 text-lg" v-html="textLyricsHtml"></div>
@@ -120,7 +121,6 @@
 
       <!-- Actions -->
       <div class="flex gap-3 justify-center mb-6 flex-wrap">
-        <button class="px-6 py-3 bg-pink-500 text-white rounded-xl hover:bg-pink-600 transition shadow-md" @click="copyLrc">📋 复制 LRC</button>
         <button class="px-6 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition shadow-md" @click="shareSong">🔗 分享链接</button>
         <button class="px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-xl hover:from-yellow-500 hover:to-orange-600 transition shadow-md" @click="showReward = true">⚡ 请我喝杯奶茶</button>
       </div>
