@@ -4,7 +4,7 @@ export const LOGO_URL =
   'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
 export const HERO_BG_URL =
-  'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977724.jpg'
+  'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977624.jpg'
 
 /** 赞赏二维码（微信 / 支付宝），SupportView 与 RewardModal 共用 */
 export const QR_CODES = [
