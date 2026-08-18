@@ -33,6 +33,7 @@
       >
         <div class="flex items-center">
           <span class="text-sm font-medium text-gray-800">{{ item.name }}</span>
+          <span v-if="item.id.startsWith('__new_')" class="text-xs text-blue-500 ml-1">本次新建</span>
           <span v-if="item.disambiguation" class="text-xs text-purple-500 ml-1">({{ item.disambiguation }})</span>
           <span class="ml-2 text-xs">{{ typeIcons(item.types) }}</span>
         </div>
@@ -61,12 +62,25 @@ const props = defineProps<{
   /** 类型过滤：singer/lyricist/composer；null 不过滤（专辑艺术家可为唱片公司等） */
   filterType?: string | null
   tone?: 'pink' | 'gray'
+  /** 共享会话池（父组件持有）：本会话内任一字段新建过的艺术家名，跨字段联想复用 */
+  sessionNames?: string[]
 }>()
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: { id: string | null; name: string }[]): void }>()
 
 const input = ref('')
 const dropdown = ref<Artist[]>([])
+
+/**
+ * 搜索池 = 数据库全量 + 共享会话池（按名去重）。
+ * 会话内新建项 id 以 __new_ 开头、types 未知，不受 filterType 限制（同一人往往身兼歌手/作词/作曲）。
+ */
+const searchPool = computed<Artist[]>(() => {
+  const extra = (props.sessionNames || [])
+    .filter(n => n && !props.artists.some(a => a.name === n))
+    .map(n => ({ id: '__new_' + n, name: n, types: [] }) as unknown as Artist)
+  return [...props.artists, ...extra]
+})
 
 function typeIcons(types: string[] | null): string {
   return (types || ['singer']).map(t => ARTIST_TYPE_ICONS[t] || '').join('')
@@ -78,9 +92,12 @@ function onInput() {
     dropdown.value = []
     return
   }
-  let items = props.artists.filter(a => a.name.toLowerCase().includes(q))
+  // 会话内新建项（id 以 __new_ 开头）不受类型过滤，保证跨字段可复用
+  const isNew = (a: Artist) => (a.id || '').startsWith('__new_')
+  let items = searchPool.value.filter(a => a.name.toLowerCase().includes(q))
   if (props.filterType) {
     items = items.filter(a => {
+      if (isNew(a)) return true
       const types = a.types || ['singer']
       return types.some(t => t === props.filterType)
     })
@@ -92,7 +109,7 @@ function onInput() {
 const isExactMatch = computed(() => {
   const q = input.value.trim().toLowerCase()
   if (!q) return true
-  return props.artists.some(a => a.name.toLowerCase() === q)
+  return searchPool.value.some(a => a.name.toLowerCase() === q)
 })
 
 function selectTag(item: Artist) {
@@ -101,7 +118,7 @@ function selectTag(item: Artist) {
     dropdown.value = []
     return
   }
-  emit('update:modelValue', [...props.modelValue, { id: item.id, name: item.name }])
+  emit('update:modelValue', [...props.modelValue, { id: (item.id || '').startsWith('__new_') ? null : item.id, name: item.name }])
   input.value = ''
   dropdown.value = []
 }
@@ -109,7 +126,7 @@ function selectTag(item: Artist) {
 function addNewTag() {
   const name = input.value.trim()
   if (!name) return
-  const exact = props.artists.find(a => a.name === name)
+  const exact = searchPool.value.find(a => a.name === name)
   if (exact) {
     selectTag(exact)
     return

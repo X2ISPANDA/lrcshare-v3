@@ -116,7 +116,12 @@ async function sendTestEmail() {
     // SMTP 由邮件服务端从 settings 表直接读取，前端仅传收件人
     const res = await adminApi.callMailServer('/api/mailer', { action: 'test', to: email })
     if (res.skipped) {
-      ElMessage.warning('SMTP 未配置，请先在上方填写并保存 SMTP 邮箱服务设置')
+      // 区分两种跳过：本地未配置邮件服务地址 / 云端 settings 表未配置 SMTP
+      if (res.reason === '未配置邮件服务') {
+        ElMessage.warning('未配置 VITE_MAIL_BASE（Netlify 邮件服务地址），请在本机 .env 中填写后重启开发服务器')
+      } else {
+        ElMessage.warning('SMTP 未配置，请先在上方填写并保存 SMTP 邮箱服务设置')
+      }
     } else if (res.success) {
       ElMessage.success('测试邮件已发送，请查收（含垃圾箱）')
     } else {

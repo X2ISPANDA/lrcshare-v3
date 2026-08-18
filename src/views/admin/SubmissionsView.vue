@@ -35,10 +35,9 @@
         <el-table-column label="提交时间" width="165">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="170" align="center">
+        <el-table-column v-if="tab === 'pending'" label="操作" width="80" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openReview(row)">审核</el-button>
-            <el-button v-if="row.status !== 'pending'" link type="warning" size="small" @click="withdraw(row)">撤回</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -92,24 +91,39 @@
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="歌手">
-                <ArtistTagInput v-model="review.edited_data.artists" :artists="artists" filter-type="singer" />
+                <ArtistTagInput v-model="review.edited_data.artists" :artists="artists" :session-names="sessionNewArtists" filter-type="singer" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="专辑艺术家">
-                <ArtistTagInput v-model="review.edited_data.album_artists" :artists="artists" tone="gray" />
+                <ArtistTagInput v-model="review.edited_data.album_artists" :artists="artists" :session-names="sessionNewArtists" tone="gray" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="作词">
-                <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" filter-type="lyricist" />
+                <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="lyricist" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="作曲">
-                <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" filter-type="composer" />
+                <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="composer" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="12">
+            <el-col :span="12">
+              <el-form-item label="风格">
+                <el-select v-model="review.edited_data.genres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
+                  <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="专辑封面">
+                <el-input v-model="review.edited_data.album_cover" placeholder="图片 URL（选填）" />
+                <img v-if="review.edited_data.album_cover" :src="review.edited_data.album_cover" class="mt-2 w-20 h-20 rounded object-cover" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -151,6 +165,7 @@ import type { Artist } from '@/lib/types'
 
 /** 投稿审核：列表 + 审核弹窗（edited_data 可编辑、待创建艺术家填 ID、通过时事务链发布） */
 const TYPE_LABELS: Record<string, string> = { singer: '歌手', lyricist: '作词', composer: '作曲', arranger: '编曲' }
+const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
 const ARTIST_FIELDS = [
   { key: 'artists', label: '歌手', type: 'singer' },
   { key: 'album_artists', label: '专辑艺术家', type: 'singer' },
@@ -228,6 +243,8 @@ function openReview(row: any) {
   if (!Array.isArray(edited.album_artists)) edited.album_artists = []
   if (!Array.isArray(edited.lyricist_arr)) edited.lyricist_arr = []
   if (!Array.isArray(edited.composer_arr)) edited.composer_arr = []
+  if (!Array.isArray(edited.genres)) edited.genres = []
+  if (edited.album_cover === undefined) edited.album_cover = ''
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
       if (!item) return
@@ -240,16 +257,35 @@ function openReview(row: any) {
   showReview.value = true
 }
 
-/** 收集投稿中所有待创建艺术家（_new 标记：投稿时无 ID；跨字段按名合并，types 取并集） */
+// 会话内新建艺术家共享池：从审核表单各字段当前值实时派生（无 ID 即待创建），删除/填 ID 后自动出池
+const sessionNewArtists = computed(() => {
+  const names: string[] = []
+  if (!review.value) return names
+  for (const f of ARTIST_FIELDS) {
+    for (const item of review.value.edited_data[f.key] || []) {
+      if (item && !item.id && item.name && !names.includes(item.name)) {
+        names.push(item.name)
+        // 实时补 _new 标记与 is_show，保证动态进入待创建清单
+        item._new = true
+        item.is_show ??= true
+      }
+    }
+  }
+  return names
+})
+
+/** 收集投稿中所有待创建艺术家（无 ID 或 _new 标记；跨字段按名合并，types 取并集） */
 const newArtistsList = computed(() => {
   if (!review.value) return []
   const map = new Map<string, { item: any; source: string[]; types: Set<string> }>()
   for (const f of ARTIST_FIELDS) {
     const arr = review.value.edited_data[f.key] || []
     for (const item of arr) {
-      if (!item || !item._new) continue
-      if (!map.has(item.name)) map.set(item.name, { item, source: [f.label], types: new Set([f.type]) })
-      else {
+      if (!item || (!item._new && item.id)) continue
+      if (!map.has(item.name)) {
+        item.is_show ??= true
+        map.set(item.name, { item, source: [f.label], types: new Set([f.type]) })
+      } else {
         map.get(item.name)!.source.push(f.label)
         map.get(item.name)!.types.add(f.type)
       }
@@ -356,7 +392,11 @@ async function approve(sub: ReviewItem | null) {
         name: sd.album,
         artist_ids: (sd.album_artists || []).map((a: any) => a.id).filter(Boolean),
         year: sd.year ? (parseInt(sd.year) || null) : null,
+        cover: sd.album_cover || '',
       })
+    } else if (albumId && sd.album_cover) {
+      // 如果是已有专辑且填写了封面，更新专辑封面
+      await adminApi.update('albums', albumId, { cover: sd.album_cover })
     }
 
     // 7. 插入歌曲（lyricist/composer 统一存 ID 逗号分隔）
@@ -373,6 +413,7 @@ async function approve(sub: ReviewItem | null) {
       video_url: sd.video_url || null,
       status: 'published',
       contributor_id: contributorId,
+      genres: sd.genres || [],
     })
 
     const actionText = { none: '（已关联贡献者）', new: '（已自动创建贡献者）', update: '（已更新贡献者资料）', clear: '（已清空贡献者资料）' }[action]
@@ -410,19 +451,6 @@ async function reject(sub: ReviewItem | null) {
     await load()
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error('操作失败：' + (e?.message || e))
-  }
-}
-
-async function withdraw(row: any) {
-  try {
-    await ElMessageBox.confirm('确定将此投稿撤回为待审核状态？', '撤回投稿', { type: 'warning' })
-    await adminApi.update('submissions', row.id, {
-      status: 'pending', reject_reason: null, rejected_at: null, approved_at: null,
-    })
-    ElMessage.success('已撤回，现在为待审核')
-    await load()
-  } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error('操作失败')
   }
 }
 

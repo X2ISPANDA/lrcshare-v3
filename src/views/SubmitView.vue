@@ -168,7 +168,7 @@
             <!-- 歌手（多选 tag） -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">歌手 <span class="text-red-500">*</span></label>
-              <ArtistTagInput v-model="song.artists" :artists="allArtists" filter-type="singer" />
+              <ArtistTagInput v-model="song.artists" :artists="allArtists" :session-names="sessionNewArtists" filter-type="singer" />
             </div>
 
             <!-- 专辑（单选 + 自动填充专辑艺术家/年份） -->
@@ -216,7 +216,7 @@
             <!-- 专辑艺术家（多选 tag，选已有专辑时自动填充） -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">专辑艺术家</label>
-              <ArtistTagInput v-model="song.albumArtists" :artists="allArtists" :filter-type="null" tone="gray" />
+              <ArtistTagInput v-model="song.albumArtists" :artists="allArtists" :session-names="sessionNewArtists" :filter-type="null" tone="gray" />
               <div class="text-xs text-gray-400 mt-1">如唱片公司、音乐平台等，不限于歌手</div>
             </div>
 
@@ -233,13 +233,13 @@
             <!-- 作词（多选 tag） -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">作词</label>
-              <ArtistTagInput v-model="song.lyricists" :artists="allArtists" filter-type="lyricist" />
+              <ArtistTagInput v-model="song.lyricists" :artists="allArtists" :session-names="sessionNewArtists" filter-type="lyricist" />
             </div>
 
             <!-- 作曲（多选 tag） -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">作曲</label>
-              <ArtistTagInput v-model="song.composers" :artists="allArtists" filter-type="composer" />
+              <ArtistTagInput v-model="song.composers" :artists="allArtists" :session-names="sessionNewArtists" filter-type="composer" />
             </div>
           </div>
         </div>
@@ -439,6 +439,17 @@ const song = reactive({
   duration: '',
   lrcText: '',
   videoUrl: '',
+})
+
+// 会话内新建艺术家共享池：从各字段当前值实时派生（id 为 null 即本次新建），删除 tag 后自动出池
+const sessionNewArtists = computed(() => {
+  const names: string[] = []
+  for (const arr of [song.artists, song.albumArtists, song.lyricists, song.composers]) {
+    for (const t of arr) {
+      if (t.id === null && t.name && !names.includes(t.name)) names.push(t.name)
+    }
+  }
+  return names
 })
 
 // 专辑联想（单选；选中已有专辑 → 记录 id 并自动填充专辑艺术家/年份）

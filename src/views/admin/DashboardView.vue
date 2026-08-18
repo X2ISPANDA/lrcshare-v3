@@ -43,13 +43,6 @@
         <el-table-column label="提交时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
-          <template #default>
-            <RouterLink to="/admin/submissions">
-              <el-button link type="primary" size="small">审核</el-button>
-            </RouterLink>
-          </template>
-        </el-table-column>
       </el-table>
     </div>
   </div>
