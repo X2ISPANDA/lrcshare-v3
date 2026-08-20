@@ -471,10 +471,3 @@ const statusTagType = (s: string): any => ({ pending: 'warning', approved: 'succ
 const statusText = (s: string) => ({ pending: '待审核', approved: '已通过', rejected: '已拒绝' }[s] || s)
 const formatTime = (t: string) => (t ? new Date(t).toLocaleString('zh-CN') : '')
 </script>
-
-<style>
-/* ElMessageBox（拒绝原因输入等）在 el-dialog 之上打开时 z-index 偶发低于 dialog 被遮住，强制抬高 */
-.el-overlay.is-message-box {
-  z-index: 3000 !important;
-}
-</style>

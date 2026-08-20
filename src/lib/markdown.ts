@@ -2,6 +2,8 @@ import { marked } from 'marked'
 
 // referrer 由 index.html 的 <meta name="referrer" content="no-referrer"> 全局控制，这里不用管
 marked.use({
+  gfm: true,
+  breaks: true,
   renderer: {
     image(token) {
       const { href, title, text } = token
@@ -14,7 +16,7 @@ marked.use({
   },
 })
 
-/** Markdown 转 HTML（文章详情页渲染，逻辑迁移自 v2 post.html） */
+/** Markdown 转 HTML（文章详情页/文本歌词渲染，支持 md 语法 + 内嵌 HTML 标注） */
 export function mdToHtml(md: string | null | undefined): string {
   if (!md) return ''
   // 移除每行 4 空格缩进，避免被 marked 解析为代码块

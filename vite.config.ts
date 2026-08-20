@@ -6,6 +6,7 @@ import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import Icons from 'unplugin-icons/vite'
+import { FileSystemIconLoader } from 'unplugin-icons/loaders'
 import { createClient } from '@supabase/supabase-js'
 
 /**
@@ -54,7 +55,13 @@ export default defineConfig(({ mode }) => {
       AutoImport({ resolvers: [ElementPlusResolver()] }),
       Components({ resolvers: [ElementPlusResolver()] }),
       // Iconify 图标构建期按需打包（~icons/ 前缀，零运行时请求，替代 v2 的 iconify CDN）
-      Icons({ compiler: 'vue3' }),
+      // brand 集合 = iconfont.cn 精选彩色品牌 logo（src/assets/icons/*.svg，构建期内联，SSG 零闪烁）
+      Icons({
+        compiler: 'vue3',
+        customCollections: {
+          brand: FileSystemIconLoader('./src/assets/icons'),
+        },
+      }),
     ],
     resolve: {
       alias: {

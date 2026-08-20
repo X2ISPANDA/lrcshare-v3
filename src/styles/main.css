@@ -51,6 +51,114 @@
   overflow-y: auto;
 }
 
+/* ElMessageBox 在 el-dialog 之上打开时（注音/链接/注释输入、拒绝原因等），
+   Element Plus 动态 z-index 偶发低于 dialog 导致被遮住，全局强制抬高 */
+.el-overlay.is-message-box {
+  z-index: 3000 !important;
+}
+
+/* ===== 富文本歌词标注（迁移自老站 hexo bubble 插件；前台歌曲文本歌词 .rich-lyrics、
+   文章正文 .article-content、后台编辑预览 .rich-lyrics / .content-preview 四处共用）===== */
+/* Markdown 全量排版（Tailwind preflight 抹平了默认样式，按 marked GFM 输出元素清单逐项恢复：
+   标题/段落/引用/列表/分隔线/行内代码/代码块/表格/删除线/图片/任务列表/嵌套列表） */
+.rich-lyrics h1 { font-size: 1.6em; font-weight: 700; margin: 1.2em 0 0.6em; }
+.rich-lyrics h2 { font-size: 1.4em; font-weight: 700; margin: 1.1em 0 0.5em; }
+.rich-lyrics h3 { font-size: 1.2em; font-weight: 600; margin: 1em 0 0.4em; }
+.rich-lyrics h4 { font-size: 1.1em; font-weight: 600; margin: 0.9em 0 0.4em; }
+.rich-lyrics h5 { font-size: 1em; font-weight: 600; margin: 0.8em 0 0.4em; }
+.rich-lyrics h6 { font-size: 0.9em; font-weight: 600; margin: 0.8em 0 0.4em; color: #6b7280; }
+.rich-lyrics p { margin: 0.6em 0; }
+.rich-lyrics blockquote { border-left: 4px solid #ec4899; padding: 0.2em 0 0.2em 1rem; margin: 0.8em 0; color: #6b7280; background: rgba(236, 72, 153, 0.04); border-radius: 0 6px 6px 0; }
+.rich-lyrics blockquote p { margin: 0.4em 0; }
+.rich-lyrics ul { padding-left: 1.5rem; margin: 0.6em 0; list-style-type: disc; text-align: left; }
+.rich-lyrics ol { padding-left: 1.5rem; margin: 0.6em 0; list-style-type: decimal; text-align: left; }
+.rich-lyrics li { margin: 0.25em 0; }
+.rich-lyrics li > ul, .rich-lyrics li > ol { margin: 0.25em 0; }
+.rich-lyrics ul.contains-task-list { list-style-type: none; padding-left: 1.2rem; }
+.rich-lyrics li.task-list-item { list-style-type: none; }
+.rich-lyrics hr { margin: 1.2em auto; border-color: #e5e7eb; width: 60%; }
+.rich-lyrics :not(pre) > code {
+  background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px;
+  padding: 0.1em 0.35em; font-size: 0.88em; color: #db2777;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.rich-lyrics pre {
+  background: #1f2937; color: #f9fafb; border-radius: 8px;
+  padding: 0.9em 1.1em; margin: 0.8em 0; overflow-x: auto; text-align: left;
+}
+.rich-lyrics pre code { background: none; border: none; padding: 0; color: inherit; font-size: 0.88em; }
+.rich-lyrics table { border-collapse: collapse; margin: 0.8em auto; font-size: 0.95em; }
+.rich-lyrics th { border: 1px solid #e5e7eb; background: #f9fafb; padding: 0.4em 0.8em; font-weight: 600; }
+.rich-lyrics td { border: 1px solid #e5e7eb; padding: 0.4em 0.8em; }
+.rich-lyrics img { max-width: 100%; border-radius: 8px; margin: 0.6em auto; display: block; }
+.rich-lyrics s, .rich-lyrics del { text-decoration: line-through; color: #9ca3af; }
+
+.rich-lyrics .bubble-content,
+.article-content .bubble-content,
+.content-preview .bubble-content {
+  display: inline-block;
+  color: #e9a218;
+  font-weight: bold;
+  transition: all 0.2s ease-in-out;
+  cursor: help;
+}
+.rich-lyrics .bubble-content:hover,
+.article-content .bubble-content:hover,
+.content-preview .bubble-content:hover { color: #2c7fe7; }
+.rich-lyrics .bubble-content:hover + .bubble-notation .bubble-item,
+.article-content .bubble-content:hover + .bubble-notation .bubble-item,
+.content-preview .bubble-content:hover + .bubble-notation .bubble-item {
+  transform: translate(-40px, 10px) rotateX(0deg);
+  opacity: 1;
+}
+.rich-lyrics .bubble-notation,
+.article-content .bubble-notation,
+.content-preview .bubble-notation {
+  display: inline-block;
+  position: relative;
+}
+.rich-lyrics .bubble-item,
+.article-content .bubble-item,
+.content-preview .bubble-item {
+  transition: all 0.5s ease-in-out;
+  opacity: 0;
+  color: #fff;
+  z-index: 99;
+  display: flex;
+  position: absolute;
+  transform: translate(-40px, 10px) rotateX(90deg);
+  width: auto;
+  height: auto;
+  max-width: 400px;
+  overflow: hidden;
+  padding: 20px 10px 10px;
+  clip-path: polygon(5px 10px, 20px 10px, 30px 0, 40px 10px, calc(100% - 5px) 10px, 100% 15px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 15px, 5px 10px);
+}
+/* 译文语种色：粤语沿用老站青色（.p.cyan 老数据兼容），多语并列靠色区分 */
+.rich-lyrics span.p.cyan, .rich-lyrics span.p.t-yue,
+.article-content span.p.cyan, .article-content span.p.t-yue,
+.content-preview span.p.cyan, .content-preview span.p.t-yue { color: #1bcdfc; }
+.rich-lyrics span.p.t-en,
+.article-content span.p.t-en,
+.content-preview span.p.t-en { color: #3b82f6; }
+.rich-lyrics span.p.t-ja,
+.article-content span.p.t-ja,
+.content-preview span.p.t-ja { color: #ec4899; }
+.rich-lyrics span.p.t-ko,
+.article-content span.p.t-ko,
+.content-preview span.p.t-ko { color: #a855f7; }
+.rich-lyrics span.p.t-misc,
+.article-content span.p.t-misc,
+.content-preview span.p.t-misc { color: #059669; }
+/* 译文语种切换（前台歌曲页自动生成按钮组，data-lang 任意自定义语种名，
+   CSS 属性选择器无法匹配任意值 → SongView 里 JS 直接操作 DOM 显隐，此处无需规则。
+   t-* 类名规则仅保留给旧数据（新数据用 data-lang + inline color） */
+.rich-lyrics a,
+.content-preview a { color: #db2777; text-decoration: underline; text-underline-offset: 3px; }
+.rich-lyrics rt,
+.article-content rt,
+.content-preview rt { font-size: 0.5em; color: #9ca3af; }
+
 /* 全局统一滚动条：细条 + 圆角，常态灰色、hover 粉色（替代浏览器原生粗滚动条） */
 *::-webkit-scrollbar {
   width: 6px;

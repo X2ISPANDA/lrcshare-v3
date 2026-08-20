@@ -172,19 +172,11 @@
             <el-tab-pane label="LRC 歌词" name="lrc">
               <el-input v-model="form.lrc_text" type="textarea" :rows="8" placeholder="粘贴完整的 LRC 格式歌词..." class="font-mono!" />
             </el-tab-pane>
-            <el-tab-pane label="文本歌词 (HTML)" name="text">
-              <div class="flex flex-wrap gap-1 mb-2 items-center">
-                <span class="text-xs text-gray-400 mr-1">韵脚:</span>
-                <el-button v-for="c in RHYME_COLORS" :key="c.value" size="small" :style="{ backgroundColor: c.value, color: '#fff', border: 'none', minWidth: '28px', padding: '2px 6px' }" @click="wrapRhyme(c.value)">{{ c.name }}</el-button>
-                <el-divider direction="vertical" />
-                <el-button size="small" @click="wrapRuby">📝 注音</el-button>
-                <el-button size="small" @click="wrapTag('b')"><b>B</b></el-button>
-                <el-button size="small" @click="wrapTag('i')"><i>I</i></el-button>
-                <el-button size="small" @click="wrapLink">链接</el-button>
-              </div>
+            <el-tab-pane label="文本歌词 (Markdown/HTML)" name="text">
+              <RichTextToolbar :text="form.lyrics_text" :textarea-ref="lyricsTextRef" @update:text="v => form.lyrics_text = v" />
               <div class="flex gap-2">
-                <el-input v-model="form.lyrics_text" ref="lyricsTextRef" type="textarea" :rows="10" placeholder="HTML 格式文本歌词，选中文字后点上方按钮快速标注" class="flex-1 font-mono! text-[13px]!" />
-                <div class="flex-1 border border-gray-200 rounded p-3 overflow-y-auto max-h-72 text-sm" v-html="form.lyrics_text || '<span style=\'color:#c0c4cc\'>预览区</span>'"></div>
+                <el-input v-model="form.lyrics_text" ref="lyricsTextRef" type="textarea" :rows="10" placeholder="Markdown 或 HTML 格式文本歌词（支持混写：**加粗**、> 引用、工具栏按钮生成的 HTML 标注）" class="flex-1 font-mono! text-[13px]!" />
+                <RichContentView :html="lyricsPreview" class="flex-1 border border-gray-200 rounded p-3 overflow-y-auto max-h-72 text-sm" content-class="rich-lyrics" />
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -210,24 +202,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import { mdToHtml } from '@/lib/markdown'
 import { adminApi } from '@/lib/adminApi'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
+import RichContentView from '@/components/common/RichContentView.vue'
 import type { Artist, Contributor } from '@/lib/types'
 
 /** 歌曲管理：列表 + 新增/编辑（专辑锁定、艺术家自动补建、双歌词 tab、隐藏口令） */
 
 const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
 const TIP_ICONS: Record<string, string> = { bell: '🔔', info: 'ℹ️', success: '✅', warning: '⚠️', danger: '❌', tip: '💡', note: '📝', important: '❗' }
-const RHYME_COLORS = [
-  { name: '红', value: 'red' }, { name: '番茄', value: 'tomato' }, { name: '巧', value: 'chocolate' }, { name: '粉', value: 'pink' },
-  { name: '灰', value: 'gray' }, { name: '棕褐', value: 'tan' }, { name: '秘鲁', value: 'peru' }, { name: '珊瑚', value: 'coral' },
-  { name: '砖', value: 'firebrick' }, { name: '橙', value: 'orange' }, { name: '绿', value: 'green' }, { name: '蓝', value: 'blue' },
-  { name: '紫', value: 'purple' }, { name: '紫罗', value: 'violet' }, { name: '青', value: 'cyan' }, { name: '金', value: 'gold' },
-]
 
 const route = useRoute()
 const songs = ref<any[]>([])
@@ -397,6 +386,10 @@ function selectAlbum(a: any) {
 }
 
 // ============ 简介 tip 插入与预览 ============
+/** 文本歌词预览：与前台 SongView 一致走 marked（md + 内嵌 HTML），breaks 开启单行换行 */
+const lyricsPreview = computed(() =>
+  form.lyrics_text ? mdToHtml(form.lyrics_text) : '<span style="color:#c0c4cc">预览区</span>')
+
 const descPreview = computed(() => {
   const text = form.description
   if (!text) return ''
@@ -409,67 +402,6 @@ const descPreview = computed(() => {
 
 function insertTip(type: string) {
   form.description += `\n{% tip ${type} %}在此输入提示内容{% endtip %}\n`
-}
-
-// ============ HTML 歌词标注工具 ============
-function getLyricsTextarea(): HTMLTextAreaElement | null {
-  const el = lyricsTextRef.value?.$el
-  return el?.querySelector?.('textarea') || null
-}
-
-function wrapSelection(prefix: string, suffix: string) {
-  const ta = getLyricsTextarea()
-  if (!ta) return
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  const text = form.lyrics_text || ''
-  const sel = text.substring(start, end)
-  if (!sel) {
-    ElMessage.warning('请先选中要标注的文字')
-    return
-  }
-  form.lyrics_text = text.substring(0, start) + prefix + sel + suffix + text.substring(end)
-  nextTick(() => {
-    ta.focus()
-    ta.setSelectionRange(start + prefix.length, start + prefix.length + sel.length)
-  })
-}
-
-const wrapRhyme = (color: string) => wrapSelection(`<span style="color:${color}"><b>`, '</b></span>')
-const wrapTag = (tag: string) => wrapSelection(`<${tag}>`, `</${tag}>`)
-
-async function wrapRuby() {
-  const ta = getLyricsTextarea()
-  if (!ta) return
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  const text = form.lyrics_text || ''
-  const sel = text.substring(start, end)
-  if (!sel) {
-    ElMessage.warning('请先选中要注音的文字')
-    return
-  }
-  try {
-    const { value } = await ElMessageBox.prompt('请输入读音（如：zhù yīn）', '注音', { confirmButtonText: '确定', cancelButtonText: '取消' })
-    form.lyrics_text = text.substring(0, start) + `<ruby><rb>${sel}</rb><rt>${value}</rt></ruby>` + text.substring(end)
-  } catch { /* cancelled */ }
-}
-
-async function wrapLink() {
-  const ta = getLyricsTextarea()
-  if (!ta) return
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  const text = form.lyrics_text || ''
-  const sel = text.substring(start, end)
-  if (!sel) {
-    ElMessage.warning('请先选中要添加链接的文字')
-    return
-  }
-  try {
-    const { value } = await ElMessageBox.prompt('请输入链接地址', '链接', { confirmButtonText: '确定', cancelButtonText: '取消' })
-    form.lyrics_text = text.substring(0, start) + `<a href="${value}" target="_blank">${sel}</a>` + text.substring(end)
-  } catch { /* cancelled */ }
 }
 
 // ============ 保存 ============

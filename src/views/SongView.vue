@@ -107,7 +107,12 @@
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
         </div>
         <div class="p-6 md:p-8">
-          <div v-show="activeTab === 'text'" class="text-center leading-loose text-gray-700 text-lg" v-html="textLyricsHtml"></div>
+          <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
+          <RichContentView
+            v-show="activeTab === 'text'"
+            :html="textLyricsHtml"
+            content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
+          />
           <div v-show="activeTab === 'lrc'" class="text-left leading-relaxed text-lg">
             <div v-for="(line, i) in lrcLines" :key="i" class="lyric-line py-1" :class="{ 'pl-2': !line.time }">
               <span v-if="line.time" class="lrc-time mr-2">{{ line.time }}</span>
@@ -184,6 +189,7 @@ import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
 import RewardModal from '@/components/common/RewardModal.vue'
+import RichContentView from '@/components/common/RichContentView.vue'
 import CreditLinks from '@/components/song/CreditLinks.vue'
 import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
 
@@ -333,11 +339,13 @@ function switchLyricsTab(key: 'text' | 'lrc') {
   router.replace({ query: key === 'lrc' ? { ...route.query, tab: 'lrc' } : { ...route.query, tab: undefined } })
 }
 
-/** 文本歌词：lyrics_text（富文本）优先，否则从 LRC 提取纯文本 */
+/** 文本歌词：lyrics_text（Markdown + 内嵌 HTML）优先，否则从 LRC 提取纯文本。
+ *  lyrics_text 走 marked 解析（支持 md 语法 + 工具栏生成的内嵌 HTML 标注）；
+ *  marked 默认不换行，歌词逐行内容用 breaks 选项把 \n 渲染成 <br> */
 const textLyricsHtml = computed(() => {
   const s = song.value
   if (!s) return ''
-  if (s.lyrics_text) return s.lyrics_text.replace(/\n/g, '<br>')
+  if (s.lyrics_text) return mdToHtml(s.lyrics_text)
   const text = (s.lrc_text || '')
     .replace(/\[.*?\]/g, '')
     .split('\n')

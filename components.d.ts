@@ -50,6 +50,8 @@ declare module 'vue' {
     ElTag: typeof import('element-plus/es')['ElTag']
     ImgPreview: typeof import('./src/components/layout/ImgPreview.vue')['default']
     RewardModal: typeof import('./src/components/common/RewardModal.vue')['default']
+    RichContentView: typeof import('./src/components/common/RichContentView.vue')['default']
+    RichTextToolbar: typeof import('./src/components/admin/RichTextToolbar.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchOverlay: typeof import('./src/components/layout/SearchOverlay.vue')['default']

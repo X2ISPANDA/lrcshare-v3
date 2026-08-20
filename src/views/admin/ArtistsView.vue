@@ -157,6 +157,7 @@ const SOCIAL_KEYS = [
   { key: 'bilibili', label: 'B站', placeholder: 'https://space.bilibili.com/...' },
   { key: 'netease', label: '网易', placeholder: 'https://music.163.com/#/artist?id=...' },
   { key: 'qq', label: 'QQ音乐', placeholder: 'https://y.qq.com/...' },
+  { key: 'spotify', label: 'Spotify', placeholder: 'https://open.spotify.com/artist/...' },
 ] as const
 
 const artists = ref<Artist[]>([])

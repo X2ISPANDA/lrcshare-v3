@@ -97,9 +97,12 @@
           <el-input v-model="form.summary" type="textarea" :rows="2" placeholder="列表页展示的摘要（选填，留空自动截取正文）" />
         </el-form-item>
         <el-form-item label="正文">
-          <div class="flex gap-2 w-full">
-            <el-input v-model="form.content" type="textarea" :rows="14" placeholder="Markdown 格式正文..." class="flex-1 font-mono! text-[13px]!" />
-            <div class="flex-1 border border-gray-200 rounded p-3 overflow-y-auto max-h-96 text-sm content-preview" v-html="contentPreview"></div>
+          <div class="w-full">
+            <RichTextToolbar :text="form.content" :textarea-ref="contentRef" @update:text="v => form.content = v" />
+            <div class="flex gap-2 w-full">
+              <el-input v-model="form.content" ref="contentRef" type="textarea" :rows="14" placeholder="Markdown 格式正文（支持内嵌 HTML 标注）..." class="flex-1 font-mono! text-[13px]!" />
+              <RichContentView :html="contentPreview" class="flex-1 border border-gray-200 rounded p-3 overflow-y-auto max-h-96 text-sm" content-class="content-preview" />
+            </div>
           </div>
         </el-form-item>
         <el-form-item label="置顶排序">
@@ -122,6 +125,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { adminApi } from '@/lib/adminApi'
+import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
+import RichContentView from '@/components/common/RichContentView.vue'
 import type { Article } from '@/lib/types'
 
 /** 文章管理：列表（分类筛选、草稿标记）+ Markdown 编辑带实时预览 */
@@ -141,6 +146,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const selected = ref<Article[]>([])
 const tableRef = ref()
+const contentRef = ref()
 
 function typeLabel(t: string | null) {
   return TYPE_OPTIONS.find(o => o.value === t)?.label.replace(/^\S+\s/, '') || t || '文章'

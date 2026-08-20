@@ -7,6 +7,7 @@
       <div
         ref="bgCardRef"
         class="artist-bg-card rounded-2xl shadow-sm overflow-hidden relative"
+        :class="bgEdit ? 'cursor-ns-resize' : ''"
       >
         <img
           :src="artist.bg_image || HERO_BG_URL"
@@ -16,47 +17,61 @@
           @click="ui.openPreview([artist.bg_image || HERO_BG_URL, avatar], 0)"
         />
         <div class="artist-bg-content px-6 py-6">
-          <div class="flex flex-col md:flex-row items-center md:items-end gap-4">
-            <img
-              :src="avatar"
-              :alt="artist.name"
-              class="w-28 h-28 rounded-full border-4 border-white shadow-lg bg-gray-200 cursor-zoom-in"
-              @click="ui.openPreview([avatar, artist.bg_image || HERO_BG_URL], 0)"
-            />
-            <div class="pb-2 text-center md:text-left">
-              <div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
-                <h1 class="text-3xl font-bold text-white drop-shadow">
-                  {{ artist.name }}
-                  <span v-if="artist.disambiguation" class="text-base font-normal text-white/80 ml-1">({{ artist.disambiguation }})</span>
-                  <span v-if="artist.aliases?.length" class="text-lg font-normal text-white/70 ml-2">{{ artist.aliases.join(' / ') }}</span>
-                </h1>
-              </div>
-              <div v-if="socialEntries.length" class="flex items-center gap-1.5 mt-2">
-                <a
-                  v-for="[key, url] in socialEntries"
-                  :key="key"
-                  :href="url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center justify-center w-10 h-10 text-white hover:text-pink-200 transition"
-                ><AppIcon :name="key" class="w-8 h-8" /></a>
-              </div>
-              <div class="flex items-center gap-2 mt-2 flex-wrap">
-                <span
-                  v-for="t in artist.types || ['singer']"
-                  :key="t"
-                  class="text-sm bg-gradient-to-r text-white px-3 py-1 rounded-full"
-                  :class="ARTIST_TYPE_GRADIENTS[t] || 'from-gray-500 to-gray-600'"
-                >{{ ARTIST_TYPE_ICONS[t] || '🎨' }} {{ ARTIST_TYPE_LABELS[t] || t }}</span>
+          <div class="flex flex-col lg:flex-row gap-5 lg:gap-6">
+            <div class="flex flex-col md:flex-row items-center gap-4 flex-1 min-w-0">
+              <img
+                :src="avatar"
+                :alt="artist.name"
+                class="w-[calc(var(--spacing)*35)] h-[calc(var(--spacing)*35)] rounded-full border-4 border-white shadow-lg bg-gray-200 cursor-zoom-in"
+                @click="ui.openPreview([avatar, artist.bg_image || HERO_BG_URL], 0)"
+              />
+              <div class="text-center md:text-left min-w-0">
+                <div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
+                  <h1 class="text-3xl font-bold text-white drop-shadow">
+                    {{ artist.name }}
+                    <span v-if="artist.disambiguation" class="text-base font-normal text-white/80 ml-1">({{ artist.disambiguation }})</span>
+                    <span v-if="artist.aliases?.length" class="text-lg font-normal text-white/70 ml-2">{{ artist.aliases.join(' / ') }}</span>
+                  </h1>
+                </div>
+                <div v-if="socialEntries.length" class="flex items-center gap-1 mt-2">
+                  <a
+                    v-for="[key, url] in socialEntries"
+                    :key="key"
+                    :href="url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center justify-center w-8 h-8 text-white hover:text-pink-200 transition"
+                  ><AppIcon :name="key" class="w-5.5 h-5.5" /></a>
+                </div>
+                <div class="flex items-center gap-2 mt-2 flex-wrap justify-center md:justify-start">
+                  <span
+                    v-for="t in artist.types || ['singer']"
+                    :key="t"
+                    class="text-sm bg-gradient-to-r text-white px-3 py-1 rounded-full"
+                    :class="ARTIST_TYPE_GRADIENTS[t] || 'from-gray-500 to-gray-600'"
+                  >{{ ARTIST_TYPE_ICONS[t] || '🎨' }} {{ ARTIST_TYPE_LABELS[t] || t }}</span>
+                </div>
+                <div class="flex gap-5 mt-2.5 text-sm text-white/80 justify-center md:justify-start">
+                  <span class="flex items-center gap-1">🎵 {{ songs.length }} 首作品</span>
+                  <span v-if="albums.length" class="flex items-center gap-1">📀 {{ albums.length }} 张专辑</span>
+                </div>
               </div>
             </div>
-          </div>
-          <p class="mt-4 text-white/90">{{ artist.bio || '暂无简介' }}</p>
-          <div class="flex gap-6 mt-4 text-sm text-white/80 justify-center md:justify-start">
-            <span class="flex items-center gap-1">🎵 {{ songs.length }} 首作品</span>
-            <span v-if="albums.length" class="flex items-center gap-1">📀 {{ albums.length }} 张专辑</span>
+            <!-- 右侧简介面板（固定宽度防挤压主信息列，长文内部滚动，无简介则整块不渲染） -->
+            <div v-if="artist.bio" class="bio-panel lg:w-[420px] lg:flex-none">
+              <div class="bio-inner">{{ artist.bio }}</div>
+            </div>
           </div>
         </div>
+        <!-- 背景位置调整开关（隐蔽：右下角小按钮，开启后滚轮/拖拽才生效） -->
+        <button
+          class="bg-edit-toggle"
+          :class="bgEdit ? 'bg-edit-on' : ''"
+          :title="bgEdit ? '退出背景调整' : '调整背景位置'"
+          @click="bgEdit = !bgEdit"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8.59 16.34L4 12l4.59-4.34L9.42 8.5L6.85 11H15v2H6.85l2.57 2.5zM15.41 7.66L20 12l-4.59 4.34l-.83-.84L17.15 13H9v-2h8.15l-2.57-2.5z"/></svg>
+        </button>
       </div>
 
       <!-- Tabs -->
@@ -245,12 +260,10 @@ const socialEntries = computed<[string, string][]>(() =>
   Object.entries(artist.value?.urls || {}).filter(([, v]) => v && v.trim()) as [string, string][],
 )
 
-/** 按类型 + 实际歌曲数生成标签页（迁移自 v2 renderTabs） */
+/** 按实际歌曲贡献生成标签页（不依赖 artist.types——types 漏标时（如 GAI 作曲）歌曲署名才是事实来源） */
 const tabs = computed(() => {
-  const types = artist.value?.types || ['singer']
   const result: { key: string; label: string; count: number }[] = []
   for (const t of ['singer', 'lyricist', 'composer', 'arranger'] as const) {
-    if (!types.includes(t)) continue
     const count = songs.value.filter(s => s.contributions.includes(t)).length
     if (count > 0) result.push({ key: t, label: `${ARTIST_TYPE_ICONS[t]} ${TAB_LABELS[t]}`, count })
   }
@@ -284,8 +297,9 @@ const tabSongs = computed(() => {
   return songs.value.filter(s => s.contributions.includes(activeTab.value))
 })
 
-// ============ 背景图上下调整（滚轮 + 拖拽，仅本地视觉，迁移自 v2） ============
+// ============ 背景图上下调整（隐蔽模式：右下角开关开启后，滚轮 + 拖拽才生效） ============
 const bgCardRef = ref<HTMLElement>()
+const bgEdit = ref(false)
 const bgPosY = ref(50)
 const hint = ref('')
 
@@ -306,7 +320,10 @@ function applyPos() {
 }
 
 // setup 顶层注册（VueUse 自动跟随组件卸载清理；客户端 only）
+// 仅调整模式开启时拦截滚轮；bio 简介面板内部滚动永不触发
 useEventListener(bgCardRef, 'wheel', (e: WheelEvent) => {
+  if (!bgEdit.value) return
+  if ((e.target as HTMLElement).closest('.bio-panel')) return
   e.preventDefault()
   bgPosY.value += e.deltaY > 0 ? 3 : -3
   applyPos()
@@ -315,7 +332,8 @@ useEventListener(bgCardRef, 'wheel', (e: WheelEvent) => {
 // window 监听仅客户端注册（SSG 服务端渲染无 window，直接引用会抛 ReferenceError）
 if (!import.meta.env.SSR) {
   useEventListener(window, 'pointerdown', (e: PointerEvent) => {
-    if ((e.target as HTMLElement).closest('a, img')) return
+    if (!bgEdit.value) return
+    if ((e.target as HTMLElement).closest('a, img, button, .bio-panel')) return
     dragging = true
     lastY = e.clientY
   })
@@ -335,7 +353,35 @@ onUnmounted(() => clearTimeout(hintTimer))
 .artist-bg-card {
   position: relative;
   min-height: 200px;
-  cursor: ns-resize;
+}
+/* 背景调整开关：左上角隐蔽小按钮（远离 bio 面板，半透明，hover 才明显，开启后粉色高亮） */
+.bg-edit-toggle {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.bg-edit-toggle:hover {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+.bg-edit-on {
+  background: #ec4899;
+  border-color: #ec4899;
+  color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.25);
 }
 .artist-bg-img {
   position: absolute;
@@ -355,6 +401,25 @@ onUnmounted(() => clearTimeout(hintTimer))
 .artist-bg-content {
   position: relative;
   z-index: 2;
+}
+/* 右侧简介面板：竖直居中，毛玻璃卡片，长文内部滚动（全局细滚动条） */
+.bio-panel {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.bio-inner {
+  background: rgba(17, 24, 39, 0.62);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.95);
+  max-height: 176px;
+  overflow-y: auto;
+  width: 100%;
 }
 .tab-active { color: #ec4899; border-bottom: 3px solid #ec4899; }
 .tab-inactive { color: #6b7280; border-bottom: 3px solid transparent; }
