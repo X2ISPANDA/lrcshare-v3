@@ -78,10 +78,22 @@
         </div>
       </div>
 
-      <!-- 歌曲简介 -->
-      <div v-if="song.description" class="bg-white rounded-2xl shadow-sm p-6 mb-6">
-        <h3 class="text-lg font-bold text-gray-800 mb-3">📝 歌曲简介</h3>
-        <div class="text-gray-600 leading-relaxed article-content" v-html="descriptionHtml"></div>
+      <!-- 歌曲简介（毛玻璃渐变卡：粉色微渐变底 + blur + 顶部渐变高光条，标志性现代卡片） -->
+      <div v-if="song.description" class="mb-6">
+        <div class="relative overflow-hidden rounded-2xl border border-pink-200/60
+                    bg-gradient-to-br from-pink-50/90 via-white to-purple-50/70
+                    backdrop-blur-sm shadow-[0_2px_12px_-4px_rgba(236,72,153,0.15)]">
+          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-pink-400 via-pink-300 to-purple-300"></div>
+          <div class="flex items-start gap-3 px-5 pt-5 pb-5 md:px-6">
+            <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-400 to-pink-500 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <svg class="w-4.5 h-4.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
+                <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
+              </svg>
+            </span>
+            <div class="text-sm text-gray-600 leading-relaxed article-content min-w-0" v-html="descriptionHtml"></div>
+          </div>
+        </div>
       </div>
 
       <!-- 视频播放器 -->
@@ -101,6 +113,16 @@
       </div>
 
       <!-- Lyrics Section（tab 行吸顶：滚动歌词时 tab 常驻导航栏下方） -->
+      <!-- 版权声明：歌词卡片上方、tab 栏之前，两 tab 共用一处（两侧渐变线 + © 徽标；
+           小屏收起装饰线，徽标居中置顶 + 文字居中换行，避免行内折行错位） -->
+      <div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 mb-4 sm:mb-3 px-1 md:px-2">
+        <span class="hidden sm:block h-px flex-1 bg-gradient-to-r from-transparent to-amber-300/70"></span>
+        <p class="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-2 text-amber-700/90 text-xs sm:text-sm tracking-wide text-center max-w-xs sm:max-w-none">
+          <span class="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white text-[10px] flex items-center justify-center flex-shrink-0 shadow-sm">&copy;</span>
+          <span>本页面中所使用的歌词，其著作权属于原著作权人，仅以交流学习为目的引用。</span>
+        </p>
+        <span class="hidden sm:block h-px flex-1 bg-gradient-to-l from-transparent to-amber-300/70"></span>
+      </div>
       <div ref="lyricsCardRef" class="bg-white rounded-2xl shadow-sm mb-6">
         <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>

@@ -84,6 +84,9 @@
         <el-form-item label="封面 URL">
           <el-input v-model="form.cover" placeholder="留空使用默认封面" />
         </el-form-item>
+        <el-form-item label="专辑介绍">
+          <el-input v-model="form.description" type="textarea" :rows="4" placeholder="Markdown 格式，选填。展示在专辑页歌曲列表上方" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showDialog = false">取消</el-button>
@@ -169,6 +172,7 @@ const form = reactive({
   year: '',
   cover: '',
   initial: '',
+  description: '',
 })
 /** 新建实体（无 id tag）的前台展示开关，默认不展示（多为唱片公司/平台） */
 const newArtistShow = reactive<Record<string, boolean>>({})
@@ -177,7 +181,7 @@ const newArtistNames = computed(() => form.artists.filter(t => !t.id).map(t => t
 
 function openNew() {
   editing.value = null
-  Object.assign(form, { name: '', artists: [], year: '', cover: '', initial: '' })
+  Object.assign(form, { name: '', artists: [], year: '', cover: '', initial: '', description: '' })
   Object.keys(newArtistShow).forEach(k => delete newArtistShow[k])
   showDialog.value = true
 }
@@ -190,6 +194,7 @@ function openEdit(row: Album) {
     year: row.year ? String(row.year) : '',
     cover: row.cover || '',
     initial: row.initial || '',
+    description: row.description || '',
   })
   Object.keys(newArtistShow).forEach(k => delete newArtistShow[k])
   showDialog.value = true
@@ -226,6 +231,7 @@ async function save() {
       year: form.year.trim() ? parseInt(form.year.trim()) : null,
       cover: form.cover.trim() || '',
       initial: form.initial.trim().toUpperCase() || null,
+      description: form.description.trim() || null,
     }
     if (editing.value) {
       await adminApi.update('albums', editing.value.id, payload)

@@ -41,6 +41,8 @@ export interface Album {
   artist_ids: string[] | null
   /** 人工覆盖的拼音首字母（A-Z 或 #），空则前端自动计算（多音字兜底） */
   initial?: string | null
+  /** 专辑介绍（Markdown 富文本，前台专辑页展示） */
+  description?: string | null
   created_at?: string
 }
 

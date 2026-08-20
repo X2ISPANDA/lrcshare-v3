@@ -33,6 +33,24 @@
         </div>
       </div>
 
+      <!-- 专辑介绍（毛玻璃渐变卡，与歌曲简介同款样式） -->
+      <div v-if="descriptionHtml" class="mx-4 md:mx-6 mt-5">
+        <div class="relative overflow-hidden rounded-2xl border border-pink-200/60
+                    bg-gradient-to-br from-pink-50/90 via-white to-purple-50/70
+                    backdrop-blur-sm shadow-[0_2px_12px_-4px_rgba(236,72,153,0.15)]">
+          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-pink-400 via-pink-300 to-purple-300"></div>
+          <div class="flex items-start gap-3 px-5 pt-5 pb-5 md:px-6">
+            <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-400 to-pink-500 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <svg class="w-4.5 h-4.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
+                <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
+              </svg>
+            </span>
+            <div class="text-sm text-gray-600 leading-relaxed article-content min-w-0" v-html="descriptionHtml"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- 歌曲列表（多碟专辑按 Disc 分组，单碟维持原样） -->
       <template v-if="songs.length">
         <div v-for="group in discGroups" :key="group.disc">
@@ -114,6 +132,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api, formatDuration } from '@/lib/api'
+import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
@@ -157,6 +176,7 @@ const album = computed(() => page.value?.album)
 const songs = computed(() => page.value?.songs || [])
 const artistMap = computed(() => new Map((page.value?.artists || []).map(a => [a.id, a])))
 const cover = computed(() => album.value?.cover || LOGO_URL)
+const descriptionHtml = computed(() => mdToHtml(album.value?.description))
 
 /** 按碟号分组（disc 为空视为 Disc 1）；单碟时 hasMultipleDiscs=false，不显示分组标题 */
 const discGroups = computed(() => {

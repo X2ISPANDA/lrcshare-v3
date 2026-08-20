@@ -2,6 +2,7 @@
   <footer class="bg-gray-800 text-white py-12 mt-12">
     <div class="max-w-6xl mx-auto px-4 text-center">
       <p class="mb-4">&copy; 2023-2026 LrcShare. 全球最小滚动歌词分享网站</p>
+      <p class="mb-4 text-xs text-gray-500">本网站中所使用的歌词，其著作权属于原著作权人，仅以交流学习为目的引用。</p>
       <p class="mb-2 text-sm text-gray-400">
         <span v-show="pvReady">👁 总访问量 <span id="busuanzi_value_site_pv"></span> 次</span>
         <span class="mx-2">·</span>
