@@ -253,7 +253,7 @@ export const api = {
     let query = supabase
       .from('songs')
       .select(
-        'id, title, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, created_at, albums(name, cover)',
+        'id, title, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, cover, created_at, albums(name, cover)',
       )
       .eq('status', 'published')
       .order('created_at', { ascending: false })

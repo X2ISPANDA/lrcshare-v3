@@ -96,18 +96,45 @@
         </div>
       </div>
 
-      <!-- 视频播放器 -->
-      <div v-if="video" class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+      <!-- 视频播放器（悬浮小窗：滚出视口时同一 iframe fixed 到右下角，播放不中断；YouTube/B站通用） -->
+      <div v-if="video" ref="videoSlotRef" class="bg-white rounded-2xl shadow-sm p-6 mb-6">
         <h3 class="text-lg font-bold text-gray-800 mb-3">▶️ 视频播放</h3>
         <div class="flex justify-center">
-          <iframe
-            v-if="video.type === 'iframe'"
-            :src="video.src"
-            scrolling="no"
-            frameborder="no"
-            allowfullscreen
-            class="w-full max-w-[640px] h-[360px] rounded-xl"
-          ></iframe>
+          <template v-if="video.type === 'iframe'">
+            <!-- 原位槽位：恒定 640×360 占位，悬浮时布局零跳动 -->
+            <div class="relative w-full max-w-[640px] h-[360px]">
+              <!-- 悬浮期间原位提示（可点击滚回视频） -->
+              <div
+                v-if="videoFloating"
+                class="absolute inset-0 z-0 rounded-xl border border-dashed border-pink-200 bg-gradient-to-br from-pink-50/60 to-purple-50/40 flex flex-col items-center justify-center gap-1.5 cursor-pointer select-none"
+                @click="backToVideo"
+              >
+                <span class="text-3xl">📺</span>
+                <p class="text-sm text-gray-500">视频正在右下角小窗播放</p>
+                <p class="text-xs text-pink-500">点击此处返回视频 ↑</p>
+              </div>
+              <!-- 播放器本体：悬浮时整个容器 fixed 到右下角；同一 iframe 不卸载、播放不中断 -->
+              <div class="relative w-full h-full" :class="videoFloating ? 'video-mini' : ''">
+                <iframe
+                  ref="ytIframeRef"
+                  :src="video.src"
+                  scrolling="no"
+                  frameborder="no"
+                  :referrerpolicy="video.src.includes('youtube.com') ? 'strict-origin-when-cross-origin' : undefined"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen
+                  class="w-full h-full rounded-xl"
+                  @load="armYtListener"
+                ></iframe>
+                <button
+                  v-if="videoFloating"
+                  class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white text-sm leading-none flex items-center justify-center shadow transition-colors"
+                  title="关闭小窗（暂停播放）"
+                  @click="closeMini"
+                >✕</button>
+              </div>
+            </div>
+          </template>
           <a v-else :href="video.src" target="_blank" class="text-pink-600 hover:underline break-all">{{ video.src }}</a>
         </div>
       </div>
@@ -198,7 +225,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { ElMessage } from 'element-plus'
@@ -299,7 +326,7 @@ async function unlock() {
 }
 
 // ============ 展示 computed ============
-const cover = computed(() => song.value?.album_cover || song.value?.artists[0]?.avatar || LOGO_URL)
+const cover = computed(() => song.value?.cover || song.value?.album_cover || song.value?.artists[0]?.avatar || LOGO_URL)
 
 /** 作词/作曲/编曲：逗号分隔的艺术家 id → 链接数组（查找范围含 credit 字段专属艺术家，如编曲人不在 artist_ids 中） */
 function resolveField(ids: string | null | undefined): { id: string; name: string }[] {
@@ -347,9 +374,92 @@ const video = computed<{ type: 'iframe' | 'link'; src: string } | null>(() => {
     const watch = url.match(/[?&]v=([^&]+)/)
     const short = url.match(/youtu\.be\/([^?&]+)/)
     const vid = watch ? watch[1] : short ? short[1] : ''
-    if (vid) return { type: 'iframe', src: `https://www.youtube.com/embed/${vid}` }
+    // enablejsapi=1：开启 postMessage 通道，用于检测播放状态（小窗仅在播放过后悬浮）
+    if (vid) return { type: 'iframe', src: `https://www.youtube.com/embed/${vid}?enablejsapi=1` }
   }
   return { type: 'link', src: url }
+})
+
+// ============ 视频悬浮小窗（YouTube 官方式，B站同待遇） ============
+/** 原位卡片 ref：始终留在文档流中做可见性检测（悬浮时槽位保留 360px，布局不跳动） */
+const videoSlotRef = ref<HTMLElement | null>(null)
+const videoSlotVisible = useElementVisibility(videoSlotRef)
+
+const isYt = computed(() => !!video.value?.src.includes('youtube.com'))
+const isBili = computed(() => !!video.value?.src.includes('bilibili.com'))
+const ytIframeRef = ref<HTMLIFrameElement | null>(null)
+/** 用户至少播放过一次（对齐官方：未播放的视频不弹小窗） */
+const videoStarted = ref(false)
+/** 手动关闭小窗后本次不再弹出；滚回视频区自动重新武装 */
+const miniDismissed = ref(false)
+
+/** 悬浮开关：可悬浮平台（YT/B站）+ 播放过 + 未手动关闭 + 原位卡片滚出视口 */
+const videoFloating = computed(() =>
+  (isYt.value || isBili.value) && videoStarted.value && !miniDismissed.value && !videoSlotVisible.value
+)
+
+/** B站播放器无 postMessage 状态推送：点击跨域 iframe 时父窗口失焦且
+ *  document.activeElement 变为该 iframe，借此检测"用户播放过"（移动端由滚出视口时的兜底检查覆盖） */
+function checkBiliStarted() {
+  if (videoStarted.value || !isBili.value) return
+  if (document.activeElement === ytIframeRef.value) videoStarted.value = true
+}
+
+// 滚回视频区 → 重新武装小窗；滚出视口 → B站兜底检测一次
+watch(videoSlotVisible, visible => {
+  if (visible) miniDismissed.value = false
+  else checkBiliStarted()
+})
+
+/** YouTube 播放状态：iframe 启用 enablejsapi 后监听 postMessage（infoDelivery.playerState：1=播放中） */
+function onYtMessage(e: MessageEvent) {
+  if (e.origin !== 'https://www.youtube.com') return
+  try {
+    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
+    if (data?.event === 'infoDelivery' && data.info?.playerState === 1) videoStarted.value = true
+  } catch { /* 非 JSON 载荷忽略 */ }
+}
+
+/** 点击 B站 iframe → 父窗口失焦，此时 activeElement 已指向 iframe */
+function onWinBlur() {
+  checkBiliStarted()
+}
+
+/** iframe load 后向 YouTube 播放器发 listening 握手（播放器才会开始推送状态事件），延迟补发一次防竞态 */
+function armYtListener() {
+  if (!isYt.value) return
+  const send = () =>
+    ytIframeRef.value?.contentWindow?.postMessage(
+      JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }),
+      '*',
+    )
+  send()
+  setTimeout(send, 1500)
+}
+
+function closeMini() {
+  miniDismissed.value = true
+  // 顺手暂停，关窗后不再出声（B站 iframe 播放器 postMessage 控制，尽力而为）
+  const win = ytIframeRef.value?.contentWindow
+  if (isYt.value) {
+    win?.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*')
+  } else if (isBili.value) {
+    win?.postMessage({ type: 'pause' }, '*')
+  }
+}
+
+/** 点击原位占位提示 → 平滑滚回视频 */
+function backToVideo() {
+  videoSlotRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+onMounted(() => {
+  window.addEventListener('message', onYtMessage)
+  window.addEventListener('blur', onWinBlur)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onYtMessage)
+  window.removeEventListener('blur', onWinBlur)
 })
 
 // ============ 歌词 ============
@@ -432,6 +542,30 @@ function shareSong() {
 <style scoped>
 .gradient-header {
   background: linear-gradient(135deg, #1e1b4b 0%, #7c3aed 50%, #ec4899 100%);
+}
+
+/* YouTube 悬浮小窗：容器 fixed 到右下角（iframe 不卸载，播放不中断） */
+.video-mini {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  width: min(20rem, calc(100vw - 2.5rem));
+  height: auto;
+  aspect-ratio: 16 / 9;
+  z-index: 60;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 12px 40px -10px rgb(0 0 0 / 0.4);
+  animation: mini-pop-in 0.25s ease-out;
+}
+/* 小屏抬高避开居中的「复制 LRC」胶囊 */
+@media (max-width: 767px) {
+  .video-mini { bottom: 4.75rem; }
+}
+@keyframes mini-pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
 }
 .lyric-line { transition: all 0.2s; padding: 4px 0; }
 .lyric-line:hover { color: inherit; transform: none; }

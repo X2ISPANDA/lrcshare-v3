@@ -46,19 +46,8 @@
             </div>
           </RouterLink>
           <p v-if="c.public_bio !== false && c.bio" class="text-sm text-gray-600 mt-2">{{ c.bio }}</p>
-          <!-- 联系方式（仅 URL 类型） -->
-          <div v-if="urlContacts(c).length" class="flex items-center gap-1 mt-3 relative z-10">
-            <a
-              v-for="[key, url] in urlContacts(c)"
-              :key="key"
-              :href="url"
-              target="_blank"
-              rel="noopener noreferrer"
-              :title="key"
-              class="inline-flex items-center justify-center w-6 h-6 text-gray-500 hover:text-pink-600 transition"
-              @click.stop
-            ><AppIcon :name="key" class="w-5 h-5" /></a>
-          </div>
+          <!-- 联系方式（全量：URL 跳转/QQ 一键加好友/其余点击复制，与贡献者主页一致） -->
+          <ContactIcons :contributor="c" class="mt-3 relative z-10" />
         </div>
       </div>
     </div>
@@ -79,7 +68,7 @@ import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
-import AppIcon from '@/components/common/AppIcon.vue'
+import ContactIcons from '@/components/contributor/ContactIcons.vue'
 import type { Contributor } from '@/lib/types'
 
 useHead({
@@ -106,23 +95,11 @@ function chipColor(tag: string): string {
   if (t.includes('LOGO') || t.includes('设计')) return 'chip-pink'
   if (t.includes('歌词') || t.includes('贡献')) return 'chip-purple'
   if (t.includes('文案')) return 'chip-blue'
-  if (t.includes('代码') || t.includes('开发')) return 'chip-green'
+  if (t.includes('代码') || t.includes('开发') || t.includes('网站') || t.includes('搭建') || t.includes('建站')) return 'chip-green'
   if (t.includes('翻译')) return 'chip-yellow'
   if (t.includes('校对')) return 'chip-orange'
   if (t.includes('美工') || t.includes('美术')) return 'chip-cyan'
   return 'chip-red'
-}
-
-/** 仅 URL 类型的公开联系方式 */
-function urlContacts(c: Contributor): [string, string][] {
-  if (!c.public_contact || !c.contact_value) return []
-  let cv: Record<string, string> = {}
-  try {
-    cv = typeof c.contact_value === 'string' ? JSON.parse(c.contact_value || '{}') : c.contact_value
-  } catch {
-    return []
-  }
-  return Object.entries(cv || {}).filter(([, v]) => v && /^https?:\/\//i.test(v)) as [string, string][]
 }
 </script>
 

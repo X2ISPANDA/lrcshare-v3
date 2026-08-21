@@ -28,24 +28,17 @@
             <div class="text-center md:text-left min-w-0">
               <div class="flex items-center gap-2 justify-center md:justify-start flex-wrap">
                 <h1 class="text-3xl font-bold text-white drop-shadow">{{ contributor.name || '匿名贡献者' }}</h1>
+              </div>
+              <!-- 联系方式：纯 logo 图标（URL/QQ号 可点击；微信/邮箱等弹出复制框），与贡献者名单共用组件 -->
+              <ContactIcons :contributor="contributor" variant="white" class="mt-2 justify-center md:justify-start" />
+              <!-- 贡献标签：与艺术家 types 同款彩色渐变胶囊，独立一行 -->
+              <div v-if="tags.length" class="flex items-center gap-2 mt-2 flex-wrap justify-center md:justify-start">
                 <span
                   v-for="t in tags"
                   :key="t"
-                  class="text-sm bg-white/20 text-white px-3 py-1 rounded-full backdrop-blur-sm"
-                >{{ t }}</span>
-              </div>
-              <!-- 联系方式：纯 logo 图标（URL/QQ号 可点击；微信/邮箱等弹出复制框） -->
-              <div v-if="contactLinks.length" class="flex items-center gap-1 mt-2 justify-center md:justify-start flex-wrap">
-                <a
-                  v-for="link in contactLinks"
-                  :key="link.key"
-                  :href="link.href"
-                  :target="link.href ? '_blank' : undefined"
-                  :rel="link.href ? 'noopener noreferrer' : undefined"
-                  :title="link.href ? link.key : `点击复制${link.key}`"
-                  class="inline-flex items-center justify-center w-8 h-8 text-white hover:text-pink-200 transition cursor-pointer"
-                  @click="!link.href && openCopy(link.key, link.value)"
-                ><AppIcon :name="link.key" class="w-5.5 h-5.5" /></a>
+                  class="text-sm bg-gradient-to-r text-white px-3 py-1 rounded-full"
+                  :class="tagGradient(t)"
+                >{{ tagIcon(t) }} {{ t }}</span>
               </div>
               <p v-if="showBio" class="mt-3 text-white/90 leading-relaxed">{{ contributor.bio }}</p>
             </div>
@@ -76,39 +69,10 @@
 
     <div v-else class="text-center py-8 text-red-400">贡献者不存在</div>
   </main>
-
-  <!-- 联系方式复制弹窗（微信/邮箱等非链接值） -->
-  <Teleport to="body">
-    <Transition name="copy-fade">
-      <div
-        v-if="copyModal"
-        class="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-        @click.self="copyModal = null"
-      >
-        <div class="bg-white rounded-2xl shadow-xl p-6 w-80 max-w-full">
-          <div class="flex items-center gap-3">
-            <span class="w-11 h-11 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-              <AppIcon :name="copyModal.key" class="w-7 h-7" />
-            </span>
-            <div class="min-w-0">
-              <div class="font-semibold text-gray-800">{{ copyModal.key }}</div>
-              <div class="text-xs text-gray-400">复制后前往对应平台添加</div>
-            </div>
-          </div>
-          <div class="mt-4 px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-center text-gray-700 break-all select-all font-medium">{{ copyModal.value }}</div>
-          <button
-            class="mt-4 w-full py-2.5 rounded-xl text-white font-medium transition"
-            :class="copied ? 'bg-green-500' : 'bg-pink-500 hover:bg-pink-600'"
-            @click="doCopy"
-          >{{ copied ? '已复制' : '复制' }}</button>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
@@ -116,6 +80,7 @@ import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL, HERO_BG_URL } from '@/lib/constants'
 import AppIcon from '@/components/common/AppIcon.vue'
+import ContactIcons from '@/components/contributor/ContactIcons.vue'
 import type { Contributor } from '@/lib/types'
 
 const route = useRoute()
@@ -144,66 +109,39 @@ useHead({
   ],
 })
 
-/** 公开联系方式 → 纯 logo 图标：URL 直接跳转；QQ 号转腾讯一键加好友；其余（微信/邮箱等）点击弹出复制框 */
-const contactLinks = computed<{ key: string; value: string; href?: string }[]>(() => {
-  const c = contributor.value
-  if (!c?.public_contact || !c.contact_value) return []
-  let cv: Record<string, string> = {}
-  try {
-    cv = typeof c.contact_value === 'string' ? JSON.parse(c.contact_value || '{}') : c.contact_value
-  } catch {
-    return []
-  }
-  return Object.entries(cv || {})
-    .filter(([, v]) => v)
-    .map(([k, v]) => {
-      if (/^https?:\/\//i.test(v)) return { key: k, value: v, href: v }
-      // QQ 号 → tencent:// 协议直接拉起加好友（无需登录网页临时会话）
-      if (/^qq$/i.test(k) && /^\d{5,12}$/.test(v.trim())) {
-        return { key: k, value: v, href: `tencent://AddContact/?fromId=45&fromSubId=1&sub=ai&uin=${v.trim()}` }
-      }
-      return { key: k, value: v }
-    })
-})
-
-// ============ 复制弹窗（微信/邮箱等非链接联系方式） ============
-const copyModal = ref<{ key: string; value: string } | null>(null)
-const copied = ref(false)
-let copyTimer: ReturnType<typeof setTimeout> | undefined
-
-function openCopy(key: string, value: string) {
-  copyModal.value = { key, value }
-  copied.value = false
-}
-
-async function doCopy() {
-  if (!copyModal.value) return
-  try {
-    await navigator.clipboard.writeText(copyModal.value.value)
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = copyModal.value.value
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-  }
-  copied.value = true
-  clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => {
-    copied.value = false
-    copyModal.value = null
-  }, 900)
-}
-
-onUnmounted(() => clearTimeout(copyTimer))
-
 const tags = computed<string[]>(() => {
   const t = contributor.value?.tags
   if (!t) return []
   if (Array.isArray(t)) return t
   return String(t).split(/[,，]/).map(s => s.trim()).filter(Boolean)
 })
+
+/** 贡献标签 → 渐变色（关键词规则与名单页 chipColor 一致，换成艺术家 types 同款渐变胶囊） */
+function tagGradient(tag: string): string {
+  const t = tag || ''
+  if (t.includes('LOGO') || t.includes('设计')) return 'from-pink-500 to-rose-500'
+  if (t.includes('歌词') || t.includes('贡献')) return 'from-purple-500 to-violet-500'
+  if (t.includes('文案')) return 'from-blue-500 to-sky-500'
+  if (t.includes('代码') || t.includes('开发') || t.includes('网站') || t.includes('搭建') || t.includes('建站')) return 'from-green-500 to-teal-500'
+  if (t.includes('翻译')) return 'from-amber-500 to-yellow-500'
+  if (t.includes('校对')) return 'from-orange-500 to-red-500'
+  if (t.includes('美工') || t.includes('美术')) return 'from-cyan-500 to-blue-500'
+  return 'from-gray-500 to-gray-600'
+}
+
+/** 贡献标签 → emoji 图标 */
+function tagIcon(tag: string): string {
+  const t = tag || ''
+  if (t.includes('LOGO')) return '🎨'
+  if (t.includes('设计')) return '✏️'
+  if (t.includes('歌词')) return '📝'
+  if (t.includes('文案')) return '✍️'
+  if (t.includes('代码') || t.includes('开发') || t.includes('网站') || t.includes('搭建') || t.includes('建站')) return '💻'
+  if (t.includes('翻译')) return '🌐'
+  if (t.includes('校对')) return '🔍'
+  if (t.includes('美工') || t.includes('美术')) return '🖌️'
+  return '🎵'
+}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return ''
@@ -216,8 +154,6 @@ function formatDate(dateStr: string | null): string {
 </script>
 
 <style scoped>
-.copy-fade-enter-active, .copy-fade-leave-active { transition: opacity 0.18s ease; }
-.copy-fade-enter-from, .copy-fade-leave-to { opacity: 0; }
 .contributor-hero {
   min-height: 200px;
 }

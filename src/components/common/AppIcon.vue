@@ -26,6 +26,7 @@ import iconXiaohongshu from '~icons/brand/xiaohongshu'
 import iconPhone from '~icons/brand/phone'
 import iconCellphone from '~icons/brand/cellphone'
 import iconLink from '~icons/brand/link'
+import iconBeatstars from '~icons/brand/beatstars'
 
 const ICON_MAP: Record<string, Component> = {
   // 社交/音乐平台（艺术家页、艺术家库页；兼容后台小写 key 与中文 key）
@@ -53,6 +54,8 @@ const ICON_MAP: Record<string, Component> = {
   'Twitter': iconTwitter,
   '小红书': iconXiaohongshu,
   '网易音乐人': iconNetease,
+  'BeatStars': iconBeatstars,
+  'beatstars': iconBeatstars,
   '个人主页': iconLink,
   '电话': iconPhone,
   '手机': iconCellphone,

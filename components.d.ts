@@ -15,6 +15,7 @@ declare module 'vue' {
     AppIcon: typeof import('./src/components/common/AppIcon.vue')['default']
     AppNavbar: typeof import('./src/components/layout/AppNavbar.vue')['default']
     ArtistTagInput: typeof import('./src/components/submit/ArtistTagInput.vue')['default']
+    ContactIcons: typeof import('./src/components/contributor/ContactIcons.vue')['default']
     CreditLinks: typeof import('./src/components/song/CreditLinks.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']

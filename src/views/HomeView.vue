@@ -192,7 +192,7 @@
             >
               <!-- 封面（无封面用渐变占位），hover 显示查看提示 -->
               <div class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
-                <img v-if="song.album_cover" :src="song.album_cover" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.album_cover!])" />
+                <img v-if="song.cover || song.album_cover" :src="song.cover || song.album_cover!" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.cover || song.album_cover!])" />
                 <span v-else class="text-white/90 text-lg">🎵</span>
                 <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs">查看</span>
               </div>

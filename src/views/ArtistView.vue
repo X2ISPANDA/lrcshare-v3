@@ -34,13 +34,14 @@
                   </h1>
                 </div>
                 <div v-if="socialEntries.length" class="flex items-center gap-1 mt-2">
+                  <!-- 白底毛玻璃框：品牌彩色 logo 本就按白底设计（GitHub 灰褐等在白底最标准），深色 hero 上醒目清晰 -->
                   <a
                     v-for="[key, url] in socialEntries"
                     :key="key"
                     :href="url"
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="inline-flex items-center justify-center w-8 h-8 text-white hover:text-pink-200 transition"
+                    class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/90 backdrop-blur-sm shadow-sm hover:bg-white hover:scale-105 transition"
                   ><AppIcon :name="key" class="w-5.5 h-5.5" /></a>
                 </div>
                 <div class="flex items-center gap-2 mt-2 flex-wrap justify-center md:justify-start">

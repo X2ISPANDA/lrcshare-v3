@@ -71,6 +71,8 @@ export interface Song {
   /** 纯文本/富文本歌词（优先于 LRC 提取展示） */
   lyrics_text?: string | null
   video_url?: string | null
+  /** 单曲封面（预热单曲等场景；为空时回退专辑封面） */
+  cover?: string | null
   contributor_id?: string | null
   created_at: string
   /** 关联查询带出 */
