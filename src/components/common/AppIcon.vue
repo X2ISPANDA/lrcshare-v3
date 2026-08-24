@@ -52,6 +52,8 @@ const ICON_MAP: Record<string, Component> = {
   '抖音': iconDouyin,
   '微博': iconWeibo,
   'Twitter': iconTwitter,
+  'X': iconTwitter, // twitter.svg 实为 X logo（黑圆底白 X）；保留 Twitter 键兼容旧数据
+  'x': iconTwitter,
   '小红书': iconXiaohongshu,
   '网易音乐人': iconNetease,
   'BeatStars': iconBeatstars,

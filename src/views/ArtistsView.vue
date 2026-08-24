@@ -83,7 +83,7 @@
                 class="w-20 h-20 rounded-full mx-auto mb-3 bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
                 @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])"
               />
-              <div class="font-bold text-gray-800 text-lg truncate">
+              <div class="font-bold text-gray-800 text-lg truncate" :title="artist.disambiguation ? `${artist.name} (${artist.disambiguation})` : artist.name">
                 {{ artist.name }}
                 <span v-if="artist.disambiguation" class="text-xs font-normal text-purple-500 ml-1">({{ artist.disambiguation }})</span>
               </div>
@@ -100,7 +100,7 @@
                 @click.stop
               ><AppIcon :name="key" class="w-6 h-6" /></a>
             </div>
-            <div v-if="artist.aliases?.length" class="text-xs text-gray-400 mt-0.5 truncate">{{ artist.aliases.join(' / ') }}</div>
+            <div v-if="artist.aliases?.length" class="text-xs text-gray-400 mt-0.5 truncate" :title="artist.aliases.join(' / ')">{{ artist.aliases.join(' / ') }}</div>
             <div v-if="artist.bio" class="text-xs text-gray-400 mt-2 line-clamp-2" :title="artist.bio">{{ artist.bio }}</div>
           </div>
         </div>
@@ -161,7 +161,8 @@ const searching = computed(() => keyword.value.trim().length > 0)
 
 const filtered = computed(() => {
   const list = artists.value || []
-  const base = currentType.value ? list.filter(a => (a.types || ['singer']).includes(currentType.value)) : list
+  // is_show=false（综艺/厂牌等非创作者实体）不出现在前台艺术家库
+  const base = list.filter(a => a.is_show !== false).filter(a => currentType.value ? (a.types || ['singer']).includes(currentType.value) : true)
   const kw = keyword.value.trim().toLowerCase()
   if (!kw) return base
   return base.filter(a =>

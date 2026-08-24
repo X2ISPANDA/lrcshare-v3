@@ -159,6 +159,26 @@
 .article-content rt,
 .content-preview rt { font-size: 0.5em; color: #9ca3af; }
 
+/* ===== 萌娘百科 Lyrics 模板结构（原文/译文左右对照；两列各占 50%，小屏纵向堆叠）===== */
+.rich-lyrics .Lyrics { text-align: left; }
+.rich-lyrics .Lyrics-line {
+  display: flex;
+  align-items: flex-start;
+  min-height: 1.2em; /* 空行（原文/译文均为空）保留为段落间隔 */
+}
+.rich-lyrics .Lyrics-original,
+.rich-lyrics .Lyrics-translated {
+  flex: 1 1 50%;
+  min-width: 0;
+  padding-right: 0.75em;
+}
+@media (max-width: 639px) {
+  .rich-lyrics .Lyrics-line { flex-direction: column; }
+  .rich-lyrics .Lyrics-original,
+  .rich-lyrics .Lyrics-translated { padding-right: 0; }
+  .rich-lyrics .Lyrics-translated { margin-top: 0.15em; }
+}
+
 /* 全局统一滚动条：细条 + 圆角，常态灰色、hover 粉色（替代浏览器原生粗滚动条） */
 *::-webkit-scrollbar {
   width: 6px;

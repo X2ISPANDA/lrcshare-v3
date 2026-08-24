@@ -1,6 +1,6 @@
 <template>
   <div class="twikoo-wrap">
-    <div ref="containerRef" class="tk-container"></div>
+    <div ref="containerRef" class="tk-container min-h-[60px]"></div>
   </div>
 </template>
 
@@ -23,6 +23,7 @@ const TWIKOO_CDN = 'https://cdn.jsdelivr.net/npm/twikoo@1.7.9/dist/twikoo.all.mi
 
 const containerRef = ref<HTMLElement>()
 let observer: MutationObserver | null = null
+let lazyObserver: IntersectionObserver | null = null
 let contributors: Contributor[] = []
 
 declare global {
@@ -69,7 +70,8 @@ function loadTwikooScript(): Promise<void> {
   })
 }
 
-onMounted(async () => {
+/** 加载 Twikoo 脚本并初始化评论区（含贡献者徽章逻辑） */
+async function initTwikoo() {
   try {
     await Promise.all([loadTwikooScript(), api.getContributors().then(list => (contributors = list || []))])
   } catch (e) {
@@ -87,9 +89,36 @@ onMounted(async () => {
   // 监听 Twikoo 动态渲染（加载更多/发布评论等场景）补挂徽章
   observer = new MutationObserver(addContributorBadges)
   observer.observe(containerRef.value, { childList: true, subtree: true })
+}
+
+/**
+ * 懒加载：评论区进入视口（下方 300px 内）才初始化。
+ * 大幅减少 Netlify Functions 调用——爬虫与未滚动到评论区的访问不再触发 Twikoo 后端请求。
+ */
+onMounted(() => {
+  const el = containerRef.value
+  if (!el) return
+  if (!('IntersectionObserver' in window)) {
+    initTwikoo() // 老浏览器直接初始化
+    return
+  }
+  lazyObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some(e => e.isIntersecting)) {
+        lazyObserver?.disconnect()
+        lazyObserver = null
+        initTwikoo()
+      }
+    },
+    { rootMargin: '300px 0px' },
+  )
+  lazyObserver.observe(el)
 })
 
-onUnmounted(() => observer?.disconnect())
+onUnmounted(() => {
+  observer?.disconnect()
+  lazyObserver?.disconnect()
+})
 </script>
 
 <style>

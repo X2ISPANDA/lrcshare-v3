@@ -27,7 +27,7 @@
             <span v-else class="text-5xl">💿</span>
           </div>
           <div class="flex-1 text-center md:text-left">
-            <h1 class="text-3xl md:text-4xl font-bold mb-2">{{ song.title }}</h1>
+            <h1 class="text-3xl md:text-4xl font-bold mb-2" :title="songTitleFull">{{ song.title }}<span v-if="song.aliases?.length" class="text-lg md:text-xl font-normal opacity-70 ml-2">{{ song.aliases.join(' / ') }}</span></h1>
             <div class="text-lg opacity-90">
               <template v-if="song.artists.length">
                 <template v-for="(a, i) in song.artists" :key="a.id">
@@ -281,6 +281,12 @@ const { data: page, loading } = useSSGData<SongPageData>(`song:${songId}`, async
 })
 
 const song = computed(() => page.value?.song)
+/** h1 悬浮完整标题：曲名 + 别名（长别名换行省略时悬浮可见） */
+const songTitleFull = computed(() => {
+  const s = song.value
+  if (!s) return ''
+  return s.aliases?.length ? `${s.title}（${s.aliases.join(' / ')}）` : s.title
+})
 const contributor = computed(() => page.value?.contributor)
 const related = computed(() => page.value?.related || [])
 

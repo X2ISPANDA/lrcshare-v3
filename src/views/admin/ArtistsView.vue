@@ -104,10 +104,14 @@
         </el-form-item>
         <el-form-item label="社交链接">
           <div class="w-full space-y-2">
-            <div v-for="s in SOCIAL_KEYS" :key="s.key" class="flex items-center gap-2">
-              <span class="w-16 text-gray-500 text-sm flex-shrink-0">{{ s.label }}</span>
-              <el-input v-model="form.urls[s.key]" :placeholder="s.placeholder" size="small" />
+            <div v-for="(row, idx) in form.urlRows" :key="idx" class="flex items-center gap-2">
+              <el-select v-model="row.k" filterable allow-create default-first-option size="small" class="!w-36 flex-shrink-0" placeholder="平台">
+                <el-option v-for="p in URL_PLATFORMS" :key="p" :label="p" :value="p" />
+              </el-select>
+              <el-input v-model="row.v" placeholder="https://..." size="small" />
+              <el-button size="small" type="danger" text @click="form.urlRows.splice(idx, 1)">删</el-button>
             </div>
+            <el-button size="small" @click="form.urlRows.push({ k: '官网', v: '' })">+ 添加链接</el-button>
           </div>
         </el-form-item>
         <el-form-item label="首字母">
@@ -151,14 +155,8 @@ const TYPE_OPTIONS = [
   { label: '🎼 作曲人', value: 'composer' },
   { label: '🎹 编曲人', value: 'arranger' },
 ]
-const SOCIAL_KEYS = [
-  { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/...' },
-  { key: 'weibo', label: '微博', placeholder: 'https://weibo.com/...' },
-  { key: 'bilibili', label: 'B站', placeholder: 'https://space.bilibili.com/...' },
-  { key: 'netease', label: '网易', placeholder: 'https://music.163.com/#/artist?id=...' },
-  { key: 'qq', label: 'QQ音乐', placeholder: 'https://y.qq.com/...' },
-  { key: 'spotify', label: 'Spotify', placeholder: 'https://open.spotify.com/artist/...' },
-] as const
+/** 社交平台下拉（键名与迁移 SQL 一致的中文体系；allow-create 可输任意自定义键） */
+const URL_PLATFORMS = ['网易音乐人', 'QQ音乐', '微博', 'B站', 'Instagram', 'Spotify', 'YouTube', 'X', 'Facebook', '抖音', '小红书', 'BeatStars', '官网']
 
 const artists = ref<Artist[]>([])
 const songArtists = ref<string[]>([])
@@ -259,7 +257,8 @@ const form = reactive({
   bg_position_y: 50,
   bio: '',
   aliases: [] as string[],
-  urls: { instagram: '', weibo: '', bilibili: '', netease: '', qq: '' } as Record<string, string>,
+  urls: {} as Record<string, string>,
+  urlRows: [] as { k: string; v: string }[],
   sort: 0,
   initial: '',
   is_show: true,
@@ -269,7 +268,7 @@ function openNew() {
   editing.value = null
   Object.assign(form, {
     name: '', disambiguation: '', types: ['singer'], avatar: '', bg_image: '', bg_position_y: 50,
-    bio: '', aliases: [], urls: { instagram: '', weibo: '', bilibili: '', netease: '', qq: '' },
+    bio: '', aliases: [], urls: {}, urlRows: [],
     sort: 0, initial: '', is_show: true,
   })
   showDialog.value = true
@@ -287,7 +286,9 @@ function openEdit(row: Artist) {
     bg_position_y: Number.isInteger(row.bg_position_y) ? row.bg_position_y : 50,
     bio: row.bio || '',
     aliases: [...(row.aliases || [])],
-    urls: { instagram: urls.instagram || '', weibo: urls.weibo || '', bilibili: urls.bilibili || '', netease: urls.netease || '', qq: urls.qq || '' },
+    urls,
+    // 展开为动态行：保留库里全部键（含中文键如 官网/网易音乐人/X），不再因固定 6 键丢数据
+    urlRows: Object.entries(urls).map(([k, v]) => ({ k, v: v || '' })),
     sort: row.sort || 0,
     initial: row.initial || '',
     is_show: row.is_show !== false,
@@ -321,7 +322,8 @@ async function save() {
       sort: form.sort || 0,
       initial: form.initial.trim().toUpperCase() || null,
       is_show: form.is_show !== false,
-      urls: form.urls,
+      // urls 从动态行组装（与迁移 SQL 的中文键名体系一致，如 官网/网易音乐人/X）
+      urls: Object.fromEntries(form.urlRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()])),
     }
     if (editing.value) {
       await adminApi.update('artists', editing.value.id, payload)

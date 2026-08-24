@@ -50,6 +50,8 @@ export interface Album {
 export interface Song {
   id: string
   title: string
+  /** 别名/译名（同一首可并存中日英多名，参与单曲维度搜索） */
+  aliases?: string[] | null
   artist_ids: string[] | null
   album_id: string | null
   lyricist: string | null

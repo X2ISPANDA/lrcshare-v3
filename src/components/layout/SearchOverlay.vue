@@ -73,6 +73,10 @@
                       <div class="text-sm font-medium text-gray-800 truncate">
                         <span v-html="highlight(song.title)"></span>
                       </div>
+                      <!-- 命中别名时标题下展示别名（日文原名搜出但不认识时，靠别名确认是不是要找的歌） -->
+                      <div v-if="song.aliases?.length" class="text-xs text-gray-400 truncate">
+                        <span v-html="highlight(song.aliases.join(' / '))"></span>
+                      </div>
                       <div class="text-xs text-gray-500 truncate">
                         <span v-html="highlight(song.artist_name)"></span> · <span v-html="highlight(song.album_name ?? '')"></span>
                       </div>
@@ -130,6 +134,7 @@
                     <div class="flex-1 min-w-0">
                       <div class="text-sm font-medium text-gray-800 truncate">
                         <span v-html="highlight(song.title)"></span>
+                        <span v-if="song.aliases?.length" class="text-xs font-normal text-gray-400 ml-1 truncate"><span v-html="highlight(song.aliases.join(' / '))"></span></span>
                       </div>
                       <div class="text-xs text-gray-500 truncate">
                         <span v-html="highlight(song.artist_name)"></span>

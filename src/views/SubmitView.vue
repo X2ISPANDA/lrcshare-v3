@@ -566,12 +566,25 @@ async function handleSubmit() {
     })
     submitted.value = true
     window.scrollTo({ top: 0, behavior: 'smooth' })
+    // 新投稿通知站长（fire-and-forget：邮件失败不影响投稿结果）
+    notifyAdminNewSubmission(name, songData.title)
   } catch (err) {
     console.error(err)
     ElMessage.error('网络错误，请稍后重试')
   } finally {
     submitting.value = false
   }
+}
+
+/** 调用邮件服务（Netlify Functions mailer.mjs 的 notify action）通知站长收到新投稿 */
+function notifyAdminNewSubmission(userName: string, songTitle: string) {
+  const base = import.meta.env.VITE_MAIL_BASE as string | undefined
+  if (!base) return
+  fetch(base + '/api/mailer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'notify', user_name: userName, song_title: songTitle }),
+  }).catch(() => {}) // 静默失败：通知是附带能力，不阻塞投稿流程
 }
 </script>
 

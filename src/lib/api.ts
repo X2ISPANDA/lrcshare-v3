@@ -78,7 +78,7 @@ export const api = {
       if (error) throw error
       return (data || []) as Artist[]
     }
-    let query = supabase.from('artists').select(ARTIST_LIST_FIELDS).order('name')
+    let query = supabase.from('artists').select(ARTIST_LIST_FIELDS).eq('is_show', true).order('name')
     if (limit) query = query.limit(limit)
     const { data, error } = await query
     if (error) throw error
@@ -321,8 +321,8 @@ export const api = {
       supabase.from('artists').select('*').ilike('name', `%${kw}%`),
       // 专辑：仅匹配专辑名（不含专辑艺术家）
       supabase.from('albums').select('*').ilike('name', `%${kw}%`),
-      // 单曲：仅匹配歌曲名（不含歌手、歌词）
-      supabase.from('songs').select(songSelect).eq('status', 'published').ilike('title', `%${kw}%`),
+      // 单曲：匹配歌曲名或别名/译名（search_songs RPC，数组列 ilike 需在库端 unnest）
+      supabase.rpc('search_songs', { p_q: kw }).select(songSelect),
       // 歌词：匹配 LRC 或纯文本歌词内容（同一首去重，纯逗号输入时跳过）
       kwOr
         ? supabase
@@ -334,7 +334,7 @@ export const api = {
     ])
 
     const songMap = new Map<string, any>()
-    ;(songTitleRes.data || []).forEach(s => songMap.set(s.id, s))
+    ;((songTitleRes.data as any[]) || []).forEach((s: any) => songMap.set(s.id, s))
     const lrcMap = new Map<string, any>()
     ;(songLrcRes.data || []).forEach(s => lrcMap.set(s.id, s))
 

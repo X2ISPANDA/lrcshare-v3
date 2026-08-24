@@ -27,13 +27,20 @@
               />
               <div class="text-center md:text-left min-w-0">
                 <div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
-                  <h1 class="text-3xl font-bold text-white drop-shadow">
+                  <!-- 桌面端整行不换行：名字+消歧义+别名超出容器宽度时统一省略号截断 -->
+                  <h1 class="text-3xl font-bold text-white drop-shadow truncate max-w-full" :title="h1Title">
                     {{ artist.name }}
                     <span v-if="artist.disambiguation" class="text-base font-normal text-white/80 ml-1">({{ artist.disambiguation }})</span>
-                    <span v-if="artist.aliases?.length" class="text-lg font-normal text-white/70 ml-2">{{ artist.aliases.join(' / ') }}</span>
+                    <span v-if="artist.aliases?.length" class="hidden md:inline text-lg font-normal text-white/70 ml-2">{{ artist.aliases.join(' / ') }}</span>
                   </h1>
                 </div>
-                <div v-if="socialEntries.length" class="flex items-center gap-1 mt-2">
+                <!-- 移动端别名另起一行：单行截断 + 悬浮提示完整内容 -->
+                <div
+                  v-if="artist.aliases?.length"
+                  class="md:hidden text-base font-normal text-white/70 truncate max-w-full mt-0.5"
+                  :title="artist.aliases.join(' / ')"
+                >{{ artist.aliases.join(' / ') }}</div>
+                <div v-if="socialEntries.length" class="flex items-center gap-1 mt-2 justify-center md:justify-start">
                   <!-- 白底毛玻璃框：品牌彩色 logo 本就按白底设计（GitHub 灰褐等在白底最标准），深色 hero 上醒目清晰 -->
                   <a
                     v-for="[key, url] in socialEntries"
@@ -260,6 +267,16 @@ useHead({
 const socialEntries = computed<[string, string][]>(() =>
   Object.entries(artist.value?.urls || {}).filter(([, v]) => v && v.trim()) as [string, string][],
 )
+
+/** h1 悬浮完整标题：截断后悬浮可见全名+别名 */
+const h1Title = computed(() => {
+  const a = artist.value
+  if (!a) return ''
+  const parts = [a.name]
+  if (a.disambiguation) parts.push(`(${a.disambiguation})`)
+  if (a.aliases?.length) parts.push(a.aliases.join(' / '))
+  return parts.join(' ')
+})
 
 /** 按实际歌曲贡献生成标签页（不依赖 artist.types——types 漏标时（如 GAI 作曲）歌曲署名才是事实来源） */
 const tabs = computed(() => {

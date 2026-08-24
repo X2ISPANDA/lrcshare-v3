@@ -13,6 +13,7 @@
         <el-table-column label="歌曲名" min-width="170" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="font-medium text-gray-800">{{ row.title }}</span>
+            <span v-if="row.aliases?.length" class="text-xs text-gray-400 ml-1">{{ row.aliases.join(' / ') }}</span>
             <el-tag v-if="row.is_hidden" size="small" type="info" class="ml-1">隐藏</el-tag>
           </template>
         </el-table-column>
@@ -65,6 +66,16 @@
           <el-col :span="12"><el-form-item label="歌曲名" required><el-input v-model="form.title" placeholder="歌曲标题" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="时长"><el-input v-model="form.duration" placeholder="03:30" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="曲目号"><el-input-number v-model="form.track" :min="0" class="!w-full" /></el-form-item></el-col>
+        </el-row>
+
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="别名">
+              <el-select v-model="form.aliases" multiple filterable allow-create default-first-option clearable placeholder="别名/译名（回车添加，参与搜索）" class="w-full">
+                <el-option v-for="a in form.aliases" :key="a" :label="a" :value="a" />
+              </el-select>
+            </el-form-item>
+          </el-col>
         </el-row>
 
         <el-row :gutter="16">
@@ -239,6 +250,7 @@ const filteredList = computed(() => {
   if (!kw) return songs.value
   return songs.value.filter(s => {
     if (s.title?.toLowerCase().includes(kw)) return true
+    if ((s.aliases || []).some((a: string) => a.toLowerCase().includes(kw))) return true
     return (s.artist_ids || []).some((id: string) => artistMap.value.get(id)?.name?.toLowerCase().includes(kw))
   })
 })
@@ -297,6 +309,7 @@ const albumUnlocked = ref(false)
 
 const form = reactive({
   title: '',
+  aliases: [] as string[],
   duration: '',
   track: 0,
   artists: [] as { id: string | null; name: string }[],
@@ -325,7 +338,7 @@ function idsToTags(str: string | null | undefined): { id: string; name: string }
 function openNew() {
   editing.value = null
   Object.assign(form, {
-    title: '', duration: '', track: 0, artists: [], albumId: '', albumName: '', albumArtists: [], year: '',
+    title: '', aliases: [], duration: '', track: 0, artists: [], albumId: '', albumName: '', albumArtists: [], year: '',
     lyricists: [], composers: [], arrangers: [], contributor_id: '', genres: [], video_url: '', description: '',
     lrc_text: '', lyrics_text: '', is_hidden: false, unlock_code: '',
   })
@@ -339,6 +352,7 @@ function openEdit(row: any) {
   const album = row.album_id ? albumMap.value.get(row.album_id) : null
   Object.assign(form, {
     title: row.title || '',
+    aliases: [...(row.aliases || [])],
     duration: row.duration || '',
     track: row.track || 0,
     artists: (row.artist_ids || []).map((id: string) => ({ id, name: artistMap.value.get(id)?.name || id })),
@@ -480,6 +494,7 @@ async function save() {
     // 3. 歌曲记录（lyricist/composer/arranger 统一存 ID 逗号分隔）
     const payload: Record<string, unknown> = {
       title: form.title.trim(),
+      aliases: form.aliases.map(a => a.trim()).filter(Boolean),
       artist_ids: artistIds,
       album_id: albumId,
       lyricist: lyricistIds.join(','),
