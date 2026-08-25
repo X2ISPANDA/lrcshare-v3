@@ -173,10 +173,12 @@ async function loadSongRefs() {
   const songs = await adminApi.getAll<any>('songs', { select: 'artist_ids,lyricist,composer,arranger' })
   const ids: string[] = []
   for (const s of songs) {
-    ids.push(...(s.artist_ids || []))
+    // 一首歌对一个艺术家只算 1 个作品：先按首歌去重（避免演唱+作词+作曲重复累加）
+    const songIds = new Set<string>(s.artist_ids || [])
     for (const f of [s.lyricist, s.composer, s.arranger]) {
-      ids.push(...String(f || '').split(',').map(x => x.trim()).filter(Boolean))
+      for (const id of String(f || '').split(',').map(x => x.trim()).filter(Boolean)) songIds.add(id)
     }
+    ids.push(...songIds)
   }
   songArtists.value = ids
 }
