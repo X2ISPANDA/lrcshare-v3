@@ -82,11 +82,33 @@
         <el-form :model="review.edited_data" label-width="80px">
           <el-row :gutter="12">
             <el-col :span="12"><el-form-item label="歌曲名"><el-input v-model="review.edited_data.title" /></el-form-item></el-col>
-            <el-col :span="12"><el-form-item label="专辑"><el-input v-model="review.edited_data.album" /></el-form-item></el-col>
+            <el-col :span="12">
+              <el-form-item label="专辑">
+                <el-select
+                  v-model="albumSelect"
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="搜索库内专辑，或输入新专辑名"
+                  class="w-full"
+                >
+                  <el-option v-for="al in albums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
+                </el-select>
+                <div v-if="review.edited_data.album_id" class="text-xs text-green-600 mt-1 w-full">已关联库内专辑（沿用该专辑信息）</div>
+                <div v-else-if="albumNameExists" class="text-xs text-red-500 mt-1 w-full">库内已有同名专辑！如需沿用请从下拉选择，否则将新建重复专辑</div>
+                <div v-else-if="review.edited_data.album" class="text-xs text-amber-600 mt-1 w-full">新专辑（发布时创建）</div>
+              </el-form-item>
+            </el-col>
           </el-row>
           <el-row :gutter="12">
-            <el-col :span="12"><el-form-item label="时长"><el-input v-model="review.edited_data.duration" placeholder="03:30" /></el-form-item></el-col>
-            <el-col :span="12"><el-form-item label="视频链接"><el-input v-model="review.edited_data.video_url" placeholder="B站/YouTube（选填）" /></el-form-item></el-col>
+            <el-col :span="8"><el-form-item label="时长"><el-input v-model="review.edited_data.duration" placeholder="03:30" /></el-form-item></el-col>
+            <el-col :span="8">
+              <el-form-item label="曲目号">
+                <el-input v-model="review.edited_data.track" placeholder="专辑内序号（选填）" />
+                <div v-if="albumTrackOccupied" class="text-xs text-red-500 mt-1 w-full">该曲目号已被专辑内其他歌占用：{{ albumTrackOccupied }}</div>
+              </el-form-item>
+            </el-col>
+            <el-col :span="8"><el-form-item label="视频链接"><el-input v-model="review.edited_data.video_url" placeholder="B站/YouTube（选填）" /></el-form-item></el-col>
           </el-row>
           <el-row :gutter="12">
             <el-col :span="12">
@@ -132,6 +154,15 @@
           </el-form-item>
         </el-form>
 
+        <!-- 同名歧义警示 -->
+        <div v-if="ambiguousArtists.length" class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div class="text-sm font-semibold text-red-800 mb-1">⚠️ 同名歧义</div>
+          <div class="text-xs text-red-700 mb-2">以下艺术家库内有多位同名，无法自动绑定。请删除其在各字段中的标签，从下拉中重新选择正确的一位（下拉带消歧标注）：</div>
+          <div v-for="a in ambiguousArtists" :key="a.name" class="text-xs text-red-700 mb-1">
+            · {{ a.name }} → 库内 {{ a.entries.length }} 位：{{ a.entries.join('、') }}
+          </div>
+        </div>
+
         <!-- 待创建艺术家 -->
         <div v-if="newArtistsList.length" class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
           <div class="text-sm font-semibold text-amber-800 mb-1">🆕 待创建艺术家</div>
@@ -158,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/lib/adminApi'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import type { Artist } from '@/lib/types'
@@ -198,6 +229,7 @@ const tabs = [
 
 const submissions = ref<any[]>([])
 const artists = ref<Artist[]>([])
+const albums = ref<{ id: string; name: string; year?: number | null }[]>([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
@@ -213,12 +245,14 @@ const pagedList = computed(() => listSource.value.slice((page.value - 1) * pageS
 async function load() {
   loading.value = true
   try {
-    const [subs, arts] = await Promise.all([
+    const [subs, arts, als] = await Promise.all([
       adminApi.getAll('submissions', { order: 'created_at', ascending: false }),
       adminApi.getAll<Artist>('artists', { order: 'name' }),
+      adminApi.getAll<{ id: string; name: string; year?: number | null }>('albums', { order: 'name' }),
     ])
     submissions.value = subs
     artists.value = arts
+    albums.value = als
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
   } finally {
@@ -245,6 +279,7 @@ function openReview(row: any) {
   if (!Array.isArray(edited.composer_arr)) edited.composer_arr = []
   if (!Array.isArray(edited.genres)) edited.genres = []
   if (edited.album_cover === undefined) edited.album_cover = ''
+  if (edited.track === undefined) edited.track = ''
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
       if (!item) return
@@ -253,9 +288,83 @@ function openReview(row: any) {
       if (item.is_show === undefined) item.is_show = true
     })
   }
+  // 投稿未带 ID，但该艺术家已入库（如审核同批上一首时刚创建）→ 按名自动绑定，
+  // 免去逐首删除 tag 再从下拉重选；types 缺口由发布时的补 type 逻辑兜底。
+  // 仅在库内名字唯一时自动绑——同名多人（张三a/张三b）程序无法判断，保留待创建态并出歧义警示
+  for (const f of ARTIST_FIELDS) {
+    edited[f.key].forEach((item: any) => {
+      if (!item || item.id) return
+      const hits = artists.value.filter(a => a.name === item.name)
+      if (hits.length === 1) {
+        item.id = hits[0].id
+        item._new = false
+      }
+    })
+  }
   review.value = { ...row, edited_data: edited }
   showReview.value = true
 }
+
+/** 专辑下拉 v-model：选项值为专辑 ID（同名专辑按年份区分展示）。
+ *  值之所以用 ID 而非名称——投稿带来的专辑名与选项名相同时，选同名项不产生 change
+ *  事件（值未变），导致永远绑不上 ID（红色同名警示无法消除）。改为 ID 后选中必触发变化：
+ *  选中库内专辑 → 绑定 ID + 同步名称（绿色提示）；输入新名 → 置空 ID（发布时新建） */
+const albumSelect = computed<string>({
+  get: () => review.value?.edited_data?.album_id || review.value?.edited_data?.album || '',
+  set: (val: string) => {
+    const ed = review.value?.edited_data
+    if (!ed) return
+    const hit = albums.value.find(a => a.id === val)
+    if (hit) {
+      ed.album_id = hit.id
+      ed.album = hit.name
+    } else {
+      ed.album_id = null
+      ed.album = val
+    }
+  },
+})
+
+/** 未关联 ID 时专辑名与库内重名（警示防建重复专辑） */
+const albumNameExists = computed(() => {
+  if (!review.value?.edited_data?.album || review.value.edited_data.album_id) return false
+  return albums.value.some(a => a.name === review.value!.edited_data.album)
+})
+
+/** 曲目号占用检测：投稿关联了库内专辑时，拉取专辑内已有歌曲的 track 对照（撞号红字提示） */
+const albumTracks = ref<{ track: number | null; title: string }[]>([])
+const albumTrackOccupied = computed(() => {
+  const ed = review.value?.edited_data
+  if (!ed?.album_id || !ed.track || !/^\d+$/.test(String(ed.track).trim())) return ''
+  const t = parseInt(String(ed.track).trim(), 10)
+  const hit = albumTracks.value.find(s => s.track === t)
+  return hit ? `${hit.title}（track ${t}）` : ''
+})
+
+watch(() => review.value?.edited_data?.album_id, async (albumId) => {
+  albumTracks.value = []
+  if (!albumId) return
+  try {
+    const songs = await adminApi.getAll<{ track: number | null; title: string }>('songs', { eq: { album_id: albumId } })
+    albumTracks.value = songs.map(s => ({ track: s.track ?? null, title: s.title }))
+  } catch { /* 拉取失败仅失去撞号提示，不影响审核 */ }
+}, { immediate: true })
+
+/** 同名歧义：投稿未带 ID 且库内同名人 ≥2 → 程序无法自动判断，人工从下拉（带消歧标注）选择 */
+const ambiguousArtists = computed(() => {
+  const res: { name: string; entries: string[] }[] = []
+  if (!review.value) return res
+  for (const f of ARTIST_FIELDS) {
+    for (const item of review.value.edited_data[f.key] || []) {
+      if (!item || item.id) continue
+      const hits = artists.value.filter(a => a.name === item.name)
+      if (hits.length >= 2 && !res.some(r => r.name === item.name)) {
+        res.push({ name: item.name, entries: hits.map(h => (h.disambiguation ? `${h.name}（${h.disambiguation}）` : h.name)) })
+      }
+    }
+  }
+  return res
+})
 
 // 会话内新建艺术家共享池：从审核表单各字段当前值实时派生（无 ID 即待创建），删除/填 ID 后自动出池
 const sessionNewArtists = computed(() => {
@@ -329,7 +438,7 @@ async function approve(sub: ReviewItem | null) {
       song_title: sd.title,
     }).catch(e => console.warn('通过邮件跳过:', e?.message))
 
-    // 4. 插入新建艺术家并回填 ID
+    // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上
     const nameToId: Record<string, string> = {}
     for (const e of newArtistsList.value) {
       const id = String(e.item.id).trim()
@@ -346,6 +455,26 @@ async function approve(sub: ReviewItem | null) {
       sd[f.key].forEach((item: any) => {
         if (item && !item.id && nameToId[item.name]) item.id = nameToId[item.name]
       })
+    }
+    // 已有艺术家被用于新字段类型（如歌手兼作词）→ 补 type（幂等，已含则跳过）。
+    // 同一艺术家跨字段出现时用本地缓存累计，避免后一次 update 覆盖前一次刚补的类型
+    const typeCache = new Map<string, string[]>()
+    for (const f of ARTIST_FIELDS) {
+      for (const item of sd[f.key] || []) {
+        if (!item?.id) continue
+        let types = typeCache.get(item.id)
+        if (!types) {
+          // 只处理库内已有的（本会话新建的上面 insert 已带全类型并集）
+          const exists = artists.value.find(a => a.id === item.id)
+          if (!exists) continue
+          types = [...(exists.types || ['singer'])]
+          typeCache.set(item.id, types)
+        }
+        if (!types.includes(f.type)) {
+          types.push(f.type)
+          await adminApi.update('artists', item.id, { types })
+        }
+      }
     }
 
     // 5. 贡献者四路逻辑（关联: none/update/clear；未关联: 新建）
@@ -409,6 +538,7 @@ async function approve(sub: ReviewItem | null) {
       lyricist: idsOf(sd.lyricist_arr) || sd.lyricist || '',
       composer: idsOf(sd.composer_arr) || sd.composer || '',
       duration: sd.duration || '',
+      track: sd.track ? (parseInt(String(sd.track), 10) || null) : null,
       lrc_text: sd.lrc_text,
       video_url: sd.video_url || null,
       status: 'published',

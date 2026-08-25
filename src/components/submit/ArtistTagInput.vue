@@ -36,6 +36,7 @@
           <span v-if="item.id.startsWith('__new_')" class="text-xs text-blue-500 ml-1">本次新建</span>
           <span v-if="item.disambiguation" class="text-xs text-purple-500 ml-1">({{ item.disambiguation }})</span>
           <span class="ml-2 text-xs">{{ typeIcons(item.types) }}</span>
+          <span v-if="missingType(item)" class="text-xs text-amber-600 ml-1">（无{{ filterTypeLabel }}身份，选中将补上）</span>
         </div>
       </div>
       <div
@@ -86,22 +87,31 @@ function typeIcons(types: string[] | null): string {
   return (types || ['singer']).map(t => ARTIST_TYPE_ICONS[t] || '').join('')
 }
 
+const TYPE_LABELS: Record<string, string> = { singer: '歌手', lyricist: '作词', composer: '作曲', arranger: '编曲' }
+const filterTypeLabel = computed(() => (props.filterType ? TYPE_LABELS[props.filterType] || props.filterType : ''))
+
+/** 库内已有艺术家但缺少当前字段类型（提示选中后补 type；不隐藏——隐藏会让审核时误判为需新建） */
+function missingType(a: Artist): boolean {
+  if (!props.filterType || (a.id || '').startsWith('__new_')) return false
+  const types = a.types || ['singer']
+  return !types.some(t => t === props.filterType)
+}
+
 function onInput() {
   const q = input.value.trim().toLowerCase()
   if (!q) {
     dropdown.value = []
     return
   }
-  // 会话内新建项（id 以 __new_ 开头）不受类型过滤，保证跨字段可复用
-  const isNew = (a: Artist) => (a.id || '').startsWith('__new_')
-  let items = searchPool.value.filter(a => a.name.toLowerCase().includes(q))
-  if (props.filterType) {
-    items = items.filter(a => {
-      if (isNew(a)) return true
-      const types = a.types || ['singer']
-      return types.some(t => t === props.filterType)
-    })
-  }
+  // 不再按类型过滤：已有艺术家缺当前类型照样展示（选中即复用其 ID，发布时补 type）；
+  // 仅会话内新建项（id 以 __new_ 开头）优先展示
+  const items = searchPool.value.filter(a => a.name.toLowerCase().includes(q))
+  // 精确匹配置顶
+  items.sort((a, b) => {
+    const ae = a.name.toLowerCase() === q ? 0 : 1
+    const be = b.name.toLowerCase() === q ? 0 : 1
+    return ae - be
+  })
   dropdown.value = items.slice(0, 8)
 }
 

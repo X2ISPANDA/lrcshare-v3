@@ -220,14 +220,27 @@
               <div class="text-xs text-gray-400 mt-1">如唱片公司、音乐平台等，不限于歌手</div>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">时长</label>
-              <input
-                v-model="song.duration"
-                type="text"
-                class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                placeholder="如：03:30"
-              />
+            <div class="grid grid-cols-2 gap-x-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">时长</label>
+                <input
+                  v-model="song.duration"
+                  type="text"
+                  class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="如：03:30"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">曲目号 <span class="text-xs text-gray-400 font-normal">（选填）</span></label>
+                <input
+                  v-model="song.track"
+                  type="text"
+                  inputmode="numeric"
+                  class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="专辑内第几首，如：3"
+                />
+                <div class="text-xs text-gray-400 mt-1">绑定已有专辑时可填，决定歌曲在专辑页的排序</div>
+              </div>
             </div>
 
             <!-- 作词（多选 tag） -->
@@ -437,6 +450,7 @@ const song = reactive({
   lyricists: [] as { id: string | null; name: string }[],
   composers: [] as { id: string | null; name: string }[],
   duration: '',
+  track: '',
   lrcText: '',
   videoUrl: '',
 })
@@ -460,8 +474,10 @@ const albumDropdown = ref<AlbumWithArtists[]>([])
 const albumDropdownOpen = ref(false)
 
 function onAlbumInput() {
-  albumId.value = null // 手动输入即视为新专辑
   const q = albumName.value.trim().toLowerCase()
+  // 输入与库内专辑名完全一致时自动关联 ID（同一专辑连投多首，手动打字也不会丢关联）
+  const exact = q ? allAlbums.value.find(a => a.name.toLowerCase() === q) : undefined
+  albumId.value = exact ? exact.id : null
   if (!q) {
     albumDropdown.value = []
     albumDropdownOpen.value = false
@@ -517,6 +533,10 @@ async function handleSubmit() {
     ElMessage.warning('专辑年份请填写 4 位数字（如 2024），或留空')
     return
   }
+  if (song.track.trim() && !/^\d+$/.test(song.track.trim())) {
+    ElMessage.warning('曲目号请填写正整数（如 3），或留空')
+    return
+  }
   if (selectedContributor.value && userForm.request_clear && userForm.request_update) {
     ElMessage.warning('更新信息和清空信息不能同时勾选')
     return
@@ -547,6 +567,7 @@ async function handleSubmit() {
     album_id: albumId.value,
     year: albumYear.value.trim() || undefined,
     duration: song.duration.trim(),
+    track: song.track.trim() || undefined,
     lrc_text: song.lrcText.trim(),
     video_url: song.videoUrl.trim(),
   }

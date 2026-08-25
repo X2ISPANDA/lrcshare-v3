@@ -176,8 +176,6 @@ export interface Article {
   summary?: string | null
   /** 作者（'站长' 时前台替换为站长真实名称） */
   author?: string | null
-  /** 分类：news 喜报 / tutorial 教程 / notice 公告 / post 文章 */
-  type?: string | null
   status: 'published' | 'draft'
   sort: number
   views: number

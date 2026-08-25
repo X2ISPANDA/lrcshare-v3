@@ -3,9 +3,6 @@
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
       <el-input v-model="keyword" placeholder="搜索标题 / slug" clearable class="!w-64" :prefix-icon="Search" />
-      <el-select v-model="typeFilter" clearable placeholder="全部分类" class="!w-32">
-        <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
-      </el-select>
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增文章</el-button>
     </div>
@@ -20,11 +17,6 @@
               <el-tag v-if="row.status === 'draft'" size="small" type="warning">草稿</el-tag>
             </div>
             <div class="text-xs text-gray-400">/post/{{ row.slug }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="分类" width="90" align="center">
-          <template #default="{ row }">
-            <el-tag size="small" :type="typeTag(row.type)">{{ typeLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="作者" width="100" show-overflow-tooltip>
@@ -73,15 +65,8 @@
           <el-col :span="12"><el-form-item label="slug" required><el-input v-model="form.slug" placeholder="URL 路径，如 my-first-post" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="分类">
-              <el-select v-model="form.type" class="w-full">
-                <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8"><el-form-item label="作者"><el-input v-model="form.author" placeholder="默认：站长" /></el-form-item></el-col>
-          <el-col :span="8">
+          <el-col :span="12"><el-form-item label="作者"><el-input v-model="form.author" placeholder="默认：站长" /></el-form-item></el-col>
+          <el-col :span="12">
             <el-form-item label="状态">
               <el-select v-model="form.status" class="w-full">
                 <el-option label="已发布" value="published" />
@@ -129,37 +114,21 @@ import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import type { Article } from '@/lib/types'
 
-/** 文章管理：列表（分类筛选、草稿标记）+ Markdown 编辑带实时预览 */
-
-const TYPE_OPTIONS = [
-  { label: '📢 公告', value: 'notice' },
-  { label: '🎉 喜报', value: 'news' },
-  { label: '📖 教程', value: 'tutorial' },
-  { label: '📄 文章', value: 'post' },
-]
+/** 文章管理：列表（搜索、草稿标记）+ Markdown 编辑带实时预览 */
 
 const articles = ref<Article[]>([])
 const loading = ref(false)
 const keyword = ref('')
-const typeFilter = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const selected = ref<Article[]>([])
 const tableRef = ref()
 const contentRef = ref()
 
-function typeLabel(t: string | null) {
-  return TYPE_OPTIONS.find(o => o.value === t)?.label.replace(/^\S+\s/, '') || t || '文章'
-}
-function typeTag(t: string | null): any {
-  return { notice: 'warning', news: 'success', tutorial: 'primary', post: 'info' }[t || 'post'] || 'info'
-}
-
 const filteredList = computed(() => {
   let list = articles.value
   const kw = keyword.value.trim().toLowerCase()
   if (kw) list = list.filter(a => a.title?.toLowerCase().includes(kw) || a.slug?.toLowerCase().includes(kw))
-  if (typeFilter.value) list = list.filter(a => a.type === typeFilter.value)
   return list
 })
 const pagedList = computed(() => filteredList.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
@@ -188,7 +157,6 @@ const saving = ref(false)
 const form = reactive({
   title: '',
   slug: '',
-  type: 'post',
   status: 'published',
   author: '站长',
   cover: '',
@@ -208,7 +176,7 @@ const contentPreview = computed(() => {
 
 function openNew() {
   editing.value = null
-  Object.assign(form, { title: '', slug: '', type: 'post', status: 'published', author: '站长', cover: '', summary: '', content: '', sort: 0 })
+  Object.assign(form, { title: '', slug: '', status: 'published', author: '站长', cover: '', summary: '', content: '', sort: 0 })
   showDialog.value = true
 }
 
@@ -217,7 +185,6 @@ function openEdit(row: Article) {
   Object.assign(form, {
     title: row.title || '',
     slug: row.slug || '',
-    type: row.type || 'post',
     status: row.status || 'published',
     author: row.author || '站长',
     cover: row.cover || '',
@@ -238,7 +205,6 @@ async function save() {
     const payload = {
       title: form.title.trim(),
       slug: form.slug.trim(),
-      type: form.type,
       status: form.status,
       author: form.author.trim() || '站长',
       cover: form.cover.trim() || null,
@@ -287,6 +253,6 @@ async function batchRemove() {
   }
 }
 
-watch([keyword, typeFilter], () => (page.value = 1))
+watch(keyword, () => (page.value = 1))
 watch(pageSize, () => (page.value = 1))
 </script>

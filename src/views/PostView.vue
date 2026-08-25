@@ -17,9 +17,6 @@
         </RouterLink>
 
         <div class="mb-6">
-          <div class="flex items-center gap-2 mb-4">
-            <span class="inline-block px-2.5 py-0.5 text-xs font-medium rounded-full" :class="typeInfo.class">{{ typeInfo.label }}</span>
-          </div>
           <h1 class="text-3xl font-bold text-gray-800 mb-4">{{ article.title }}</h1>
           <div class="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
             <span>
@@ -27,7 +24,6 @@
               <span v-if="article.author === '站长'" class="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-1">站长</span>
             </span>
             <span>📅 {{ formatDate(article.created_at) }}</span>
-            <span>📂 {{ typeInfo.label }}</span>
             <span>👁 {{ article.views || 0 }} 浏览</span>
           </div>
         </div>
@@ -54,13 +50,6 @@ const route = useRoute()
 const slug = route.params.slug as string
 const ui = useUiStore()
 
-const TYPE_LABEL: Record<string, { label: string; class: string }> = {
-  news: { label: '喜报', class: 'bg-yellow-100 text-yellow-700' },
-  tutorial: { label: '教程', class: 'bg-blue-100 text-blue-700' },
-  notice: { label: '公告', class: 'bg-red-100 text-red-700' },
-  post: { label: '文章', class: 'bg-green-100 text-green-700' },
-}
-
 const { data: article, loading } = useSSGData<Article>(`post:${slug}`, () =>
   api.getArticleBySlug(slug),
 )
@@ -73,8 +62,6 @@ useHead({
     { name: 'description', content: computed(() => article.value?.summary || `${article.value?.title || ''} - LrcShare 站长文章`) },
   ],
 })
-
-const typeInfo = computed(() => TYPE_LABEL[article.value?.type || ''] || { label: '文章', class: 'bg-gray-100 text-gray-700' })
 
 const displayName = computed(() => {
   if (article.value?.author !== '站长') return article.value?.author || '站长'

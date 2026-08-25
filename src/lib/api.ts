@@ -451,11 +451,15 @@ export const api = {
     const { status = 'published', limit, includeDrafts = false } = options
     let query = supabase.from('articles').select('*')
     if (!includeDrafts) query = query.eq('status', status)
-    query = query.order('sort', { ascending: true }).order('created_at', { ascending: false })
-    if (limit) query = query.limit(limit)
     const { data, error } = await query
     if (error) throw error
-    return (data || []) as Article[]
+    // 置顶语义：0=不置顶（沉底按时间），1 最置顶、2 次之——数据库排序表达不了「0 排最后」，
+    // 客户端重排后再截断 limit（置顶老文章不能被 DB 层 limit 切掉；文章量小全量拉取无压力）
+    const rank = (a: Article) => (a.sort && a.sort > 0 ? a.sort : Number.MAX_SAFE_INTEGER)
+    const sorted = (data || [])
+      .slice()
+      .sort((a, b) => rank(a) - rank(b) || new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    return limit ? sorted.slice(0, limit) : sorted
   },
 
   async getArticleBySlug(slug: string): Promise<Article> {
