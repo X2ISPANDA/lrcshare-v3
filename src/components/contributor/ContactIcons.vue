@@ -1,7 +1,7 @@
 <template>
   <div v-if="links.length" class="flex items-center gap-1 flex-wrap">
     <template v-for="link in links" :key="link.key">
-      <!-- 单图标：URL/QQ 直接跳转；邮箱/微信等弹出操作框 -->
+      <!-- 单图标：URL 直接跳转；邮箱/微信/QQ 等弹出复制操作框 -->
       <a
         :href="link.href"
         :target="link.href?.startsWith('http') ? '_blank' : undefined"
@@ -65,8 +65,8 @@ const iconClass = computed(() =>
 )
 const iconSize = computed(() => (props.variant === 'white' ? 'w-5.5 h-5.5' : 'w-5 h-5'))
 
-/** 全量公开联系方式 → 图标列表：URL 直接跳转；QQ 号转腾讯一键加好友；
- *  邮箱/微信等弹出操作框（邮箱额外带写邮件按钮） */
+/** 全量公开联系方式 → 图标列表：URL 直接跳转；
+ *  邮箱/微信/QQ 等弹出操作框（邮箱额外带写邮件按钮） */
 const links = computed<{ key: string; value: string; href?: string; icon: string }[]>(() => {
   const c = props.contributor
   if (!c?.public_contact || !c.contact_value) return []
@@ -80,11 +80,7 @@ const links = computed<{ key: string; value: string; href?: string; icon: string
     .filter(([, v]) => v)
     .map(([k, v]) => {
       if (/^https?:\/\//i.test(v)) return { key: k, value: v, href: v, icon: k }
-      // QQ 号 → tencent:// 协议直接拉起加好友（无需登录网页临时会话）
-      if (/^qq$/i.test(k) && /^\d{5,12}$/.test(v.trim())) {
-        return { key: k, value: v, href: `tencent://AddContact/?fromId=45&fromSubId=1&sub=ai&uin=${v.trim()}`, icon: k }
-      }
-      // 邮箱不设 href（统一走弹窗：复制 + 写邮件两个按钮）
+      // QQ 不再生成 tencent:// 加好友链接（腾讯已废弃该拉起方式），与微信一致走复制弹窗
       return { key: k, value: v, icon: k }
     })
 })

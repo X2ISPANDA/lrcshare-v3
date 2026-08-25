@@ -29,7 +29,7 @@
               <div class="flex items-center gap-2 justify-center md:justify-start flex-wrap">
                 <h1 class="text-3xl font-bold text-white drop-shadow">{{ contributor.name || '匿名贡献者' }}</h1>
               </div>
-              <!-- 联系方式：纯 logo 图标（URL/QQ号 可点击；微信/邮箱等弹出复制框），与贡献者名单共用组件 -->
+              <!-- 联系方式：纯 logo 图标（URL 可点击；微信/QQ/邮箱等弹出复制框），与贡献者名单共用组件 -->
               <ContactIcons :contributor="contributor" variant="white" class="mt-2 justify-center md:justify-start" />
               <!-- 贡献标签：与艺术家 types 同款彩色渐变胶囊，独立一行 -->
               <div v-if="tags.length" class="flex items-center gap-2 mt-2 flex-wrap justify-center md:justify-start">

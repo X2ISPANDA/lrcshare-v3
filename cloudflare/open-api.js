@@ -13,11 +13,19 @@
  * - 隐藏歌曲（is_hidden）不过滤：网站隐藏逻辑仅作用于前台，API 全量开放
  * - 署名链路：song.comment 与 LRC 末尾统一追加「本歌词来自于:贡献者名@lrcshare.com」
  * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）
+ * - 子域治理：通配符 Route（*.lrcshare.com/*）接住任意子域。已占用子域（doc 等）在
+ *   Worker 内反向代理回真实源站（Workers 路由优先级高于 Pages 自定义域，必须代理），
+ *   未知子域返回 HTML 404 页；灰云（仅 DNS）子域不进 CF 网络，不受影响
  */
 
 // ============ 常量 ============
 
 const SITE_DOMAIN = 'lrcshare.com'
+
+/** 被通配符 Route 截胡的已占用子域 → 反向代理目标源站 */
+const HOST_UPSTREAMS = {
+  [`doc.${SITE_DOMAIN}`]: 'https://lrcshare-v3.pages.dev',
+}
 
 /** 歌曲摘要（列表/搜索返回）：id/歌名/歌手/专辑/风格/封面 */
 const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,cover,albums(name,year,cover)'
@@ -451,9 +459,20 @@ async function handleArtistSongs(env, id, url) {
 
 export default {
   async fetch(request, env, ctx) {
-    // 未知子域兜底：*.lrcshare.com 通配符路由接进来的请求（如误输的 v3.xxx）
-    // 返回 HTML 404 页；api 域名与 workers.dev 默认域名正常放行
-    const reqHost = new URL(request.url).hostname
+    const url = new URL(request.url)
+    const reqHost = url.hostname
+
+    // 已占用子域（如 doc 的 Pages 站）被通配符 Route 截胡 → 反向代理回源站。
+    // fetch 默认跟随重定向（follow），Pages 内部跳转不会把浏览器带去 pages.dev
+    const upstream = HOST_UPSTREAMS[reqHost]
+    if (upstream) {
+      return fetch(upstream + url.pathname + url.search, {
+        method: request.method,
+        headers: request.headers,
+      })
+    }
+
+    // 未知子域兜底：返回 HTML 404 页；api 域名与 workers.dev 默认域名正常放行
     if (reqHost !== `api.${SITE_DOMAIN}` && !reqHost.endsWith('.workers.dev')) {
       return html404(reqHost)
     }
@@ -466,7 +485,6 @@ export default {
       return jsonError(405, 'method not allowed, GET only')
     }
 
-    const url = new URL(request.url)
     const path = url.pathname.replace(/\/+$/, '') // 去尾斜杠
     if (path !== '/v1' && !path.startsWith('/v1/')) {
       return jsonError(404, 'not found, see /v1/ for available endpoints')

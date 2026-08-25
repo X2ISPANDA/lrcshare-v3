@@ -46,6 +46,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useHead } from '@unhead/vue'
 import { useAdminAuth } from '@/composables/useAdminAuth'
 import { LOGO_URL } from '@/lib/constants'
 
@@ -69,6 +70,9 @@ const menus = [
 const collapsed = ref(false)
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => menus.find(m => m.path === route.path)?.label || '管理后台')
+// admin 为纯 SPA：直链经 GitHub Pages 404.html 兜底启动，HTML title 是「页面不存在」，
+// 需在布局层按当前页覆盖（各内页自身不设置 title）
+useHead({ title: computed(() => `${currentTitle.value} - 管理后台 - LrcShare`) })
 
 onMounted(() => init())
 

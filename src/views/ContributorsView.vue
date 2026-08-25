@@ -46,7 +46,7 @@
             </div>
           </RouterLink>
           <p v-if="c.public_bio !== false && c.bio" class="text-sm text-gray-600 mt-2">{{ c.bio }}</p>
-          <!-- 联系方式（全量：URL 跳转/QQ 一键加好友/其余点击复制，与贡献者主页一致） -->
+          <!-- 联系方式（全量：URL 跳转，其余点击复制，与贡献者主页一致） -->
           <ContactIcons :contributor="c" class="mt-3 relative z-10" />
         </div>
       </div>
