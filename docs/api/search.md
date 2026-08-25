@@ -39,9 +39,9 @@ GET /v1/search
       {
         "id": "s_purplesoul_013",
         "title": "歌名",
-        "artists": [{ "id": "art_xxx", "name": "歌手" }],
+        "artists": [{ "id": "art_a", "name": "歌手A" }, { "id": "art_b", "name": "歌手B" }],
         "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
-        "genres": ["Hip-Hop"],
+        "genres": ["Hip-Hop", "Trap"],
         "cover": "https://..."
       }
     ]

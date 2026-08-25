@@ -42,8 +42,6 @@ GET /v1/album/:id
     "year": "2024",
     "cover": "https://...",
     "artists": [{ "id": "art_xxx", "name": "专辑艺术家" }],
-    "description": "专辑介绍（Markdown 富文本）",
-    "created_at": "2026-01-01T00:00:00+00:00",
     "songs": [
       {
         "id": "s_xxx",

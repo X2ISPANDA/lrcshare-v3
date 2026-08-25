@@ -29,14 +29,23 @@ const HOST_UPSTREAMS = {
 
 /** 歌曲摘要（列表/搜索返回）：id/歌名/歌手/专辑/风格/封面 */
 const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,cover,albums(name,year,cover)'
-/** 歌曲详情（确认目标后获取全部数据，含歌词） */
+/** 歌曲详情（确认目标后获取全部数据，含歌词）。
+ *  字段严格对齐音频标签标准（ID3v2 / Vorbis Comment）：
+ *  title=TIT2/TITLE, artists=TPE1/ARTIST, album=TALB/ALBUM, year=TDRC/DATE,
+ *  track=TRCK/TRACKNUMBER, disc=TPOS/DISCNUMBER, genres=TCON/GENRE,
+ *  lyricist=TEXT/LYRICIST, composer=TCOM/COMPOSER, cover=APIC,
+ *  lrc=USLT/LYRICS, comment=COMM。
+ *  网站内部字段（video_url/created_at/description）不对外输出；
+ *  contributor_id 仅用于在库端拼 comment 署名，不作为独立字段暴露 */
 const SONG_DETAIL_SELECT =
-  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,track,disc,genres,video_url,cover,contributor_id,created_at,lrc_text,albums(name,year,cover)'
+  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,track,disc,genres,cover,contributor_id,lrc_text,albums(name,year,cover)'
 /** 艺术家作品：摘要 + 词曲编列（仅用于计算 roles，不进输出） */
 const SONG_ROLES_SELECT = 'id,title,artist_ids,album_id,genres,cover,lyricist,composer,arranger,albums(name,year,cover)'
 /** 专辑曲目：摘要 + 曲目号/碟号 */
 const ALBUM_TRACK_SELECT = 'id,title,artist_ids,album_id,genres,cover,track,disc'
-const ALBUM_SELECT = 'id,name,cover,year,artist_ids,description,created_at'
+/** 专辑对象：同样只输出标签可用字段（name=TALB, year=DATE, cover=APIC, artists=TPE2）；
+ *  专辑介绍/收录时间为网站内部数据，不对外 */
+const ALBUM_SELECT = 'id,name,cover,year,artist_ids'
 const ARTIST_SELECT = 'id,name,aliases,types,avatar,bio,disambiguation'
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
@@ -231,10 +240,7 @@ function mapSongDetail(row, artistNames, contributorName) {
     composer: idsToNames(row.composer, artistNames),
     arranger: idsToNames(row.arranger, artistNames),
     cover: row.cover || (album && album.cover) || null,
-    contributor: contributorName || null,
     comment: credit,
-    video_url: row.video_url || null,
-    created_at: row.created_at || null,
     lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
   }
 }
@@ -247,8 +253,6 @@ function mapAlbum(row, artistNames) {
     year: row.year || null,
     cover: row.cover || null,
     artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
-    description: row.description || null,
-    created_at: row.created_at || null,
   }
 }
 

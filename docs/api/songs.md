@@ -50,20 +50,17 @@ GET /v1/song/:id
   "data": {
     "id": "s_purplesoul_013",
     "title": "歌名",
-    "aliases": ["别名"],
-    "artists": [{ "id": "art_xxx", "name": "歌手" }],
+    "aliases": ["别名", "英文名"],
+    "artists": [{ "id": "art_a", "name": "歌手A" }, { "id": "art_b", "name": "歌手B" }],
     "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
     "track": 3,
     "disc": 1,
-    "genres": ["Hip-Hop"],
-    "lyricist": ["词作者"],
+    "genres": ["Hip-Hop", "Trap"],
+    "lyricist": ["词作者A", "词作者B"],
     "composer": ["曲作者"],
     "arranger": ["编曲"],
     "cover": "https://...",
-    "contributor": "贡献者",
     "comment": "本歌词来自于:贡献者@lrcshare.com",
-    "video_url": "https://www.bilibili.com/video/...",
-    "created_at": "2026-08-01T12:00:00+00:00",
     "lrc": "[00:00.00] ...\n本歌词来自于:贡献者@lrcshare.com"
   }
 }
@@ -75,7 +72,10 @@ GET /v1/song/:id
 | --- | --- |
 | `lrc` | 完整时间轴的 LRC 歌词，**末尾自动追加一行来源署名**（纯文本行，不带时间戳），写入播放器或音乐文件标签后来源可溯；无 LRC 数据时为 `null` |
 | `comment` | 署名字符串，可直接整串写入音乐文件的 comment 标签；无贡献者时为 `本歌词来自于:lrcshare.com` |
-| `lyricist` / `composer` / `arranger` | 作词 / 作曲 / 编曲（名字数组） |
+| `lyricist` / `composer` / `arranger` | 作词 / 作曲 / 编曲（名字数组，多人合作多项，写入标签时自行拼接） |
+| `genres` | 流派数组（多风格并存，写入标签时自行拼接） |
+
+各字段与 ID3v2 / Vorbis 标签帧的对应关系见[数据对象](/api/objects)。
 
 - `id` 不存在或未发布时返回 `404`
 - 写音乐标签建议：`LYRICS` ← `lrc`，`COMMENT` ← `comment`，其余按字段对应
