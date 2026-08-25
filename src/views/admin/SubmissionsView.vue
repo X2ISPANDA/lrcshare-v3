@@ -403,12 +403,12 @@ const newArtistsList = computed(() => {
   return [...map.entries()].map(([, v]) => ({ item: v.item, source: v.source.join(' / '), types: [...v.types] }))
 })
 
-/** 从 contact_value（JSONB）解析邮箱 */
+/** 从 contact_value（JSONB）解析邮箱（英文键 email；'邮箱' 为旧数据兼容） */
 function parseEmail(row: any): string {
   const cv = row.contact_value
   try {
     const obj = typeof cv === 'string' ? JSON.parse(cv || '{}') : (cv || {})
-    return obj['邮箱'] || ''
+    return obj['email'] || obj['邮箱'] || ''
   } catch {
     return ''
   }

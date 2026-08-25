@@ -36,6 +36,52 @@ export const ARTIST_TYPE_GRADIENTS: Record<string, string> = {
   arranger: 'from-amber-500 to-orange-500',
 }
 
+/**
+ * 联系方式 / 平台键名体系（2026-08-25 起统一英文键）：
+ * 数据库与代码一律存英文键（contributors.contact_* / artists.urls），
+ * 中文仅作为展示层标签（下拉选项、弹窗标题、表格列），见下方两个 LABELS。
+ */
+
+/** 贡献者联系方式英文键 → 中文标签 */
+export const CONTACT_LABELS: Record<string, string> = {
+  qq: 'QQ',
+  wechat: '微信',
+  email: '邮箱',
+  bilibili: 'B站',
+  github: 'GitHub',
+  blog: '博客',
+  douyin: '抖音',
+  weibo: '微博',
+  twitter: 'Twitter',
+  xiaohongshu: '小红书',
+  netease: '网易音乐人',
+  homepage: '个人主页',
+  phone: '电话',
+  mobile: '手机',
+}
+
+/** 艺术家社交平台英文键 → 中文标签 */
+export const PLATFORM_LABELS: Record<string, string> = {
+  netease: '网易音乐人',
+  qqmusic: 'QQ音乐',
+  weibo: '微博',
+  bilibili: 'B站',
+  instagram: 'Instagram',
+  spotify: 'Spotify',
+  youtube: 'YouTube',
+  x: 'X',
+  facebook: 'Facebook',
+  douyin: '抖音',
+  xiaohongshu: '小红书',
+  beatstars: 'BeatStars',
+  official: '官网',
+}
+
+/** 键名 → 展示标签（联系方式/平台通用，未收录的键原样显示） */
+export function contactLabel(key: string): string {
+  return CONTACT_LABELS[key] || PLATFORM_LABELS[key] || key
+}
+
 export function artistTypeIcons(types: string[] | null | undefined): string {
   return (types || ['singer']).map(t => ARTIST_TYPE_ICONS[t] || '').join(' ')
 }

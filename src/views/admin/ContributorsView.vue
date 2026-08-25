@@ -31,8 +31,8 @@
         <el-table-column label="联系方式" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.contact_types?.length">
-              <template v-if="row.public_contact">{{ row.contact_types.join('、') }}</template>
-              <template v-else>🔒 {{ row.contact_types.join('、') }}</template>
+              <template v-if="row.public_contact">{{ row.contact_types.map(contactLabel).join('、') }}</template>
+              <template v-else>🔒 {{ row.contact_types.map(contactLabel).join('、') }}</template>
             </span>
             <span v-else class="text-gray-300">—</span>
           </template>
@@ -93,11 +93,11 @@
         </el-form-item>
         <el-form-item label="联系方式类型">
           <el-select v-model="form.contact_types" multiple placeholder="选择使用的联系方式" class="w-full">
-            <el-option v-for="ct in CONTACT_TYPES" :key="ct" :label="ct" :value="ct" />
+            <el-option v-for="ct in CONTACT_TYPES" :key="ct" :label="contactLabel(ct)" :value="ct" />
           </el-select>
         </el-form-item>
-        <el-form-item v-for="ct in form.contact_types" :key="ct" :label="ct">
-          <el-input v-model="form.contact_value[ct]" :placeholder="ct + ' 号码/链接'" />
+        <el-form-item v-for="ct in form.contact_types" :key="ct" :label="contactLabel(ct)">
+          <el-input v-model="form.contact_value[ct]" :placeholder="contactLabel(ct) + ' 号码/链接'" />
         </el-form-item>
         <el-form-item label="联系方式公开">
           <div class="flex items-center gap-3">
@@ -139,11 +139,12 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import { contactLabel } from '@/lib/constants'
 import type { Contributor } from '@/lib/types'
 
 /** 贡献者管理：站长标识、动态联系方式、口令哈希（SHA-256）、公开开关 */
 
-const CONTACT_TYPES = ['QQ', '微信', '邮箱', 'B站', 'GitHub', '博客', '抖音', '微博', 'Twitter', '小红书', '网易音乐人', '个人主页', '电话', '手机']
+const CONTACT_TYPES = ['qq', 'wechat', 'email', 'bilibili', 'github', 'blog', 'douyin', 'weibo', 'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile']
 
 const contributors = ref<Contributor[]>([])
 const songContributors = ref<string[]>([])

@@ -101,7 +101,7 @@
             <div class="space-y-2">
               <div v-for="(c, idx) in userForm.contacts" :key="idx" class="flex gap-2 items-center">
                 <el-select v-model="c.type" style="width: 110px; flex-shrink: 0" :disabled="!!(selectedContributor && !userForm.request_update)">
-                  <el-option v-for="t in CONTACT_TYPES" :key="t" :label="t" :value="t" :disabled="isContactTypeSelected(t, idx)" />
+                  <el-option v-for="t in CONTACT_TYPES" :key="t" :label="contactLabel(t)" :value="t" :disabled="isContactTypeSelected(t, idx)" />
                 </el-select>
                 <el-input v-model="c.value" placeholder="号码/链接" style="flex: 1; min-width: 0" :disabled="!!(selectedContributor && !userForm.request_update)" />
                 <el-button type="danger" link :disabled="!!(selectedContributor && !userForm.request_update)" @click="removeContact(idx)">移除</el-button>
@@ -313,6 +313,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
+import { contactLabel } from '@/lib/constants'
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import type { AlbumWithArtists } from '@/lib/types'
@@ -320,7 +321,7 @@ import type { AlbumWithArtists } from '@/lib/types'
 useHead({ title: '投稿歌词 - LrcShare' })
 
 const DEFAULT_LOGO = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
-const CONTACT_TYPES = ['QQ', '微信', 'B站', 'GitHub', '博客', '抖音', '微博', 'Twitter', '小红书', '网易音乐人', '个人主页', '电话', '手机']
+const CONTACT_TYPES = ['qq', 'wechat', 'bilibili', 'github', 'blog', 'douyin', 'weibo', 'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile']
 
 // ============ 全量数据（客户端加载，供 tag 过滤/专辑联想/贡献者搜索） ============
 const allArtists = ref<Artist[]>([])
@@ -544,7 +545,7 @@ async function handleSubmit() {
 
   // 联系方式：邮箱始终加入 contact_value（用于通知）；其他联系方式仅在新建/更新贡献者时添加
   const contactObj: Record<string, string> = {}
-  if (email) contactObj['邮箱'] = email
+  if (email) contactObj['email'] = email
   if (!(selectedContributor.value && !userForm.request_update)) {
     Object.assign(contactObj, collectContactsObj())
   }

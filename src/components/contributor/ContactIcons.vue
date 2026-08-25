@@ -6,7 +6,7 @@
         :href="link.href"
         :target="link.href?.startsWith('http') ? '_blank' : undefined"
         :rel="link.href?.startsWith('http') ? 'noopener noreferrer' : undefined"
-        :title="link.href ? link.key : link.key"
+        :title="link.label"
         class="inline-flex items-center justify-center transition cursor-pointer"
         :class="iconClass"
         @click.stop="!link.href && openCopy(link)"
@@ -27,7 +27,7 @@
                 <AppIcon :name="copyModal.key" class="w-7 h-7" />
               </span>
               <div class="min-w-0">
-                <div class="font-semibold text-gray-800">{{ copyModal.key }}</div>
+                <div class="font-semibold text-gray-800">{{ copyModal.label }}</div>
                 <div class="text-xs text-gray-400">{{ copyModal.hint }}</div>
               </div>
             </div>
@@ -54,6 +54,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import AppIcon from '@/components/common/AppIcon.vue'
+import { contactLabel } from '@/lib/constants'
 import type { Contributor } from '@/lib/types'
 
 const props = defineProps<{ contributor: Contributor; variant?: 'light' | 'white' }>()
@@ -66,8 +67,9 @@ const iconClass = computed(() =>
 const iconSize = computed(() => (props.variant === 'white' ? 'w-5.5 h-5.5' : 'w-5 h-5'))
 
 /** 全量公开联系方式 → 图标列表：URL 直接跳转；
- *  邮箱/微信/QQ 等弹出操作框（邮箱额外带写邮件按钮） */
-const links = computed<{ key: string; value: string; href?: string; icon: string }[]>(() => {
+ *  邮箱/微信/QQ 等弹出操作框（邮箱额外带写邮件按钮）。
+ *  键为英文（见 constants.ts CONTACT_LABELS），展示用中文标签 */
+const links = computed<{ key: string; label: string; value: string; href?: string; icon: string }[]>(() => {
   const c = props.contributor
   if (!c?.public_contact || !c.contact_value) return []
   let cv: Record<string, string> = {}
@@ -79,26 +81,26 @@ const links = computed<{ key: string; value: string; href?: string; icon: string
   return Object.entries(cv || {})
     .filter(([, v]) => v)
     .map(([k, v]) => {
-      if (/^https?:\/\//i.test(v)) return { key: k, value: v, href: v, icon: k }
-      // QQ 不再生成 tencent:// 加好友链接（腾讯已废弃该拉起方式），与微信一致走复制弹窗
-      return { key: k, value: v, icon: k }
+      const key = k.toLowerCase()
+      if (/^https?:\/\//i.test(v)) return { key, label: contactLabel(key), value: v, href: v, icon: key }
+      return { key, label: contactLabel(key), value: v, icon: key }
     })
 })
 
 // ============ 操作弹窗 ============
-const copyModal = ref<{ key: string; value: string; hint: string; mailto?: string } | null>(null)
+const copyModal = ref<{ key: string; label: string; value: string; hint: string; mailto?: string } | null>(null)
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
-/** 邮箱判定：key 为 邮箱/email 或值含 @ */
+/** 邮箱判定：key 为 email 或值含 @ */
 function isEmail(key: string, value: string): boolean {
-  return /^(邮箱|email|e-mail)$/i.test(key) || /@/.test(value)
+  return /^(email|e-mail)$/i.test(key) || /@/.test(value)
 }
 
-function openCopy(link: { key: string; value: string }) {
+function openCopy(link: { key: string; label: string; value: string }) {
   copyModal.value = isEmail(link.key, link.value)
-    ? { key: link.key, value: link.value, hint: '可复制地址或直接写邮件', mailto: `mailto:${link.value.trim()}` }
-    : { key: link.key, value: link.value, hint: `复制${link.key}号后前往对应平台添加` }
+    ? { key: link.key, label: link.label, value: link.value, hint: '可复制地址或直接写邮件', mailto: `mailto:${link.value.trim()}` }
+    : { key: link.key, label: link.label, value: link.value, hint: `复制${link.label}号后前往对应平台添加` }
   copied.value = false
 }
 

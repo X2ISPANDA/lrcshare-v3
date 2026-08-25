@@ -106,12 +106,12 @@
           <div class="w-full space-y-2">
             <div v-for="(row, idx) in form.urlRows" :key="idx" class="flex items-center gap-2">
               <el-select v-model="row.k" filterable allow-create default-first-option size="small" class="!w-36 flex-shrink-0" placeholder="平台">
-                <el-option v-for="p in URL_PLATFORMS" :key="p" :label="p" :value="p" />
-              </el-select>
-              <el-input v-model="row.v" placeholder="https://..." size="small" />
-              <el-button size="small" type="danger" text @click="form.urlRows.splice(idx, 1)">删</el-button>
-            </div>
-            <el-button size="small" @click="form.urlRows.push({ k: '官网', v: '' })">+ 添加链接</el-button>
+              <el-option v-for="p in URL_PLATFORMS" :key="p" :label="contactLabel(p)" :value="p" />
+            </el-select>
+            <el-input v-model="row.v" placeholder="https://..." size="small" />
+            <el-button size="small" type="danger" text @click="form.urlRows.splice(idx, 1)">删</el-button>
+          </div>
+          <el-button size="small" @click="form.urlRows.push({ k: 'official', v: '' })">+ 添加链接</el-button>
           </div>
         </el-form-item>
         <el-form-item label="首字母">
@@ -145,6 +145,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import { contactLabel } from '@/lib/constants'
 import type { Artist } from '@/lib/types'
 
 /** 艺术家管理：列表（类型筛选、行内 is_show 切换）+ 新增/编辑（社交链接、置顶、消歧义） */
@@ -155,8 +156,8 @@ const TYPE_OPTIONS = [
   { label: '🎼 作曲人', value: 'composer' },
   { label: '🎹 编曲人', value: 'arranger' },
 ]
-/** 社交平台下拉（键名与迁移 SQL 一致的中文体系；allow-create 可输任意自定义键） */
-const URL_PLATFORMS = ['网易音乐人', 'QQ音乐', '微博', 'B站', 'Instagram', 'Spotify', 'YouTube', 'X', 'Facebook', '抖音', '小红书', 'BeatStars', '官网']
+/** 社交平台下拉（英文键体系，见 constants.ts PLATFORM_LABELS；allow-create 可输任意自定义键） */
+const URL_PLATFORMS = ['netease', 'qqmusic', 'weibo', 'bilibili', 'instagram', 'spotify', 'youtube', 'x', 'facebook', 'douyin', 'xiaohongshu', 'beatstars', 'official']
 
 const artists = ref<Artist[]>([])
 const songArtists = ref<string[]>([])
@@ -289,7 +290,7 @@ function openEdit(row: Artist) {
     bio: row.bio || '',
     aliases: [...(row.aliases || [])],
     urls,
-    // 展开为动态行：保留库里全部键（含中文键如 官网/网易音乐人/X），不再因固定 6 键丢数据
+    // 展开为动态行：保留库里全部键（迁移后为英文键，如 official/netease/x）
     urlRows: Object.entries(urls).map(([k, v]) => ({ k, v: v || '' })),
     sort: row.sort || 0,
     initial: row.initial || '',
@@ -324,7 +325,7 @@ async function save() {
       sort: form.sort || 0,
       initial: form.initial.trim().toUpperCase() || null,
       is_show: form.is_show !== false,
-      // urls 从动态行组装（与迁移 SQL 的中文键名体系一致，如 官网/网易音乐人/X）
+      // urls 从动态行组装（英文键体系，见 constants.ts PLATFORM_LABELS）
       urls: Object.fromEntries(form.urlRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()])),
     }
     if (editing.value) {

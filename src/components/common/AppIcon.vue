@@ -29,39 +29,31 @@ import iconLink from '~icons/brand/link'
 import iconBeatstars from '~icons/brand/beatstars'
 
 const ICON_MAP: Record<string, Component> = {
-  // 社交/音乐平台（艺术家页、艺术家库页；兼容后台小写 key 与中文 key）
+  // 键名全英文（2026-08-25 起；数据库与代码统一英文键，中文仅展示层标签，
+  // 见 constants.ts 的 CONTACT_LABELS / PLATFORM_LABELS）
+  // 社交/音乐平台（艺术家页 urls）：qq=联系方式QQ号，qqmusic=QQ音乐，注意区分
   instagram: iconInstagram,
   weibo: iconWeibo,
   bilibili: iconBilibili,
   netease: iconNetease,
-  qq: iconQqMusic,
-  'QQ音乐': iconQqMusic,
-  'qq音乐': iconQqMusic,
+  qq: iconQq,
+  qqmusic: iconQqMusic,
   spotify: iconSpotify,
   github: iconGithub,
-  // 联系方式（贡献者页）
-  'QQ': iconQq,
-  '微信': iconWechat,
-  '邮箱': iconMail,
-  'Email': iconMail,
-  'B站': iconBilibili,
-  'Bilibili': iconBilibili,
-  '哔哩哔哩': iconBilibili,
-  'GitHub': iconGithub,
-  '博客': iconBlog,
-  '抖音': iconDouyin,
-  '微博': iconWeibo,
-  'Twitter': iconTwitter,
-  'X': iconTwitter, // twitter.svg 实为 X logo（黑圆底白 X）；保留 Twitter 键兼容旧数据
-  'x': iconTwitter,
-  '小红书': iconXiaohongshu,
-  '网易音乐人': iconNetease,
-  'BeatStars': iconBeatstars,
-  'beatstars': iconBeatstars,
-  '个人主页': iconLink,
-  '电话': iconPhone,
-  '手机': iconCellphone,
-  'link': iconLink,
+  beatstars: iconBeatstars,
+  // 联系方式（贡献者页 contact_value）
+  wechat: iconWechat,
+  email: iconMail,
+  blog: iconBlog,
+  douyin: iconDouyin,
+  twitter: iconTwitter,
+  x: iconTwitter, // twitter.svg 实为 X logo（黑圆底白 X）
+  xiaohongshu: iconXiaohongshu,
+  homepage: iconLink,
+  official: iconLink,
+  phone: iconPhone,
+  mobile: iconCellphone,
+  link: iconLink,
 }
 
 const props = defineProps<{ name: string }>()
