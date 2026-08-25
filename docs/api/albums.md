@@ -49,7 +49,6 @@ GET /v1/album/:id
         "artists": [{ "id": "art_xxx", "name": "歌手" }],
         "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
         "genres": ["Hip-Hop"],
-        "cover": "https://...",
         "track": 1,
         "disc": 1
       }

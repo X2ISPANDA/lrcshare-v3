@@ -66,7 +66,7 @@ curl "https://api.lrcshare.com/v1/song/s_purplesoul_013"
 // 浏览器控制台直接可跑（支持跨域）
 const res = await fetch('https://api.lrcshare.com/v1/search?keyword=紫')
 const { code, data } = await res.json()
-console.log(data.items) // 轻量列表：[{ id, title, artists, album, genres, cover }]
+console.log(data.items) // 轻量列表：[{ id, title, artists, album, genres }]（封面在 album.cover）
 
 // 选中后取详情
 const detail = await fetch(`https://api.lrcshare.com/v1/song/${data.items[0].id}`)

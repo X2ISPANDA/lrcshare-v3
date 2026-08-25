@@ -13,9 +13,8 @@
 | `id` | string | — | — | 歌曲 ID，全局唯一，如 `s_purplesoul_013`，用它调 `/v1/song/:id` 取详情 |
 | `title` | string | TIT2 | TITLE | 歌名 |
 | `artists` | `{id, name}[]` | TPE1 | ARTIST | 演唱者列表，多艺人合作曲返回多项，写入标签时自行拼接 |
-| `album` | `{id, name, year, cover}` \| null | TALB | ALBUM | 所属专辑（单曲专辑也是专辑） |
+| `album` | `{id, name, year, cover}` \| null | TALB | ALBUM | 所属专辑（单曲专辑也是专辑）；`cover` 为专辑封面，全站唯一封面来源 |
 | `genres` | string[] | TCON | GENRE | 流派标签，多风格并存，如 `["Hip-Hop", "Trap", "Boom Bap"]`，写入标签时自行拼接 |
-| `cover` | string \| null | APIC | METADATA_BLOCK_PICTURE | 封面图，单曲封面缺省时回退专辑封面 |
 
 变体（特定端点额外附加的字段）：
 

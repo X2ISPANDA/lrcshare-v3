@@ -28,8 +28,7 @@ GET /v1/songs
         "title": "歌名",
         "artists": [{ "id": "art_xxx", "name": "歌手" }],
         "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
-        "genres": ["Hip-Hop"],
-        "cover": "https://..."
+        "genres": ["Hip-Hop"]
       }
     ]
   }
@@ -59,7 +58,6 @@ GET /v1/song/:id
     "lyricist": ["词作者A", "词作者B"],
     "composer": ["曲作者"],
     "arranger": ["编曲"],
-    "cover": "https://...",
     "comment": "本歌词来自于:贡献者@lrcshare.com",
     "lrc": "[00:00.00] ...\n本歌词来自于:贡献者@lrcshare.com"
   }
