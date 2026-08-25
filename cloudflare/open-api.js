@@ -23,7 +23,7 @@ const SITE_DOMAIN = 'lrcshare.com'
 const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,cover,albums(name,year,cover)'
 /** 歌曲详情（确认目标后获取全部数据，含歌词） */
 const SONG_DETAIL_SELECT =
-  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,duration,track,disc,genres,video_url,cover,contributor_id,created_at,lrc_text,lyrics_text,albums(name,year,cover)'
+  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,track,disc,genres,video_url,cover,contributor_id,created_at,lrc_text,albums(name,year,cover)'
 /** 艺术家作品：摘要 + 词曲编列（仅用于计算 roles，不进输出） */
 const SONG_ROLES_SELECT = 'id,title,artist_ids,album_id,genres,cover,lyricist,composer,arranger,albums(name,year,cover)'
 /** 专辑曲目：摘要 + 曲目号/碟号 */
@@ -56,6 +56,39 @@ function jsonError(status, message) {
   return new Response(JSON.stringify({ code: status, message }), {
     status,
     headers: corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
+  })
+}
+
+/** 未知子域（经 *.lrcshare.com 通配符路由进来的请求）返回的 HTML 404 页 */
+function html404(host) {
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>404 - 子站不存在 | LrcShare</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f9fafb;color:#374151;display:flex;min-height:100vh;align-items:center;justify-content:center}
+  .card{text-align:center;padding:48px 32px}
+  .code{font-size:72px;font-weight:700;color:#ec4899;line-height:1}
+  h1{font-size:20px;margin:16px 0 8px;color:#111827}
+  p{margin:4px 0;color:#9ca3af;font-size:14px;word-break:break-all}
+  a{display:inline-block;margin-top:24px;padding:8px 24px;background:#ec4899;color:#fff;text-decoration:none;border-radius:8px;font-size:14px}
+  a:hover{background:#db2777}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="code">404</div>
+    <h1>子站不存在</h1>
+    <p>${host} 不是 LrcShare 的有效地址</p>
+    <a href="https://${SITE_DOMAIN}/">返回主站</a>
+  </div>
+</body>
+</html>`
+  return new Response(html, {
+    status: 404,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
   })
 }
 
@@ -183,7 +216,6 @@ function mapSongDetail(row, artistNames, contributorName) {
     aliases: row.aliases || [],
     artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
     album,
-    duration: row.duration || null,
     track: row.track ?? null,
     disc: row.disc ?? null,
     genres: row.genres || [],
@@ -196,7 +228,6 @@ function mapSongDetail(row, artistNames, contributorName) {
     video_url: row.video_url || null,
     created_at: row.created_at || null,
     lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
-    text: row.lyrics_text || null,
   }
 }
 
@@ -219,7 +250,7 @@ function apiIndex() {
   return jsonOk({
     name: 'LrcShare API',
     version: 'v1',
-    homepage: `https://v3.${SITE_DOMAIN}`,
+    homepage: `https://${SITE_DOMAIN}`,
     docs: `https://doc.${SITE_DOMAIN}`,
     endpoints: {
       search: '/v1/search?keyword=&type=song|album|artist|lyric',
@@ -420,6 +451,13 @@ async function handleArtistSongs(env, id, url) {
 
 export default {
   async fetch(request, env, ctx) {
+    // 未知子域兜底：*.lrcshare.com 通配符路由接进来的请求（如误输的 v3.xxx）
+    // 返回 HTML 404 页；api 域名与 workers.dev 默认域名正常放行
+    const reqHost = new URL(request.url).hostname
+    if (reqHost !== `api.${SITE_DOMAIN}` && !reqHost.endsWith('.workers.dev')) {
+      return html404(reqHost)
+    }
+
     // CORS 预检
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() })

@@ -53,7 +53,6 @@ GET /v1/song/:id
     "aliases": ["别名"],
     "artists": [{ "id": "art_xxx", "name": "歌手" }],
     "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
-    "duration": "03:45.123",
     "track": 3,
     "disc": 1,
     "genres": ["Hip-Hop"],
@@ -65,8 +64,7 @@ GET /v1/song/:id
     "comment": "本歌词来自于:贡献者@lrcshare.com",
     "video_url": "https://www.bilibili.com/video/...",
     "created_at": "2026-08-01T12:00:00+00:00",
-    "lrc": "[00:00.00] ...\n本歌词来自于:贡献者@lrcshare.com",
-    "text": "纯文本歌词（部分歌曲无）"
+    "lrc": "[00:00.00] ...\n本歌词来自于:贡献者@lrcshare.com"
   }
 }
 ```
@@ -76,7 +74,6 @@ GET /v1/song/:id
 | 字段 | 说明 |
 | --- | --- |
 | `lrc` | 完整时间轴的 LRC 歌词，**末尾自动追加一行来源署名**（纯文本行，不带时间戳），写入播放器或音乐文件标签后来源可溯；无 LRC 数据时为 `null` |
-| `text` | 纯文本/对照歌词（原文译文上下对照等），仅部分歌曲有，无则为 `null` |
 | `comment` | 署名字符串，可直接整串写入音乐文件的 comment 标签；无贡献者时为 `本歌词来自于:lrcshare.com` |
 | `lyricist` / `composer` / `arranger` | 作词 / 作曲 / 编曲（名字数组） |
 

@@ -16,6 +16,13 @@
           >
             {{ item.label }}
           </button>
+          <a
+            v-else-if="item.href"
+            :href="item.href"
+            target="_blank"
+            rel="noopener"
+            class="hover:text-pink-600"
+          >{{ item.label }}</a>
           <RouterLink
             v-else
             :to="item.to"
@@ -66,6 +73,13 @@
         >
           {{ item.label }}
         </button>
+        <a
+          v-else-if="item.href"
+          :href="item.href"
+          target="_blank"
+          rel="noopener"
+          @click="menuOpen = false"
+        >{{ item.label }}</a>
         <RouterLink
           v-else
           :to="item.to"
@@ -88,11 +102,12 @@ const menuOpen = ref(false)
 
 const LOGO_URL = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
-/** 导航项：to 为路由地址；action=search 时打开全局搜索 */
+/** 导航项：to 为路由地址；action=search 时打开全局搜索；href 为外部链接 */
 interface NavItem {
   to: string
   label: string
   action?: 'search'
+  href?: string
 }
 const navItems: NavItem[] = [
   { to: '/', label: '首页' },
@@ -105,6 +120,7 @@ const navItems: NavItem[] = [
   { to: '/support', label: '赞助' },
   { to: '/about', label: '关于' },
   { to: '/links', label: '友链' },
+  { to: '', label: 'API', href: 'https://doc.lrcshare.com' },
 ]
 
 // 抽屉打开时锁定页面滚动

@@ -27,7 +27,9 @@ export default <RouteRecordRaw[]>[
       { path: 'submit', name: 'submit', component: () => import('@/views/SubmitView.vue') },
       // dev 专用：el-switch/dialog 回归验证页（不参与导航）
       { path: 'switch-test', name: 'switch-test', component: () => import('@/views/SwitchTest.vue') },
-      // 404 兜底
+      // 404 兜底：/404 为静态路径（构建时预渲染出真实 404.html 供 GitHub Pages 使用），
+      // catch-all 负责其它未知路径的客户端匹配
+      { path: '404', name: 'not-found-page', component: () => import('@/views/NotFoundView.vue') },
       { path: ':pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
     ],
   },

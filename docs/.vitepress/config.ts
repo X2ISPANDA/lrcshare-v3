@@ -9,7 +9,7 @@ export default defineConfig({
     nav: [
       { text: '指南', link: '/guide/quickstart' },
       { text: 'API', link: '/api/search' },
-      { text: '主站', link: 'https://v3.lrcshare.com' },
+      { text: '主站', link: 'https://lrcshare.com' },
     ],
     sidebar: [
       {

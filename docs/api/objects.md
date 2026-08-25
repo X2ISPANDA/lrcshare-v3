@@ -27,7 +27,6 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `aliases` | string[] | 别名/译名（同一首歌可并存中日英多名） |
-| `duration` | string \| null | 时长，`mm:ss.xxx` 格式 |
 | `track` | number \| null | 专辑内曲目号 |
 | `disc` | number \| null | 碟号（多碟专辑） |
 | `lyricist` | string[] | 作词（名字数组） |
@@ -36,7 +35,6 @@
 | `contributor` | string \| null | 歌词贡献者昵称 |
 | `comment` | string | 署名字符串：`本歌词来自于:{贡献者名}@lrcshare.com`，可直接写入音乐文件 comment 标签 |
 | `lrc` | string \| null | 完整时间轴 LRC 歌词，末尾自动追加一行来源署名（无时间戳） |
-| `text` | string \| null | 纯文本/对照歌词，仅部分歌曲有 |
 | `video_url` | string \| null | 歌曲 MV/视频链接（B 站 / YouTube） |
 | `created_at` | string \| null | 收录时间（ISO 8601） |
 

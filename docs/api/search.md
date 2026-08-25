@@ -22,7 +22,7 @@ GET /v1/search
 | `song` | 歌名 + 别名/译名（如日文歌的中文译名可直接搜） | [歌曲摘要](/api/objects#song-summary)数组 |
 | `album` | 专辑名 | [Album 对象](/api/objects#album)数组 |
 | `artist` | 艺术家名（含 `is_show=true` 的展示艺术家） | [Artist 对象](/api/objects#artist)数组 |
-| `lyric` | 歌词内容（LRC 与纯文本），返回命中歌曲 | [歌曲摘要](/api/objects#song-summary)数组 |
+| `lyric` | 歌词内容，返回命中歌曲 | [歌曲摘要](/api/objects#song-summary)数组 |
 
 `type=song` / `lyric` 返回的是**轻量摘要**（歌名/歌手/专辑名+年份/风格/封面），渲染选择列表用；用户确认目标后用 `id` 调 [/v1/song/:id](/api/songs#song-detail) 获取全部数据。
 
