@@ -247,7 +247,7 @@ const router = useRouter()
 const songId = route.params.id as string
 const ui = useUiStore()
 
-const HIDDEN_PLACEHOLDER_IMG = 'https://i0.hdslb.com/bfs/article/c07c33a93366f960bdef02ff5411c99837977624.png'
+const HIDDEN_PLACEHOLDER_IMG = 'https://i0.hdslb.com/bfs/openplatform/6e065deeee2d046c05347d3f76592b6fb39c66a8.png'
 
 /** 页面组合数据（一次 SSG 预取全部，避免多 key 时序问题） */
 interface SongPageData {
