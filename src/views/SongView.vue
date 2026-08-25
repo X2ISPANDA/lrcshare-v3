@@ -228,10 +228,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-// 显式导入组件不会附带样式（自动导入才有），需手动补样式，否则提示框无定位不可见
+import { ElMessage } from 'element-plus'
+// 显式导入 ElMessage 不会附带样式（自动导入才有），需手动补 message 样式，否则提示框无定位不可见
 import 'element-plus/es/components/message/style/css'
-import 'element-plus/es/components/message-box/style/css'
 import { useElementVisibility, useWindowScroll } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
@@ -307,27 +306,16 @@ onMounted(() => {
 const isHidden = computed(() => !!song.value?.is_hidden && !unlocked.value)
 
 async function unlock() {
-  // 手机端 WebView（微信等）会屏蔽原生 window.prompt，统一用页面内弹窗输入
-  let input = ''
-  try {
-    const { value } = await ElMessageBox.prompt('请输入解锁口令：', '解锁隐藏歌词', {
-      confirmButtonText: '解锁',
-      cancelButtonText: '取消',
-    })
-    input = value.trim()
-  } catch {
-    return // 用户取消弹窗
-  }
+  const input = window.prompt('请输入解锁口令：')
   if (!input) return
   try {
-    const { data: setting } = await api.supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'hidden_unlock_code')
-      .single()
-    const globalCode = (setting as { value?: string } | null)?.value || ''
-    const songCode = song.value?.unlock_code || ''
-    if (input === globalCode || (songCode && input === songCode)) {
+    // 口令校验走数据库 RPC（security definer）：settings 受 RLS 保护，前端读不到 hidden_unlock_code；
+    // 全局口令与歌曲独立口令均在库端比对，口令明文不下发客户端
+    const { data: ok } = await api.supabase.rpc('verify_hidden_unlock_code', {
+      p_song_id: songId,
+      p_code: input,
+    })
+    if (ok) {
       sessionStorage.setItem('unlock_hidden', 'true')
       unlocked.value = true
       // 重新拉取完整歌词（SSG 数据里已清空）
