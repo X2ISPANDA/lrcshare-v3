@@ -261,7 +261,10 @@ const { data: page, loading } = useSSGData<SongPageData>(`song:${songId}`, async
   const song = await api.getSong(songId)
 
   // 隐藏歌曲：SSG 阶段不落盘歌词（initialState 会序列化进 HTML 源码，防泄露），解锁后客户端重拉
-  if (song.is_hidden) song.lrc_text = null
+  if (song.is_hidden) {
+    song.lrc_text = null
+    song.lyrics_text = null
+  }
 
   const [contributor, relatedRaw] = await Promise.all([
     song.contributor_id
@@ -305,6 +308,18 @@ onMounted(() => {
 })
 const isHidden = computed(() => !!song.value?.is_hidden && !unlocked.value)
 
+/** 会话内已解锁但歌词仍为空（SSG/SPA 数据已清空且非本次解锁触发）：重拉一次完整歌词 */
+let hiddenRefetched = false
+watch(
+  () => !!song.value?.is_hidden && unlocked.value && !song.value.lrc_text && !song.value.lyrics_text,
+  async need => {
+    if (!need || hiddenRefetched) return
+    hiddenRefetched = true
+    const full = await api.getSong(songId).catch(() => null)
+    if (full && page.value) page.value = { ...page.value, song: full }
+  },
+)
+
 async function unlock() {
   const input = window.prompt('请输入解锁口令：')
   if (!input) return
@@ -318,6 +333,7 @@ async function unlock() {
     if (ok) {
       sessionStorage.setItem('unlock_hidden', 'true')
       unlocked.value = true
+      hiddenRefetched = true // 本函数自行重拉，避免触发上方 watch 重复请求
       // 重新拉取完整歌词（SSG 数据里已清空）
       const full = await api.getSong(songId)
       if (page.value) page.value = { ...page.value, song: full }

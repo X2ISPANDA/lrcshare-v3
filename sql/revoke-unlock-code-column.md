@@ -1,41 +1,70 @@
-# SQL 方案：unlock_code 列级收权（anon 不可读）
+# SQL 方案：unlock_code 列级收权 v3（动态列授权，修复 v2 grant 未生效）
 
 日期：2026-08-25
-状态：已确认，待部署前端后在 Supabase SQL Editor 执行
+状态：已确认（v3），待执行
 
-## 背景
+## 版本沿革
 
-`unlock_code` 目前随 `select *` 全量下发，泄露路径：
+- **v1**（列级 revoke）：空操作。Supabase 给 anon 的是表级授权，列级 revoke 撤不掉
+- **v2**（表级收回 + 手写列清单重授）：revoke 生效了，但 **grant 大概率没有成功执行**。证据：回归自测 ② 报 `permission denied for table songs`（表级措辞）= anon 对 songs 零可用读权限。最可能原因：手写列清单从 types.ts 推导，与真实表结构不符，grant 报 "column does not exist" 被跳过（整段粘贴执行时 revoke 在前已生效）
+- **v3**：列清单改为**从 pg_attribute 动态生成**，不再依赖手写，自动适配真实表结构
 
-1. `getSong`（最严重）：SSG 构建也走此查询，口令被序列化进每首隐藏歌曲的公开 HTML 源码
-2. `getArtistSongs` / `getAlbumSongs` / `searchSongs`：艺术家页、专辑页、搜索的接口响应里都带口令明文
-
-前端已改造完毕：以上 4 处全部改为显式列（`SONG_PUBLIC_FIELDS`，不含 `unlock_code`），口令校验只走 `verify_hidden_unlock_code` RPC（见 [verify-hidden-unlock-code.md](verify-hidden-unlock-code.md)）。`lrc_text` 按需求保留可读（歌词本身就是要给人看的）。
-
-## 变更内容
+## v3 变更内容（一键脚本，可重复执行）
 
 ```sql
--- 匿名角色收回 unlock_code 列的 SELECT 权限（直接查表/任意接口带该列均报 permission denied）
-revoke select (unlock_code) on public.songs from anon;
+-- 1) 收回表级（幂等，重复执行无害）
+revoke select on public.songs from anon;
+
+-- 2) 动态按列重授：除 unlock_code 外的全部列（列清单从系统目录生成）
+do $do$
+declare
+  col_list text;
+begin
+  select string_agg(quote_ident(attname), ', ' order by attnum)
+    into col_list
+  from pg_attribute
+  where attrelid = 'public.songs'::regclass
+    and attnum > 0
+    and not attisdropped
+    and attname <> 'unlock_code';
+
+  execute format('grant select (%s) on public.songs to anon', col_list);
+end
+$do$;
 ```
 
-无表结构变更，无数据变更。
+## 执行顺序
 
-## 说明与顺序要求
+1. 部署最新前端（songs 查询已换成显式列的版本）
+2. 执行本文件 v3（revoke + 动态 grant）
+3. 执行 [search-songs-hardening.md](search-songs-hardening.md) v2（动态重建 search_songs）
+4. 回归自测（下方修正版）
 
-- **必须先部署前端，再执行本 SQL**：执行后旧前端的 `select *` 会整体报错，歌曲页 / 专辑页 / 艺术家页 / 搜索全部不可用
-- **管理后台不受影响**：admin 登录走 Supabase Auth session（`authenticated` 角色），编辑表单照常读写 `unlock_code`
-- **前提自查**：需确认 Supabase Auth 未开放自助注册（Authentication → Sign up 关闭）。若开放，任何人注册即获得 `authenticated` 身份照读口令
-- 与 `verify-hidden-unlock-code.md` 的 RPC 可同批执行
+## 回归自测（v3 修正：count(*) → count(id)）
 
-## 遗留自查项（可能绕过列级权限）
-
-`search_songs` RPC 若返回 `SETOF songs` 整行（尤其 `security definer`），攻击者直接调 `POST /rpc/search_songs?p_q=x&select=unlock_code` 可能绕过列级收权。请执行下面 SQL 把定义发我确认：
+v2 自测里的裸 `count(*)` 不引用具体列，列级授权模式下可能仍要求表级权限而报表级错误——**不影响线上**（前端所有统计请求都带具体列，如 `select('id', { count: 'exact', head: true })`），但会让裸 SQL 自测误报，故改为 count(id)。
 
 ```sql
-select proname, prosecdef, pg_get_functiondef(oid) as def
-from pg_proc
-where proname = 'search_songs';
+-- ① 预期报 permission denied（收权生效的标志；单独跑，错误会中断事务）
+begin;
+set local role anon;
+select unlock_code from public.songs limit 1;
+rollback;
+
+-- ② 预期全部通过：授权列可读 / 带列统计可用 / 单曲搜索正常且 unlock_code 恒为 null
+begin;
+set local role anon;
+select id, title, lrc_text from public.songs where status = 'published' limit 3;
+select count(id) from public.songs where status = 'published';
+select id, unlock_code from public.search_songs('a') limit 3;
+rollback;
 ```
 
-若命中（返回整行），我再出改造方案（改为显式列返回，不含 `unlock_code`）。
+## 说明
+
+- authenticated / service_role 不动：管理后台照常读写 unlock_code（注册入口已关闭）
+- 动态 grant 授予「除 unlock_code 外的全部列」，比前端当前实际使用的列更宽——将来 songs 加新列也不用回来补授权（unlock_code 除外）
+- 若 ① 未报错反而返回数据 → 存在其他授权来源，把结果发我排查：
+  ```sql
+  select relacl from pg_class where relname = 'songs';
+  ```

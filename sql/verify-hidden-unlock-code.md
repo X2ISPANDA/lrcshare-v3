@@ -1,7 +1,7 @@
 # SQL 方案：隐藏歌词口令校验 RPC
 
 日期：2026-08-25
-状态：已确认，待在 Supabase SQL Editor 执行
+状态：已执行，v2 修正（p_song_id 类型 uuid → text）
 
 ## 背景
 
@@ -9,14 +9,21 @@
 
 前端已改为调用 RPC `verify_hidden_unlock_code(p_song_id, p_code)`，口令校验全部在数据库端完成，只返回布尔值。
 
+## v1 → v2 修正记录
+
+v1 把 `p_song_id` 声明为 `uuid`，但 songs 表 `id` 列实为 `text`（歌曲 id 形如 `s_purplesoul_013`），调用报 `22P02 invalid input syntax for type uuid`。v2 改为 `text`，并先 drop 掉 v1 的 uuid 签名函数（参数类型不同会形成重载而非替换，必须显式删除）。**v1 已在库中执行过的，必须跑完整 v2 脚本（含 drop）。**
+
 ## 变更内容
 
 新增 1 个函数，无表结构变更，无数据变更。
 
 ```sql
+-- 删除 v1 的 uuid 签名（若存在）
+drop function if exists public.verify_hidden_unlock_code(uuid, text);
+
 -- 校验隐藏歌词解锁口令（全局口令 / 歌曲独立口令），供前端匿名调用
 create or replace function public.verify_hidden_unlock_code(
-  p_song_id uuid,
+  p_song_id text,
   p_code text
 )
 returns boolean
@@ -57,8 +64,8 @@ end;
 $$;
 
 -- 仅匿名/登录用户可调用，返回布尔值不泄露口令
-revoke execute on function public.verify_hidden_unlock_code(uuid, text) from public;
-grant execute on function public.verify_hidden_unlock_code(uuid, text) to anon, authenticated;
+revoke execute on function public.verify_hidden_unlock_code(text, text) from public;
+grant execute on function public.verify_hidden_unlock_code(text, text) to anon, authenticated;
 ```
 
 ## 说明
