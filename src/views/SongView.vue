@@ -228,9 +228,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
-import { ElMessage } from 'element-plus'
-// 显式导入 ElMessage 不会附带样式（自动导入才有），需手动补 message 样式，否则提示框无定位不可见
+import { ElMessage, ElMessageBox } from 'element-plus'
+// 显式导入组件不会附带样式（自动导入才有），需手动补样式，否则提示框无定位不可见
 import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
 import { useElementVisibility, useWindowScroll } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
@@ -306,7 +307,17 @@ onMounted(() => {
 const isHidden = computed(() => !!song.value?.is_hidden && !unlocked.value)
 
 async function unlock() {
-  const input = window.prompt('请输入解锁口令：')
+  // 手机端 WebView（微信等）会屏蔽原生 window.prompt，统一用页面内弹窗输入
+  let input = ''
+  try {
+    const { value } = await ElMessageBox.prompt('请输入解锁口令：', '解锁隐藏歌词', {
+      confirmButtonText: '解锁',
+      cancelButtonText: '取消',
+    })
+    input = value.trim()
+  } catch {
+    return // 用户取消弹窗
+  }
   if (!input) return
   try {
     const { data: setting } = await api.supabase
