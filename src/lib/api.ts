@@ -18,6 +18,10 @@ import type {
 /** 歌手字段精简选择（列表场景，避免拉全量） */
 const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls, initial'
 
+/** 匿名端歌曲查询列：不含 unlock_code（该列对 anon 已收列级权限，口令仅在库端 RPC 校验） */
+const SONG_PUBLIC_FIELDS =
+  'id, title, aliases, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, description, genres, lrc_text, lyrics_text, video_url, cover, contributor_id, created_at'
+
 /** 批量取艺术家 id→name 映射 */
 async function getArtistNameMap(ids: Iterable<string>): Promise<Map<string, string>> {
   const unique = [...new Set(ids)]
@@ -128,13 +132,13 @@ export const api = {
     const [singRes, workRes] = await Promise.all([
       supabase
         .from('songs')
-        .select('*, albums(name, year)')
+        .select(`${SONG_PUBLIC_FIELDS}, albums(name, year)`)
         .eq('status', 'published')
         .overlaps('artist_ids', [artistId])
         .order('created_at', { ascending: false }),
       supabase
         .from('songs')
-        .select('*, albums(name, year)')
+        .select(`${SONG_PUBLIC_FIELDS}, albums(name, year)`)
         .eq('status', 'published')
         .or(
           `lyricist.ilike.%${artistId}%,composer.ilike.%${artistId}%,arranger.ilike.%${artistId}%`,
@@ -146,7 +150,7 @@ export const api = {
 
     const songMap = new Map<string, Song>()
     ;[...(singRes.data || []), ...(workRes.data || [])].forEach(s => {
-      if (!songMap.has(s.id)) songMap.set(s.id, s as Song)
+      if (!songMap.has(s.id)) songMap.set(s.id, s as unknown as Song)
     })
 
     const nameMap = await getArtistNameMap(
@@ -233,7 +237,7 @@ export const api = {
   async getAlbumSongs(albumId: string): Promise<SongWithNames[]> {
     const { data, error } = await supabase
       .from('songs')
-      .select('*')
+      .select(SONG_PUBLIC_FIELDS)
       .eq('album_id', albumId)
       .eq('status', 'published')
       .order('track')
@@ -276,7 +280,7 @@ export const api = {
   async getSong(id: string): Promise<SongWithNames & { artists: Artist[]; credit_artists: Artist[] }> {
     const { data, error } = await supabase
       .from('songs')
-      .select('*, albums(name, year, cover)')
+      .select(`${SONG_PUBLIC_FIELDS}, albums(name, year, cover)`)
       .eq('id', id)
       .single()
     if (error) throw error
@@ -293,6 +297,7 @@ export const api = {
     const album = data.albums as unknown as { name?: string; year?: string; cover?: string | null } | null
     return {
       ...data,
+      albums: album as unknown as Song['albums'],
       artist_name: ids.map(id => fullMap.get(id)?.name || '').filter(Boolean).join(' / ') || '未知',
       artists: ids.map(id => fullMap.get(id)).filter((x): x is Artist => !!x),
       credit_artists: creditIds.map(id => fullMap.get(id)).filter((x): x is Artist => !!x),
@@ -313,7 +318,7 @@ export const api = {
     const kw = keyword.trim().toLowerCase()
     if (!kw) return { artists: [], albums: [], songs: [], lyrics: [] }
 
-    const songSelect = '*, albums(name)'
+    const songSelect = `${SONG_PUBLIC_FIELDS}, albums(name)`
     // or() 语法以逗号/括号分组，关键词中含这些字符会破坏查询语法，剔除之
     const kwOr = kw.replace(/[(),]/g, ' ').trim()
     const [artistRes, albumRes, songTitleRes, songLrcRes] = await Promise.all([
