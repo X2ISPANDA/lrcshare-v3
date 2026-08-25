@@ -8,7 +8,6 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/quickstart' },
-      { text: 'MusicTag', link: '/guide/musictag' },
       { text: 'API', link: '/api/search' },
       { text: '主站', link: 'https://v3.lrcshare.com' },
     ],
@@ -17,7 +16,6 @@ export default defineConfig({
         text: '开始',
         items: [
           { text: '快速开始', link: '/guide/quickstart' },
-          { text: 'MusicTag 配置', link: '/guide/musictag' },
         ],
       },
       {

@@ -10,9 +10,6 @@ hero:
       text: 快速开始
       link: /guide/quickstart
     - theme: alt
-      text: MusicTag 配置
-      link: /guide/musictag
-    - theme: alt
       text: API 端点
       link: /api/search
 

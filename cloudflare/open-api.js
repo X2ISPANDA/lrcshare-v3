@@ -2,10 +2,12 @@
  * LrcShare 开放 API 网关（Cloudflare Worker）
  * 部署：CF Dashboard → Workers → 新建 → 粘贴本文件 → 绑定 api.lrcshare.com
  * 环境变量（Worker Settings → Variables）：
- *   SUPABASE_URL       形如 https://spb-xxx.supabase.opentrust.net（不带尾斜杠）
+ *   SUPABASE_URL       形如 https://spb-xxx.supabase.opentrust.net（不带尾斜杠、不带反引号）
  *   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）
  *
  * 设计要点：
+ * - 两段式流程：搜索/列表只返回轻量歌曲摘要（id/歌名/歌手/专辑名+年份/风格/封面），
+ *   调用方确认目标后再经 /v1/song/:id 获取含歌词、词曲编、comment 在内的全部数据
  * - 回源只用 anon key：数据库层 RLS + 列级收权是第二道防线
  * - 只暴露定义好的端点与字段，内部表结构不出门
  * - 隐藏歌曲（is_hidden）不过滤：网站隐藏逻辑仅作用于前台，API 全量开放
@@ -16,10 +18,16 @@
 // ============ 常量 ============
 
 const SITE_DOMAIN = 'lrcshare.com'
+
+/** 歌曲摘要（列表/搜索返回）：id/歌名/歌手/专辑/风格/封面 */
+const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,cover,albums(name,year,cover)'
+/** 歌曲详情（确认目标后获取全部数据，含歌词） */
 const SONG_DETAIL_SELECT =
-  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,duration,track,disc,genres,video_url,cover,contributor_id,created_at,albums(name,year,cover)'
-const SONG_LIST_SELECT = SONG_DETAIL_SELECT
-const SONG_LYRIC_SELECT = 'id,title,lrc_text,lyrics_text,contributor_id'
+  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,duration,track,disc,genres,video_url,cover,contributor_id,created_at,lrc_text,lyrics_text,albums(name,year,cover)'
+/** 艺术家作品：摘要 + 词曲编列（仅用于计算 roles，不进输出） */
+const SONG_ROLES_SELECT = 'id,title,artist_ids,album_id,genres,cover,lyricist,composer,arranger,albums(name,year,cover)'
+/** 专辑曲目：摘要 + 曲目号/碟号 */
+const ALBUM_TRACK_SELECT = 'id,title,artist_ids,album_id,genres,cover,track,disc'
 const ALBUM_SELECT = 'id,name,cover,year,artist_ids,description,created_at'
 const ARTIST_SELECT = 'id,name,aliases,types,avatar,bio,disambiguation'
 const DEFAULT_LIMIT = 20
@@ -139,9 +147,33 @@ function idsToNames(csv, nameMap) {
     .filter(Boolean)
 }
 
-/** 组装对外 song 对象 */
-function mapSong(row, artistNames, contributorNames) {
-  const contributor = contributorNames.get(row.contributor_id) || null
+/** 组装对外 song 摘要（列表/搜索用，轻量） */
+function mapSongSummary(row, artistNames, albumFallback) {
+  const album = row.albums
+    ? { id: row.album_id || null, name: row.albums.name || '', year: row.albums.year || null, cover: row.albums.cover || null }
+    : albumFallback || null
+  return {
+    id: row.id,
+    title: row.title,
+    artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
+    album,
+    genres: row.genres || [],
+    cover: row.cover || (album && album.cover) || null,
+  }
+}
+
+/** 摘要集合统一装配：批量查歌手名 */
+async function assembleSummaries(env, rows, albumFallback) {
+  if (!rows || rows.length === 0) return []
+  const artistIds = []
+  for (const r of rows) artistIds.push(...(r.artist_ids || []))
+  const artistNames = await getArtistNameMap(env, artistIds)
+  return rows.map(r => mapSongSummary(r, artistNames, albumFallback))
+}
+
+/** 组装对外 song 详情（含歌词与全部署名） */
+function mapSongDetail(row, artistNames, contributorName) {
+  const credit = contributorName ? `本歌词来自于:${contributorName}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
   const album = row.albums
     ? { id: row.album_id || null, name: row.albums.name || '', year: row.albums.year || null, cover: row.albums.cover || null }
     : null
@@ -158,29 +190,14 @@ function mapSong(row, artistNames, contributorNames) {
     lyricist: idsToNames(row.lyricist, artistNames),
     composer: idsToNames(row.composer, artistNames),
     arranger: idsToNames(row.arranger, artistNames),
-    cover: row.cover || album?.cover || null,
-    contributor,
-    comment: contributor ? `本歌词来自于:${contributor}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`,
+    cover: row.cover || (album && album.cover) || null,
+    contributor: contributorName || null,
+    comment: credit,
     video_url: row.video_url || null,
     created_at: row.created_at || null,
+    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
+    text: row.lyrics_text || null,
   }
-}
-
-/** 歌曲集合统一装配：批量查艺术家/贡献者名再映射 */
-async function assembleSongs(env, rows) {
-  if (!rows || rows.length === 0) return []
-  const artistIds = []
-  for (const r of rows) {
-    artistIds.push(...(r.artist_ids || []))
-    for (const k of ['lyricist', 'composer', 'arranger']) {
-      if (r[k]) artistIds.push(...String(r[k]).split(',').map(s => s.trim()))
-    }
-  }
-  const [artistNames, contributorNames] = await Promise.all([
-    getArtistNameMap(env, artistIds),
-    getContributorNameMap(env, rows.map(r => r.contributor_id).filter(Boolean)),
-  ])
-  return rows.map(r => mapSong(r, artistNames, contributorNames))
 }
 
 /** 组装对外 album 对象 */
@@ -208,7 +225,6 @@ function apiIndex() {
       search: '/v1/search?keyword=&type=song|album|artist|lyric',
       songs: '/v1/songs?limit=&offset=',
       song: '/v1/song/:id',
-      lyric: '/v1/song/:id/lyric',
       albums: '/v1/albums?limit=&offset=',
       album: '/v1/album/:id',
       artists: '/v1/artists?limit=&offset=',
@@ -231,14 +247,14 @@ async function handleSearch(env, url) {
 
   if (type === 'song') {
     // 复用库端 search_songs RPC（title + aliases 数组模糊匹配）
-    const qs = new URLSearchParams({ p_q: keyword, select: SONG_LIST_SELECT, limit: String(limit), offset: String(offset) })
+    const qs = new URLSearchParams({ p_q: keyword, select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) })
     const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/search_songs?${qs}`, {
       headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` },
     })
     if (!res.ok) return jsonError(502, 'upstream error')
     const rows = await res.json()
-    const songs = await assembleSongs(env, rows || [])
-    return jsonOk({ keyword, type, total: null, items: songs }, TTL_LIST)
+    const items = await assembleSummaries(env, rows || [])
+    return jsonOk({ keyword, type, total: null, items }, TTL_LIST)
   }
 
   if (type === 'album') {
@@ -271,42 +287,36 @@ async function handleSearch(env, url) {
   const result = await pgList(
     env,
     'songs',
-    { select: SONG_LIST_SELECT, status: 'eq.published', or, order: 'created_at.desc' },
+    { select: SONG_SUMMARY_SELECT, status: 'eq.published', or, order: 'created_at.desc' },
     { limit, offset },
   )
   if (!result) return jsonError(502, 'upstream error')
-  const songs = await assembleSongs(env, result.data)
-  return jsonOk({ keyword, type, total: result.total, items: songs }, TTL_LIST)
+  const items = await assembleSummaries(env, result.data)
+  return jsonOk({ keyword, type, total: result.total, items }, TTL_LIST)
 }
 
 // ---------- 歌曲 ----------
 
 async function handleSongs(env, url) {
   const { limit, offset } = parsePage(url)
-  const result = await pgList(env, 'songs', { select: SONG_LIST_SELECT, status: 'eq.published', order: 'created_at.desc' }, { limit, offset })
+  const result = await pgList(env, 'songs', { select: SONG_SUMMARY_SELECT, status: 'eq.published', order: 'created_at.desc' }, { limit, offset })
   if (!result) return jsonError(502, 'upstream error')
-  const songs = await assembleSongs(env, result.data)
-  return jsonOk({ total: result.total, limit, offset, items: songs }, TTL_LIST)
+  const items = await assembleSummaries(env, result.data)
+  return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
 }
 
 async function handleSong(env, id) {
   const row = await pgOne(env, 'songs', SONG_DETAIL_SELECT, { id: `eq.${id}`, status: 'eq.published' })
   if (!row) return jsonError(404, 'song not found')
-  const [song] = await assembleSongs(env, [row])
-  return jsonOk(song, TTL_DETAIL)
-}
-
-async function handleLyric(env, id) {
-  const row = await pgOne(env, 'songs', SONG_LYRIC_SELECT, { id: `eq.${id}`, status: 'eq.published' })
-  if (!row) return jsonError(404, 'song not found')
-  let contributorName = null
-  if (row.contributor_id) {
-    const cmap = await getContributorNameMap(env, [row.contributor_id])
-    contributorName = cmap.get(row.contributor_id) || null
+  const artistIds = [...(row.artist_ids || [])]
+  for (const k of ['lyricist', 'composer', 'arranger']) {
+    if (row[k]) artistIds.push(...String(row[k]).split(',').map(s => s.trim()))
   }
-  const credit = contributorName ? `本歌词来自于:${contributorName}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
-  const lrc = row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null
-  return jsonOk({ id: row.id, title: row.title, lrc, text: row.lyrics_text || null, comment: credit }, TTL_DETAIL)
+  const [artistNames, contributorNames] = await Promise.all([
+    getArtistNameMap(env, artistIds),
+    row.contributor_id ? getContributorNameMap(env, [row.contributor_id]) : Promise.resolve(new Map()),
+  ])
+  return jsonOk(mapSongDetail(row, artistNames, contributorNames.get(row.contributor_id) || null), TTL_DETAIL)
 }
 
 // ---------- 专辑 ----------
@@ -328,16 +338,20 @@ async function handleAlbum(env, id) {
   const songsRes = await pgList(
     env,
     'songs',
-    { select: SONG_DETAIL_SELECT, album_id: `eq.${id}`, status: 'eq.published', order: 'disc.asc.nullslast,track.asc.nullslast' },
+    { select: ALBUM_TRACK_SELECT, album_id: `eq.${id}`, status: 'eq.published', order: 'disc.asc.nullslast,track.asc.nullslast' },
     { limit: 500, offset: 0 },
   )
   const trackRows = (songsRes && songsRes.data) || []
-  const songArtistNames = await getArtistNameMap(env, trackRows.flatMap(r => r.artist_ids || []))
-  const contributorNames = await getContributorNameMap(env, trackRows.map(r => r.contributor_id).filter(Boolean))
+  const trackArtistNames = await getArtistNameMap(env, trackRows.flatMap(r => r.artist_ids || []))
+  const albumFallback = { id: row.id, name: row.name, year: row.year, cover: row.cover }
   return jsonOk(
     {
       ...mapAlbum(row, artistNames),
-      songs: trackRows.map(r => mapSong(r, songArtistNames, contributorNames)),
+      songs: trackRows.map(r => ({
+        ...mapSongSummary(r, trackArtistNames, albumFallback),
+        track: r.track ?? null,
+        disc: r.disc ?? null,
+      })),
     },
     TTL_DETAIL,
   )
@@ -385,19 +399,19 @@ async function handleArtistSongs(env, id, url) {
   const result = await pgList(
     env,
     'songs',
-    { select: SONG_LIST_SELECT, status: 'eq.published', or, order: 'created_at.desc' },
+    { select: SONG_ROLES_SELECT, status: 'eq.published', or, order: 'created_at.desc' },
     { limit, offset },
   )
   if (!result) return jsonError(502, 'upstream error')
-  const songs = await assembleSongs(env, result.data)
+  const summaries = await assembleSummaries(env, result.data)
   // 每首标注该艺术家的实际角色
   const items = result.data.map((r, i) => {
     const roles = []
     if ((r.artist_ids || []).includes(id)) roles.push('singer')
-    for (const [k, role] of [['lyricist', 'lyricist'], ['composer', 'composer'], ['arranger', 'arranger']]) {
-      if (r[k] && String(r[k]).split(',').map(s => s.trim()).includes(id)) roles.push(role)
+    for (const k of ['lyricist', 'composer', 'arranger']) {
+      if (r[k] && String(r[k]).split(',').map(s => s.trim()).includes(id)) roles.push(k)
     }
-    return { ...songs[i], roles }
+    return { ...summaries[i], roles }
   })
   return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
 }
@@ -449,12 +463,10 @@ export default {
         res = await handleArtists(env, url)
       } else {
         const m = path.match(/^\/v1\/song\/([^/]+)$/)
-        const ml = path.match(/^\/v1\/song\/([^/]+)\/lyric$/)
         const ma = path.match(/^\/v1\/album\/([^/]+)$/)
         const mar = path.match(/^\/v1\/artist\/([^/]+)$/)
         const mars = path.match(/^\/v1\/artist\/([^/]+)\/songs$/)
-        if (ml) res = await handleLyric(env, decodeURIComponent(ml[1]))
-        else if (m) res = await handleSong(env, decodeURIComponent(m[1]))
+        if (m) res = await handleSong(env, decodeURIComponent(m[1]))
         else if (ma) res = await handleAlbum(env, decodeURIComponent(ma[1]))
         else if (mars) res = await handleArtistSongs(env, decodeURIComponent(mars[1]), url)
         else if (mar) res = await handleArtist(env, decodeURIComponent(mar[1]))

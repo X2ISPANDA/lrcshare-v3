@@ -10,6 +10,17 @@
 | 响应格式 | JSON（UTF-8） |
 | 跨域 | 支持，`Access-Control-Allow-Origin: *`，浏览器可直接 `fetch` |
 
+## 核心流程：先搜索，后取详情
+
+API 采用两段式设计：
+
+```
+① 关键词搜索 / 翻列表  →  轻量歌曲列表（歌名/歌手/专辑名/年份/风格/封面）
+② 用户选中某首         →  /v1/song/:id 一次拿全部数据（歌词/词曲编/comment/...）
+```
+
+搜索结果刻意保持轻量（不含歌词、词曲编署名等大字段），适合直接渲染选择列表；用户确认目标后再按 `id` 取详情，一次请求拿到写标签所需的全部数据。
+
 ## 响应格式
 
 所有接口统一包裹：
@@ -37,22 +48,16 @@
 
 ## 第一个请求
 
-获取最新收录的 5 首歌：
-
-```bash
-curl "https://api.lrcshare.com/v1/songs?limit=5"
-```
-
-按关键词搜索：
+按关键词搜索（返回轻量列表）：
 
 ```bash
 curl "https://api.lrcshare.com/v1/search?keyword=紫"
 ```
 
-获取某首歌的歌词（含来源署名）：
+从结果里选中一首，拿它的 `id` 获取全部数据（含歌词与署名）：
 
 ```bash
-curl "https://api.lrcshare.com/v1/song/s_example_001/lyric"
+curl "https://api.lrcshare.com/v1/song/s_purplesoul_013"
 ```
 
 ## 浏览器 / Node.js 调用
@@ -61,25 +66,26 @@ curl "https://api.lrcshare.com/v1/song/s_example_001/lyric"
 // 浏览器控制台直接可跑（支持跨域）
 const res = await fetch('https://api.lrcshare.com/v1/search?keyword=紫')
 const { code, data } = await res.json()
-console.log(data.items)
-```
+console.log(data.items) // 轻量列表：[{ id, title, artists, album, genres, cover }]
 
-```js
-// Node.js 18+
-const res = await fetch('https://api.lrcshare.com/v1/song/s_example_001')
-const { data: song } = await res.json()
-console.log(song.title, song.artists, song.comment)
+// 选中后取详情
+const detail = await fetch(`https://api.lrcshare.com/v1/song/${data.items[0].id}`)
+const { data: song } = await detail.json()
+console.log(song.title, song.lyricist, song.comment, song.lrc)
 ```
 
 ```python
 # Python
 import requests
-r = requests.get('https://api.lrcshare.com/v1/song/s_example_001/lyric')
-print(r.json()['data']['lrc'])
+r = requests.get('https://api.lrcshare.com/v1/search?keyword=紫')
+song_id = r.json()['data']['items'][0]['id']
+d = requests.get(f'https://api.lrcshare.com/v1/song/{song_id}').json()['data']
+print(d['comment'])
+print(d['lrc'])
 ```
 
 ## 数据说明
 
-- 数据与 [LrcShare 主站](https://v3.lrcshare.com) 实时同步（主站每 6 小时重建一次，数据库为同一份）
-- 歌词由贡献者人工整理校对，署名信息见每个 song 对象的 `comment` 字段
+- 数据与 [LrcShare 主站](https://v3.lrcshare.com) 同源（同一份数据库），接口读库，新歌审核通过后即可查到
+- 歌词由贡献者人工整理校对，署名见 song 详情的 `comment` 字段与 `lrc` 末尾行
 - 隐藏歌曲（主站需口令解锁的歌曲）在 API 中同样可获取——歌曲的词曲信息与歌词一并提供

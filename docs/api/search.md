@@ -17,12 +17,14 @@ GET /v1/search
 
 ## 各维度行为
 
-| type | 匹配范围 |
-| --- | --- |
-| `song` | 歌名 + 别名/译名（如日文歌的中文译名可直接搜） |
-| `album` | 专辑名 |
-| `artist` | 艺术家名（含 `is_show=true` 的展示艺术家） |
-| `lyric` | 歌词内容（LRC 与纯文本），返回命中歌曲的元数据 |
+| type | 匹配范围 | 返回 |
+| --- | --- | --- |
+| `song` | 歌名 + 别名/译名（如日文歌的中文译名可直接搜） | [歌曲摘要](/api/objects#song-summary)数组 |
+| `album` | 专辑名 | [Album 对象](/api/objects#album)数组 |
+| `artist` | 艺术家名（含 `is_show=true` 的展示艺术家） | [Artist 对象](/api/objects#artist)数组 |
+| `lyric` | 歌词内容（LRC 与纯文本），返回命中歌曲 | [歌曲摘要](/api/objects#song-summary)数组 |
+
+`type=song` / `lyric` 返回的是**轻量摘要**（歌名/歌手/专辑名+年份/风格/封面），渲染选择列表用；用户确认目标后用 `id` 调 [/v1/song/:id](/api/songs#song-detail) 获取全部数据。
 
 ## 响应
 
@@ -33,14 +35,21 @@ GET /v1/search
     "keyword": "紫",
     "type": "song",
     "total": null,
-    "items": [ { Song 对象 } ]
+    "items": [
+      {
+        "id": "s_purplesoul_013",
+        "title": "歌名",
+        "artists": [{ "id": "art_xxx", "name": "歌手" }],
+        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
+        "genres": ["Hip-Hop"],
+        "cover": "https://..."
+      }
+    ]
   }
 }
 ```
 
-- `type=song` 时 `items` 为 [Song 对象](/api/objects#song)数组（不含歌词内容），`total` 不返回（库端模糊搜索无精确计数）
-- `type=album` / `artist` / `lyric` 时带 `total`
-- `type=album` 的 `items` 为 [Album 对象](/api/objects#album)数组；`type=artist` 为 [Artist 对象](/api/objects#artist)数组
+- `type=song` 时 `total` 不返回（库端模糊搜索无精确计数），其余 type 带 `total`
 
 ## 示例
 

@@ -31,7 +31,7 @@ GET /v1/albums
 GET /v1/album/:id
 ```
 
-专辑信息 + 完整曲目表（按碟号、曲目号排序，多碟专辑自动分组于 `disc` 字段）。
+专辑信息 + 完整曲目表（按碟号、曲目号排序）。
 
 ```json
 {
@@ -44,12 +44,24 @@ GET /v1/album/:id
     "artists": [{ "id": "art_xxx", "name": "专辑艺术家" }],
     "description": "专辑介绍（Markdown 富文本）",
     "created_at": "2026-01-01T00:00:00+00:00",
-    "songs": [ { Song 对象 } ]
+    "songs": [
+      {
+        "id": "s_xxx",
+        "title": "歌名",
+        "artists": [{ "id": "art_xxx", "name": "歌手" }],
+        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
+        "genres": ["Hip-Hop"],
+        "cover": "https://...",
+        "track": 1,
+        "disc": 1
+      }
+    ]
   }
 }
 ```
 
-- `songs` 内每项为完整 [Song 对象](/api/objects#song)（含各自独立的词曲编署名）
+- `songs` 内每项为[歌曲摘要](/api/objects#song-summary) + `track`（曲目号）/ `disc`（碟号）——选中心仪曲目后用其 `id` 调 [/v1/song/:id](/api/songs#song-detail) 获取词曲编、歌词等全部数据
+- 多碟专辑按 `disc` 分组展示即可
 - `id` 不存在时返回 `404`
 
 ## 示例
