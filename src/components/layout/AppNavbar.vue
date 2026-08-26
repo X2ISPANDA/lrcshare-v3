@@ -120,7 +120,7 @@ const navItems: NavItem[] = [
   { to: '/support', label: '赞助' },
   { to: '/about', label: '关于' },
   { to: '/links', label: '友链' },
-  { to: '', label: 'API', href: 'https://doc.lrcshare.com' },
+  { to: '', label: 'API', href: 'https://api.lrcshare.com/docs/' },
 ]
 
 // 抽屉打开时锁定页面滚动

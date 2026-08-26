@@ -16,7 +16,7 @@
         <RouterLink to="/contributors" class="hover:text-white">贡献者</RouterLink>
         <RouterLink to="/links" class="hover:text-white">友链</RouterLink>
         <RouterLink to="/support" class="hover:text-white">赞助</RouterLink>
-        <a href="https://doc.lrcshare.com" target="_blank" rel="noopener" class="hover:text-white">API</a>
+        <a href="https://api.lrcshare.com/docs/" target="_blank" rel="noopener" class="hover:text-white">API</a>
         <RouterLink to="/admin" class="hover:text-white">管理后台</RouterLink>
       </div>
     </div>

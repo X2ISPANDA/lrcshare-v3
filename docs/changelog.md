@@ -2,7 +2,7 @@
 
 ## v1.1.1 - 2026-08-26
 
-- 文档站主入口迁移至 `https://api.lrcshare.com/docs/`（原 `doc.lrcshare.com` 并行保留，内容同源）
+- 文档站主入口迁移至 `https://api.lrcshare.com/docs/`（原 `doc.lrcshare.com` 已下线）
 
 ## v1.1.0 - 2026-08-26
 

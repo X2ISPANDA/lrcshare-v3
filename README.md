@@ -74,7 +74,7 @@ npm run docs:dev       # API 文档站（可选）
 
 - **前台主站**：GitHub Pages（lrcshare.com），构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
 - **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
-- **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`），原 doc.lrcshare.com 并行保留
+- **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
 - **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索等），执行记录见各文件头部说明
 
@@ -104,7 +104,7 @@ npm run docs:dev       # API 文档站（可选）
 
 - 投稿新增编曲字段，编曲信息不再误填作曲
 - 贡献者联系方式简化：删除冗余 `contact_types` 字段，联系方式统一由 `contact_value`（键即类型）管理，后台编辑改为动态行（类型 + 号码/链接），彻底消除双字段不同步问题
-- LrcShare API 正式发布（api.lrcshare.com），文档站同步上线并支持在 Lyrico 中调用；文档主入口后迁移至 api.lrcshare.com/docs（原 doc.lrcshare.com 并行保留）
+- LrcShare API 正式发布（api.lrcshare.com），文档站同步上线并支持在 Lyrico 中调用；文档主入口后迁移至 api.lrcshare.com/docs（doc.lrcshare.com 已下线）
 - API 支持结构化查询（`title`/`artist` 组合精确匹配）与全库目录快照端点，批量调用方可先拉目录本地预过滤，避免无效请求
 - API 防御上线：Cloudflare 边缘缓存（命中不进 Worker）+ 单 IP 速率限制，免费额度无忧
 - 搜索接口返回精确 total，分页信息完整

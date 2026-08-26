@@ -15,12 +15,10 @@
  * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）；另有 zone 级 Cache Rule
  *   让 JSON 进 CDN 缓存（命中不进 Worker，不消耗请求额度）、WAF 速率限制拦单 IP 洪峰
  * - 目录快照 /v1/catalog：全库可搜索文本，供调用方本地负向预过滤（批量工具省无效请求）
- * - 子域治理：通配符 Route（*.lrcshare.com/*）接住任意子域。已占用子域（doc 等）在
- *   Worker 内反向代理回真实源站（Workers 路由优先级高于 Pages 自定义域，必须代理），
- *   未知子域返回 HTML 404 页；灰云（仅 DNS）子域不进 CF 网络，不受影响
- * - 文档站：主入口 https://api.lrcshare.com/docs/（VitePress base=/docs/，Worker 剥掉
- *   /docs 前缀反代 Pages 源站，源站内容仍在根路径）；doc.lrcshare.com 并行保留（/docs
- *   前缀路径同样剥前缀，历史无前缀链接原样透传）
+ * - 子域治理：通配符 Route（*.lrcshare.com/*）接住任意子域。未知子域返回 HTML
+ *   404 页；灰云（仅 DNS）子域不进 CF 网络，不受影响
+ * - 文档站：https://api.lrcshare.com/docs/（VitePress base=/docs/，Worker 剥掉
+ *   /docs 前缀反代 Pages 源站，源站内容仍在根路径）
  */
 
 // ============ 常量 ============
@@ -29,11 +27,6 @@ const SITE_DOMAIN = 'lrcshare.com'
 
 /** 文档站 Pages 源站（内容在根路径；/docs 前缀由 VitePress base 产生，代理时剥离） */
 const DOCS_UPSTREAM = 'https://lrcshare-v3.pages.dev'
-
-/** 被通配符 Route 截胡的已占用子域 → 反向代理目标源站 */
-const HOST_UPSTREAMS = {
-  [`doc.${SITE_DOMAIN}`]: DOCS_UPSTREAM,
-}
 
 /** 歌曲摘要（列表/搜索返回）：id/歌名/歌手/专辑/风格；封面只在 album.cover（专辑封面，全站唯一封面来源）；
  *  album.artists 为专辑艺术家（TPE2/ALBUMARTIST） */
@@ -611,20 +604,7 @@ export default {
     const url = new URL(request.url)
     const reqHost = url.hostname
 
-    // 已占用子域（如 doc 的 Pages 站）被通配符 Route 截胡 → 反向代理回源站。
-    // doc 子域的 /docs 前缀路径（VitePress base）剥前缀回源；历史无前缀链接原样透传
-    const upstream = HOST_UPSTREAMS[reqHost]
-    if (upstream) {
-      if (url.pathname === '/docs' || url.pathname.startsWith('/docs/')) {
-        return proxyDocs(url, request)
-      }
-      return fetch(upstream + url.pathname + url.search, {
-        method: request.method,
-        headers: request.headers,
-      })
-    }
-
-    // api 域名下的文档路径（https://api.lrcshare.com/docs/，文档站主入口）
+    // api 域名下的文档路径（https://api.lrcshare.com/docs/，文档站入口）
     if (reqHost === `api.${SITE_DOMAIN}` && (url.pathname === '/docs' || url.pathname.startsWith('/docs/'))) {
       return proxyDocs(url, request)
     }
