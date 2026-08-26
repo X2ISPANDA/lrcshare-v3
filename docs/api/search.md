@@ -36,7 +36,7 @@ GET /v1/search
 - `keyword` 与 `title`/`artist` 互斥，同传返回 400；两者都缺返回 400
 - `title` 与 `artist` 为 AND 关系：同名作品靠另一维度过滤（如多张同名专辑 + 专辑艺术家精确定位）
 - 可单传一个：只传 `artist` 等于列出该艺术家（含别名命中）的全部作品
-- 响应回显 `title`/`artist` 而非 `keyword`，其余结构一致
+- 响应回显 `title`/`artist` 而非 `keyword`，其余结构一致（含 `total`）
 
 | type | title 匹配 | artist 匹配 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ GET /v1/search
 }
 ```
 
-- `type=song` 时 `total` 不返回（库端模糊搜索无精确计数），其余 type 带 `total`；结构化查询（`title`/`artist`）同样不返回 `total`
+- 所有搜索（含结构化查询）均返回 `total`（命中总数，用于分页）；上游计数不可用时为 `null`
 
 ## 示例
 

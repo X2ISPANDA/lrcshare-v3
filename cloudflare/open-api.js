@@ -141,6 +141,23 @@ async function pgList(env, table, params, { limit, offset }) {
   return { data, total }
 }
 
+/** PostgREST 调 RPC（GET 方式，set-returning function）：带 Prefer: count=exact 拿精确总数 */
+async function pgRpc(env, fn, params) {
+  const qs = new URLSearchParams(params)
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}?${qs}`, {
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+      Prefer: 'count=exact',
+    },
+  })
+  if (!res.ok) return null
+  const data = await res.json()
+  const range = res.headers.get('content-range') // "0-19/532" / "*/0" / "0-19/*"
+  const total = range && !range.endsWith('/*') ? Number(range.split('/')[1]) : null
+  return { data, total }
+}
+
 /** PostgREST 查询单条 */
 async function pgOne(env, table, select, filter) {
   const qs = new URLSearchParams({ select, ...filter })
@@ -319,14 +336,10 @@ async function handleSearch(env, url) {
 
   if (type === 'song') {
     // 复用库端 search_songs RPC（title + aliases 数组模糊匹配）
-    const qs = new URLSearchParams({ p_q: keyword, select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) })
-    const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/search_songs?${qs}`, {
-      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` },
-    })
-    if (!res.ok) return jsonError(502, 'upstream error')
-    const rows = await res.json()
-    const items = await assembleSummaries(env, rows || [])
-    return jsonOk({ keyword, type, total: null, items }, TTL_LIST)
+    const result = await pgRpc(env, 'search_songs', { p_q: keyword, select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) })
+    if (!result) return jsonError(502, 'upstream error')
+    const items = await assembleSummaries(env, result.data || [])
+    return jsonOk({ keyword, type, total: result.total, items }, TTL_LIST)
   }
 
   if (type === 'album') {
@@ -370,30 +383,24 @@ async function handleSearch(env, url) {
 // ---------- 结构化搜索（title/artist → 库端 RPC） ----------
 
 async function handleSongSearchStructured(env, title, artist, limit, offset) {
-  const qs = new URLSearchParams({ select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) })
-  if (title) qs.set('p_title', title)
-  if (artist) qs.set('p_artist', artist)
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/search_songs_structured?${qs}`, {
-    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` },
-  })
-  if (!res.ok) return jsonError(502, 'upstream error')
-  const rows = await res.json()
-  const items = await assembleSummaries(env, rows || [])
-  return jsonOk({ title, artist, type: 'song', total: null, items }, TTL_LIST)
+  const params = { select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) }
+  if (title) params.p_title = title
+  if (artist) params.p_artist = artist
+  const result = await pgRpc(env, 'search_songs_structured', params)
+  if (!result) return jsonError(502, 'upstream error')
+  const items = await assembleSummaries(env, result.data || [])
+  return jsonOk({ title, artist, type: 'song', total: result.total, items }, TTL_LIST)
 }
 
 async function handleAlbumSearchStructured(env, title, artist, limit, offset) {
-  const qs = new URLSearchParams({ select: ALBUM_SELECT, limit: String(limit), offset: String(offset) })
-  if (title) qs.set('p_name', title)
-  if (artist) qs.set('p_artist', artist)
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/search_albums_structured?${qs}`, {
-    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` },
-  })
-  if (!res.ok) return jsonError(502, 'upstream error')
-  const rows = await res.json()
-  const artistNames = await getArtistNameMap(env, (rows || []).flatMap(a => a.artist_ids || []))
-  const items = (rows || []).map(a => mapAlbum(a, artistNames))
-  return jsonOk({ title, artist, type: 'album', total: null, items }, TTL_LIST)
+  const params = { select: ALBUM_SELECT, limit: String(limit), offset: String(offset) }
+  if (title) params.p_name = title
+  if (artist) params.p_artist = artist
+  const result = await pgRpc(env, 'search_albums_structured', params)
+  if (!result) return jsonError(502, 'upstream error')
+  const artistNames = await getArtistNameMap(env, (result.data || []).flatMap(a => a.artist_ids || []))
+  const items = (result.data || []).map(a => mapAlbum(a, artistNames))
+  return jsonOk({ title, artist, type: 'album', total: result.total, items }, TTL_LIST)
 }
 
 // ---------- 歌曲 ----------
