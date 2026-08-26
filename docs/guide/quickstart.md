@@ -14,6 +14,7 @@ LrcShare 是**小众人工整理曲库**（中文说唱/歌词为主），API �
 | 项目 | 说明 |
 | --- | --- |
 | 基础地址 | `https://api.lrcshare.com` |
+| 文档地址 | `https://api.lrcshare.com/docs/` |
 | 鉴权 | 无需 API Key，匿名直接调用 |
 | 请求方式 | 仅 `GET` |
 | 响应格式 | JSON（UTF-8） |

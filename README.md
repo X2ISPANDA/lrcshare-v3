@@ -25,7 +25,7 @@
 - **双查询模式**：关键词模糊搜索 + `title`/`artist` 结构化组合查询，歌名、艺术家别名全覆盖
 - **字段对齐音频标签标准**（ID3v2 / Vorbis Comment）：作词 / 作曲 / 编曲 / 曲目号 / 碟号 / 流派 / 专辑艺术家一应俱全，封面统一取专辑封面
 - **省额度设计**：全库目录快照供批量调用方本地预过滤；边缘缓存（列表 10 分钟 / 详情 1 小时）+ 单 IP 速率限制
-- **文档站**：[doc.lrcshare.com](https://doc.lrcshare.com)（VitePress），含快速开始、字段表、FAQ 与 Lyrico 客户端集成保姆教程
+- **文档站**：[api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（VitePress），含快速开始、字段表、FAQ 与 Lyrico 客户端集成保姆教程
 - **官方 Lyrico 插件**已提交至 [Lyrico-Plugins](https://github.com/Replica0110/Lyrico-Plugins) 仓库，搜索、打标、取词一步到位
 
 ### 邮件服务
@@ -74,7 +74,7 @@ npm run docs:dev       # API 文档站（可选）
 
 - **前台主站**：GitHub Pages（lrcshare.com），构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
 - **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
-- **API 文档站**：Cloudflare Pages（doc.lrcshare.com），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`
+- **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`），原 doc.lrcshare.com 并行保留
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
 - **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索等），执行记录见各文件头部说明
 
@@ -82,7 +82,7 @@ npm run docs:dev       # API 文档站（可选）
 
 ```
 ├── cloudflare/           # 开放 API Worker（api.lrcshare.com）
-├── docs/                 # API 文档站（VitePress → doc.lrcshare.com）
+├── docs/                 # API 文档站（VitePress → api.lrcshare.com/docs/）
 │   ├── api/              # 六组端点文档 + 数据对象字段表
 │   └── guide/            # 快速开始 / Lyrico 客户端集成教程
 ├── netlify/functions/    # 邮件服务（mailer）
@@ -104,7 +104,7 @@ npm run docs:dev       # API 文档站（可选）
 
 - 投稿新增编曲字段，编曲信息不再误填作曲
 - 贡献者联系方式简化：删除冗余 `contact_types` 字段，联系方式统一由 `contact_value`（键即类型）管理，后台编辑改为动态行（类型 + 号码/链接），彻底消除双字段不同步问题
-- LrcShare API 正式发布（api.lrcshare.com），文档站同步上线（doc.lrcshare.com），并支持在 Lyrico 中调用
+- LrcShare API 正式发布（api.lrcshare.com），文档站同步上线并支持在 Lyrico 中调用；文档主入口后迁移至 api.lrcshare.com/docs（原 doc.lrcshare.com 并行保留）
 - API 支持结构化查询（`title`/`artist` 组合精确匹配）与全库目录快照端点，批量调用方可先拉目录本地预过滤，避免无效请求
 - API 防御上线：Cloudflare 边缘缓存（命中不进 Worker）+ 单 IP 速率限制，免费额度无忧
 - 搜索接口返回精确 total，分页信息完整

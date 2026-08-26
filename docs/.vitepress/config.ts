@@ -2,6 +2,8 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   lang: 'zh-CN',
+  // 部署在 https://api.lrcshare.com/docs/（Worker 剥前缀反代 Pages 源站）
+  base: '/docs/',
   title: 'LrcShare API',
   description: 'LrcShare 开放 API 文档 — 歌词、专辑、艺术家元数据',
   head: [
