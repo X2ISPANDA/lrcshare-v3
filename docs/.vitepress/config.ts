@@ -4,7 +4,11 @@ export default defineConfig({
   lang: 'zh-CN',
   title: 'LrcShare API',
   description: 'LrcShare 开放 API 文档 — 歌词、专辑、艺术家元数据',
-  head: [['link', { rel: 'icon', href: 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png' }]],
+  head: [
+    ['link', { rel: 'icon', href: 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png' }],
+    // B站图床防盗链：不发送 Referer 才放行外链图片
+    ['meta', { name: 'referrer', content: 'no-referrer' }],
+  ],
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/quickstart' },
