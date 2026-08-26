@@ -27,7 +27,7 @@ GET /v1/songs
         "id": "s_purplesoul_013",
         "title": "歌名",
         "artists": [{ "id": "art_xxx", "name": "歌手" }],
-        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
+        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://...", "artists": [{ "id": "art_a", "name": "歌手A" }] },
         "genres": ["Hip-Hop"]
       }
     ]
@@ -51,7 +51,7 @@ GET /v1/song/:id
     "title": "歌名",
     "aliases": ["别名", "英文名"],
     "artists": [{ "id": "art_a", "name": "歌手A" }, { "id": "art_b", "name": "歌手B" }],
-    "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
+    "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://...", "artists": [{ "id": "art_a", "name": "歌手A" }] },
     "track": 3,
     "disc": 1,
     "genres": ["Hip-Hop", "Trap"],

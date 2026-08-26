@@ -68,7 +68,7 @@ GET /v1/artist/:id/songs
         "id": "s_xxx",
         "title": "歌名",
         "artists": [{ "id": "art_xxx", "name": "歌手" }],
-        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://..." },
+        "album": { "id": "alb_xxx", "name": "专辑名", "year": "2024", "cover": "https://...", "artists": [{ "id": "art_xxx", "name": "专辑艺术家" }] },
         "genres": ["Hip-Hop"],
         "roles": ["singer", "composer"]
       }

@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.0.2 - 2026-08-26
+
+- `/v1/search` 新增结构化查询参数 `title` / `artist`（与 `keyword` 互斥）：面向音乐软件/打标工具直接传文件 tag 的歌名与艺术家字段（TIT2/TPE1、TALB/TPE2），AND 语义，均含别名匹配，支持 `type=song` 与 `type=album`，可单传
+- `keyword` 模糊搜索（`type=song`）的匹配范围扩展至演唱/词/曲/编关联艺术家的名与别名（此前仅歌名与歌的别名），搜艺术家名/简称/译名即可返回其作品
+
+## v1.0.1 - 2026-08-26
+
+- 歌曲摘要/详情的 `album` 对象新增 `artists`（专辑艺术家，对应 TPE2 / ALBUMARTIST 标签帧），此前仅 `/v1/album/:id` 提供
+
 ## v1.0.0 - 2026-08-25
 
 开放 API 首个版本，基础地址 `https://api.lrcshare.com`。
