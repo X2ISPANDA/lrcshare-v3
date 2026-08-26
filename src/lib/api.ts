@@ -355,7 +355,6 @@ export const api = {
 
   async submitSubmissionV2(payload: {
     submitter_name?: string
-    contact_types?: string[]
     contact_value?: Record<string, string>
     submitter_public_contact?: boolean
     contributor_id?: string | null
@@ -368,7 +367,6 @@ export const api = {
       {
         id: 'sub' + Date.now(),
         user_name: payload.submitter_name || '匿名',
-        contact_types: payload.contact_types || [],
         contact_value: payload.contact_value || {},
         submitter_public_contact: !!payload.submitter_public_contact,
         contributor_id: payload.contributor_id || null,

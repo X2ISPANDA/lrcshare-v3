@@ -103,6 +103,7 @@ npm run docs:dev       # API 文档站（可选）
 ### 2026-08-26
 
 - 投稿新增编曲字段，编曲信息不再误填作曲
+- 贡献者联系方式简化：删除冗余 `contact_types` 字段，联系方式统一由 `contact_value`（键即类型）管理，后台编辑改为动态行（类型 + 号码/链接），彻底消除双字段不同步问题
 - LrcShare API 正式发布（api.lrcshare.com），文档站同步上线（doc.lrcshare.com），并支持在 Lyrico 中调用
 - API 支持结构化查询（`title`/`artist` 组合精确匹配）与全库目录快照端点，批量调用方可先拉目录本地预过滤，避免无效请求
 - API 防御上线：Cloudflare 边缘缓存（命中不进 Worker）+ 单 IP 速率限制，免费额度无忧

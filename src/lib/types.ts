@@ -109,9 +109,7 @@ export interface Contributor {
   bio: string | null
   /** 公开简介（false 时前台不展示 bio） */
   public_bio: boolean
-  /** 使用的联系方式类型（email/weibo/qq/bilibili 等） */
-  contact_types?: string[] | null
-  /** 联系方式（key 为类型，value 为账号/地址） */
+  /** 联系方式（key 为类型 email/weibo/qq/bilibili 等，value 为账号/地址） */
   contact_value?: Record<string, string> | null
   public_contact: boolean
   /** 身份标签 */
@@ -152,7 +150,6 @@ export interface Submission {
   user_name: string
   song_data: SongSubmissionData
   status: 'pending' | 'approved' | 'rejected' | 'withdrawn'
-  contact_types?: string[]
   contact_value?: Record<string, string>
   submitter_public_contact?: boolean
   contributor_id?: string | null

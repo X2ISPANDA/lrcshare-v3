@@ -78,7 +78,7 @@ const dropdown = ref<Artist[]>([])
  */
 const searchPool = computed<Artist[]>(() => {
   const extra = (props.sessionNames || [])
-    .filter(n => n && !props.artists.some(a => a.name === n))
+    .filter(n => n && !props.artists.some(a => a.name.toLowerCase() === n.toLowerCase()))
     .map(n => ({ id: '__new_' + n, name: n, types: [] }) as unknown as Artist)
   return [...props.artists, ...extra]
 })
@@ -136,7 +136,8 @@ function selectTag(item: Artist) {
 function addNewTag() {
   const name = input.value.trim()
   if (!name) return
-  const exact = searchPool.value.find(a => a.name === name)
+  // 大小写不敏感匹配：库内有「AA」时输入「aa」直接复用（tag 显示库内规范名）
+  const exact = searchPool.value.find(a => a.name.toLowerCase() === name.toLowerCase())
   if (exact) {
     selectTag(exact)
     return

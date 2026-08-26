@@ -365,15 +365,16 @@ function openReview(row: any) {
       if (item.is_show === undefined) item.is_show = true
     })
   }
-  // 投稿未带 ID，但该艺术家已入库（如审核同批上一首时刚创建）→ 按名自动绑定，
+  // 投稿未带 ID，但该艺术家已入库（如审核同批上一首时刚创建）→ 按名自动绑定（大小写不敏感），
   // 免去逐首删除 tag 再从下拉重选；types 缺口由发布时的补 type 逻辑兜底。
   // 仅在库内名字唯一时自动绑——同名多人（张三a/张三b）程序无法判断，保留待创建态并出歧义警示
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
       if (!item || item.id) return
-      const hits = artists.value.filter(a => a.name === item.name)
+      const hits = artists.value.filter(a => a.name.toLowerCase() === item.name.toLowerCase())
       if (hits.length === 1) {
         item.id = hits[0].id
+        item.name = hits[0].name
         item._new = false
       }
     })
@@ -432,10 +433,11 @@ const albumYearDiff = computed(() => {
   return `库内专辑年份为 ${album.year}，发布时将更新为 ${ed.year}`
 })
 
-/** 未关联 ID 时专辑名与库内重名（警示防建重复专辑） */
+/** 未关联 ID 时专辑名与库内重名（大小写不敏感，警示防建重复专辑） */
 const albumNameExists = computed(() => {
   if (!review.value?.edited_data?.album || review.value.edited_data.album_id) return false
-  return albums.value.some(a => a.name === review.value!.edited_data.album)
+  const q = review.value.edited_data.album.toLowerCase()
+  return albums.value.some(a => a.name.toLowerCase() === q)
 })
 
 /** 曲目号占用检测：投稿关联了库内专辑时，拉取专辑内已有歌曲的 track 对照（撞号红字提示） */
@@ -457,14 +459,14 @@ watch(() => review.value?.edited_data?.album_id, async (albumId) => {
   } catch { /* 拉取失败仅失去撞号提示，不影响审核 */ }
 }, { immediate: true })
 
-/** 同名歧义：投稿未带 ID 且库内同名人 ≥2 → 程序无法自动判断，人工从下拉（带消歧标注）选择 */
+/** 同名歧义：投稿未带 ID 且库内同名人 ≥2（大小写不敏感）→ 程序无法自动判断，人工从下拉（带消歧标注）选择 */
 const ambiguousArtists = computed(() => {
   const res: { name: string; entries: string[] }[] = []
   if (!review.value) return res
   for (const f of ARTIST_FIELDS) {
     for (const item of review.value.edited_data[f.key] || []) {
       if (!item || item.id) continue
-      const hits = artists.value.filter(a => a.name === item.name)
+      const hits = artists.value.filter(a => a.name.toLowerCase() === item.name.toLowerCase())
       if (hits.length >= 2 && !res.some(r => r.name === item.name)) {
         res.push({ name: item.name, entries: hits.map(h => (h.disambiguation ? `${h.name}（${h.disambiguation}）` : h.name)) })
       }
@@ -613,7 +615,6 @@ async function approve(sub: ReviewItem | null) {
         id: contributorId,
         name: sub.user_name || '匿名贡献者',
         bio: bio ?? '通过投稿自动创建的贡献者',
-        contact_types: [],
         contact_value: contactValue,
         public_contact: !!sub.submitter_public_contact,
         public_bio: true,

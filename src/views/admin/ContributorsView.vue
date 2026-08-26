@@ -30,9 +30,9 @@
         </el-table-column>
         <el-table-column label="联系方式" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.contact_types?.length">
-              <template v-if="row.public_contact">{{ row.contact_types.map(contactLabel).join('、') }}</template>
-              <template v-else>🔒 {{ row.contact_types.map(contactLabel).join('、') }}</template>
+            <span v-if="contactKeys(row).length">
+              <template v-if="row.public_contact">{{ contactKeys(row).map(contactLabel).join('、') }}</template>
+              <template v-else>🔒 {{ contactKeys(row).map(contactLabel).join('、') }}</template>
             </span>
             <span v-else class="text-gray-300">—</span>
           </template>
@@ -60,7 +60,7 @@
                 <el-tag v-if="row.is_owner" size="small" type="danger" class="shrink-0">站长</el-tag>
               </div>
               <div v-if="row.tags?.length" class="text-xs text-gray-400 truncate mt-0.5">{{ row.tags.join(' / ') }}</div>
-              <div class="text-xs text-gray-400 mt-0.5">{{ songCount(row.id) }} 首作品<template v-if="row.contact_types?.length"> · {{ row.public_contact ? row.contact_types.map(contactLabel).join('、') : '🔒 ' + row.contact_types.map(contactLabel).join('、') }}</template></div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ songCount(row.id) }} 首作品<template v-if="contactKeys(row).length"> · {{ row.public_contact ? contactKeys(row).map(contactLabel).join('、') : '🔒 ' + contactKeys(row).map(contactLabel).join('、') }}</template></div>
             </div>
           </div>
           <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
@@ -107,13 +107,17 @@
             <span class="text-xs text-gray-400">开启后显示站长标识</span>
           </div>
         </el-form-item>
-        <el-form-item label="联系方式类型">
-          <el-select v-model="form.contact_types" multiple placeholder="选择使用的联系方式" class="w-full">
-            <el-option v-for="ct in CONTACT_TYPES" :key="ct" :label="contactLabel(ct)" :value="ct" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-for="ct in form.contact_types" :key="ct" :label="contactLabel(ct)">
-          <el-input v-model="form.contact_value[ct]" :placeholder="contactLabel(ct) + ' 号码/链接'" />
+        <el-form-item label="联系方式">
+          <div class="w-full space-y-2">
+            <div v-for="(row, idx) in form.contactRows" :key="idx" class="flex items-center gap-2">
+              <el-select v-model="row.k" filterable allow-create default-first-option size="small" class="!w-36 flex-shrink-0" placeholder="类型">
+                <el-option v-for="ct in CONTACT_TYPES" :key="ct" :label="contactLabel(ct)" :value="ct" />
+              </el-select>
+              <el-input v-model="row.v" placeholder="号码 / 链接" size="small" />
+              <el-button size="small" type="danger" text @click="form.contactRows.splice(idx, 1)">删</el-button>
+            </div>
+            <el-button size="small" @click="form.contactRows.push({ k: 'qq', v: '' })">+ 添加联系方式</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="联系方式公开">
           <div class="flex items-center gap-3">
@@ -173,6 +177,9 @@ const countMap = computed(() => {
 })
 const songCount = (id: string) => countMap.value.get(id) || 0
 
+/** 联系方式键列表（contact_value 的非空键，键即类型，列表与弹窗展示用） */
+const contactKeys = (row: Contributor) => Object.entries(row.contact_value || {}).filter(([, v]) => !!v).map(([k]) => k)
+
 const filteredList = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   if (!kw) return contributors.value
@@ -214,8 +221,7 @@ const form = reactive({
   avatar: '',
   tags: [] as string[],
   is_owner: false,
-  contact_types: [] as string[],
-  contact_value: {} as Record<string, string>,
+  contactRows: [] as { k: string; v: string }[],
   public_contact: false,
   bio: '',
   public_bio: true,
@@ -225,7 +231,7 @@ const form = reactive({
 function openNew() {
   editing.value = null
   Object.assign(form, {
-    name: '', avatar: '', tags: [], is_owner: false, contact_types: [], contact_value: {},
+    name: '', avatar: '', tags: [], is_owner: false, contactRows: [],
     public_contact: false, bio: '', public_bio: true, sort: 0,
   })
   showDialog.value = true
@@ -238,8 +244,8 @@ function openEdit(row: Contributor) {
     avatar: row.avatar || '',
     tags: [...(row.tags || [])],
     is_owner: !!row.is_owner,
-    contact_types: [...(row.contact_types || [])],
-    contact_value: { ...(row.contact_value || {}) },
+    // 联系方式从 contact_value 展开为动态行（键即类型，见 constants.ts CONTACT_LABELS）
+    contactRows: Object.entries(row.contact_value || {}).map(([k, v]) => ({ k, v: v || '' })),
     public_contact: !!row.public_contact,
     bio: row.bio || '',
     public_bio: row.public_bio !== false,
@@ -265,8 +271,8 @@ async function save() {
       avatar: form.avatar.trim() || null,
       tags: form.tags,
       is_owner: !!form.is_owner,
-      contact_types: form.contact_types,
-      contact_value: form.contact_value,
+      // contact_value 从动态行组装（键即类型，空值行丢弃）
+      contact_value: Object.fromEntries(form.contactRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()])),
       public_contact: !!form.public_contact,
       bio: form.bio || null,
       public_bio: form.public_bio !== false,

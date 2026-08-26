@@ -333,8 +333,9 @@ async function save() {
     ElMessage.warning('请输入艺术家名')
     return
   }
-  // 同名艺术家且无区分信息时提醒（不阻断）
-  const dup = artists.value.find(a => a.name === form.name.trim() && a.id !== editing.value?.id && !a.disambiguation && !form.disambiguation.trim())
+  // 同名艺术家且无区分信息时提醒（大小写不敏感，不阻断）
+  const name = form.name.trim().toLowerCase()
+  const dup = artists.value.find(a => a.name.toLowerCase() === name && a.id !== editing.value?.id && !a.disambiguation && !form.disambiguation.trim())
   if (dup) {
     try {
       await ElMessageBox.confirm('已存在同名艺术家「' + form.name.trim() + '」，且双方均无区分信息，容易混淆。建议填写区分信息。是否继续保存？', '同名提醒', { type: 'warning', confirmButtonText: '仍然保存', cancelButtonText: '返回填写' })

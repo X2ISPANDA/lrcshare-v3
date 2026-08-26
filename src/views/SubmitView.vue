@@ -569,7 +569,6 @@ async function handleSubmit() {
   if (!(selectedContributor.value && !userForm.request_update)) {
     Object.assign(contactObj, collectContactsObj())
   }
-  const contactTypes = Object.keys(contactObj)
 
   const songData = {
     type: 'song',
@@ -599,7 +598,6 @@ async function handleSubmit() {
   try {
     await api.submitSubmissionV2({
       submitter_name: name,
-      contact_types: contactTypes,
       contact_value: contactObj,
       submitter_public_contact: !!userForm.public_contact,
       contributor_id: selectedContributor.value ? selectedContributor.value.id : null,
@@ -647,7 +645,6 @@ async function handleProfileSubmit() {
   try {
     await api.submitSubmissionV2({
       submitter_name: selectedContributor.value.name,
-      contact_types: Object.keys(contactObj),
       contact_value: contactObj,
       submitter_public_contact: !!userForm.public_contact,
       contributor_id: selectedContributor.value.id,
