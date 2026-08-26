@@ -2,13 +2,13 @@
   <div class="space-y-4">
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索专辑名 / 专辑艺术家" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索专辑名 / 专辑艺术家" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增专辑</el-button>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="专辑" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
@@ -34,7 +34,24 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-center gap-3">
+            <img v-if="row.cover" :src="row.cover" class="w-11 h-11 rounded object-cover shrink-0" />
+            <div v-else class="w-11 h-11 rounded bg-gray-100 flex items-center justify-center shrink-0 text-gray-300">♪</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-gray-800 truncate">{{ row.name }}</div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ namesOf(row.artist_ids) || '—' }}</div>
+              <div class="text-xs text-gray-400 mt-0.5"><template v-if="row.year">{{ row.year }} · </template>{{ songCount(row.id) }} 首</div>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -47,6 +64,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -101,6 +119,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Album, Artist } from '@/lib/types'
 
 /** 专辑管理：列表（封面/艺术家/年份/歌曲数）+ 新增/编辑（专辑艺术家支持新建非创作者实体） */

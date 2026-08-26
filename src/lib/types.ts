@@ -118,8 +118,6 @@ export interface Contributor {
   tags: string[] | null
   /** 是否站长 */
   is_owner: boolean
-  /** 口令哈希（SHA-256，评论区身份验证用） */
-  verify_code_hash?: string | null
   sort: number
   created_at: string
   song_count?: number

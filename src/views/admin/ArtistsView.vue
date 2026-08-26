@@ -2,7 +2,7 @@
   <div class="space-y-4">
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索名称 / 别名 / 区分信息" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索名称 / 别名 / 区分信息" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <el-select v-model="typeFilter" clearable placeholder="全部类型" class="!w-36">
         <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
         <el-option label="🏢 非创作者" value="__none__" />
@@ -12,7 +12,7 @@
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="艺术家" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
@@ -51,7 +51,34 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start gap-3">
+            <img v-if="row.avatar" :src="row.avatar" class="w-10 h-10 rounded-full object-cover shrink-0" />
+            <div v-else class="w-10 h-10 rounded-full bg-pink-100 text-pink-500 flex items-center justify-center shrink-0">{{ row.name?.charAt(0) }}</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-gray-800 truncate">{{ row.name }}</div>
+              <div v-if="row.disambiguation" class="text-xs text-gray-400 truncate">{{ row.disambiguation }}</div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ songCount(row.id) }} 首作品<template v-if="row.sort > 0"> · 置顶{{ row.sort }}</template></div>
+              <div class="flex flex-wrap gap-1 mt-1">
+                <el-tag v-for="t in row.types || []" :key="t" size="small" :type="t === 'singer' ? 'danger' : 'info'">{{ typeLabel(t) }}</el-tag>
+                <span v-if="!(row.types || []).length" class="text-gray-300 text-xs self-center">非创作者</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex items-center justify-between">
+            <div class="flex gap-1">
+              <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-gray-400">
+              前台展示
+              <el-switch :model-value="row.is_show" @change="toggleShow(row)" />
+            </div>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -64,6 +91,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -145,6 +173,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import { contactLabel } from '@/lib/constants'
 import type { Artist } from '@/lib/types'
 

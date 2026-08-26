@@ -27,7 +27,7 @@
           <el-button link type="primary">查看全部 →</el-button>
         </RouterLink>
       </div>
-      <el-table :data="recent" stripe v-loading="loadingRecent">
+      <AdminTable :data="recent" :loading="loadingRecent" row-key="id">
         <el-table-column label="提交人" prop="user_name" width="120" />
         <el-table-column label="歌曲名" min-width="180">
           <template #default="{ row }">{{ row.song_data?.title || '—' }}</template>
@@ -43,7 +43,19 @@
         <el-table-column label="提交时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="font-medium text-gray-800 truncate">{{ row.song_data?.title || '—' }}</div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.user_name }}<template v-if="row.song_data?.artist"> · {{ row.song_data?.artist }}</template></div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ formatTime(row.created_at) }}</div>
+            </div>
+            <el-tag :type="statusTagType(row.status)" size="small" class="shrink-0">{{ statusText(row.status) }}</el-tag>
+          </div>
+        </template>
+      </AdminTable>
     </div>
   </div>
 </template>
@@ -51,6 +63,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { supabase } from '@/lib/supabase'
+import AdminTable from '@/components/admin/AdminTable.vue'
 
 /** 数据概览：统计用 count 聚合（head 请求不拉数据），最近投稿仅取 5 条 */
 const cards = ref([

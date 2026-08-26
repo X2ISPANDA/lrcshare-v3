@@ -1,6 +1,6 @@
 # LrcShare V3
 
-「全球最小滚动歌词分享网站」——收录歌词、专辑、艺术家信息，支持投稿审核、邮件通知与全站预渲染。
+「全球最小滚动歌词分享网站」——收录歌词、专辑、艺术家信息，支持投稿审核、邮件通知、全站预渲染与开放 API。
 
 ## 功能
 
@@ -11,13 +11,22 @@
 - **艺术家**：按名称、别名搜索，按身份类型筛选，A-Z 拼音分组 + 首字母索引；艺术家主页含社交平台链接，作品按演唱 / 作词 / 作曲 / 编曲分组
 - **专辑页**：多碟专辑按 Disc 分组展示曲目表，点击直达歌词页
 - **贡献者**：卡片墙 + 个人主页，记录贡献标签（歌词 / 翻译 / 校对 / LOGO / 文案 / 代码等）与作品列表
-- **投稿**：老贡献者自动沿用资料、自助更新个人信息、多艺术家标注、专辑自动联想、支持视频链接
+- **投稿**：老贡献者自动沿用资料、自助更新个人信息、多艺术家标注、专辑自动联想、编曲标注、支持视频链接
 - **文章区**：站长随笔与公告，浏览量统计、分页浏览
-- **其他**：评论懒加载（Twikoo）、关于页、友链、赞赏
+- **其他**：评论（Twikoo）、关于页、友链、赞赏
 
 ### 管理后台
 
-歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 投稿审核 / 站点设置管理，见 `src/views/admin/`。
+歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 投稿审核 / 站点设置管理，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
+
+### 开放 API（api.lrcshare.com）
+
+- **六组端点**：搜索 / 歌曲列表与详情 / 专辑 / 艺术家 / 歌词 / 全库目录快照
+- **双查询模式**：关键词模糊搜索 + `title`/`artist` 结构化组合查询，歌名、艺术家别名全覆盖
+- **字段对齐音频标签标准**（ID3v2 / Vorbis Comment）：作词 / 作曲 / 编曲 / 曲目号 / 碟号 / 流派 / 专辑艺术家一应俱全，封面统一取专辑封面
+- **省额度设计**：全库目录快照供批量调用方本地预过滤；边缘缓存（列表 10 分钟 / 详情 1 小时）+ 单 IP 速率限制
+- **文档站**：[doc.lrcshare.com](https://doc.lrcshare.com)（VitePress），含快速开始、字段表、FAQ 与 Lyrico 客户端集成保姆教程
+- **官方 Lyrico 插件**已提交至 [Lyrico-Plugins](https://github.com/Replica0110/Lyrico-Plugins) 仓库，搜索、打标、取词一步到位
 
 ### 邮件服务
 
@@ -31,6 +40,8 @@
 - **构建**：Vite + vite-ssg（全站预渲染，五百余页面点开即达）
 - **UI**：Element Plus + Tailwind CSS 4 + unplugin-icons
 - **数据**：Supabase
+- **开放 API**：Cloudflare Workers
+- **API 文档**：VitePress
 - **邮件**：Netlify Functions + Nodemailer
 - **其他**：marked（Markdown 渲染）、pinyin-pro（拼音分组）、@vueuse/core
 
@@ -39,7 +50,8 @@
 ```bash
 npm install
 cp .env.example .env   # 填入 Supabase 地址与 anon key
-npm run dev
+npm run dev            # 前台
+npm run docs:dev       # API 文档站（可选）
 ```
 
 环境变量说明见 [.env.example](.env.example)：
@@ -49,22 +61,32 @@ npm run dev
 
 ## 常用脚本
 
-| 命令                   | 说明             |
-| -------------------- | -------------- |
-| `npm run dev`        | 本地开发           |
-| `npm run build`      | vite-ssg 预渲染构建 |
-| `npm run preview`    | 预览构建产物         |
-| `npm run type-check` | vue-tsc 类型检查   |
+| 命令                   | 说明                    |
+| ---------------------- | ----------------------- |
+| `npm run dev`          | 前台本地开发             |
+| `npm run build`        | vite-ssg 预渲染构建      |
+| `npm run preview`      | 预览前台构建产物          |
+| `npm run type-check`   | vue-tsc 类型检查         |
+| `npm run docs:dev`     | API 文档站本地开发        |
+| `npm run docs:build`   | API 文档站构建           |
 
 ## 部署
 
-- **前台主站**：GitHub Pages，构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
+- **前台主站**：GitHub Pages（lrcshare.com），构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
+- **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
+- **API 文档站**：Cloudflare Pages（doc.lrcshare.com），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
+- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索等），执行记录见各文件头部说明
 
 ## 目录结构
 
 ```
+├── cloudflare/           # 开放 API Worker（api.lrcshare.com）
+├── docs/                 # API 文档站（VitePress → doc.lrcshare.com）
+│   ├── api/              # 六组端点文档 + 数据对象字段表
+│   └── guide/            # 快速开始 / Lyrico 客户端集成教程
 ├── netlify/functions/    # 邮件服务（mailer）
+├── sql/                  # 数据库变更脚本
 ├── src/
 │   ├── components/       # 组件（admin / common / contributor / layout / song / submit）
 │   ├── composables/      # useAdminAuth / useSSGData
@@ -78,19 +100,32 @@ npm run dev
 
 ## 更新日志
 
-### 2026-08-24
+### 2026-08-26
 
-- 网站从内到外完整重构，正式上线 V3
+- 投稿新增编曲字段，编曲信息不再误填作曲
+- LrcShare API 正式发布（api.lrcshare.com），文档站同步上线（doc.lrcshare.com），并支持在 Lyrico 中调用
+- API 支持结构化查询（`title`/`artist` 组合精确匹配）与全库目录快照端点，批量调用方可先拉目录本地预过滤，避免无效请求
+- API 防御上线：Cloudflare 边缘缓存（命中不进 Worker）+ 单 IP 速率限制，免费额度无忧
+- 搜索接口返回精确 total，分页信息完整
+- 管理后台移动端适配：抽屉菜单、卡片式列表、自适应弹窗、吸底分页，随身可审核
+- 支持不投稿直接修改贡献者信息
+- 投稿审核优化：投稿专辑名可复制、输入项智能置顶、专辑年份可见可改、沿用已有专辑时可回填年份
+- 移除评论区口令验证逻辑（评论统一由 Twikoo 承担）
+- 修复刷新页面时 404 页面闪现问题
 
 ### 2026-08-25
 
-- 文章发布功能排序bug修复
-- 投稿绑定艺术家、专辑逻辑优化，避免出现输入了没有点击下拉栏没有绑定专辑ID的情况
+- 文章发布功能排序 bug 修复
+- 投稿绑定艺术家、专辑逻辑优化，避免出现输入了没有点击下拉栏没有绑定专辑 ID 的情况
 - 投稿审核结果邮件通知，新投稿即时邮件提醒站长
-- 修复关于RLS策略导致歌曲口令无法验证通过的问题，修改为函数验证避免解锁口令泄露
-- 修复QQ联系方式跳转异常(腾讯已废弃url调用QQ方式)，改为弹窗复制
-- 修复管理后台、首页艺术家作品计数bug
-- 修改联系方式对应key为英文
+- 修复关于 RLS 策略导致歌曲口令无法验证通过的问题，修改为函数验证避免解锁口令泄露
+- 修复 QQ 联系方式跳转异常（腾讯已废弃 url 调用 QQ 方式），改为弹窗复制
+- 修复管理后台、首页艺术家作品计数 bug
+- 修改联系方式对应 key 为英文
+
+### 2026-08-24
+
+- 网站从内到外完整重构，正式上线 V3
 
 ## 联系
 

@@ -60,15 +60,6 @@ export function formatDuration(d: string | null | undefined): string {
   return s
 }
 
-/** SHA-256 哈希（贡献者口令验证） */
-export async function sha256(str: string): Promise<string> {
-  const data = new TextEncoder().encode(str)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hashBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
 export const api = {
   supabase,
 
@@ -391,50 +382,6 @@ export const api = {
     ])
     if (error) throw error
     return null
-  },
-
-  // ============ 贡献者口令（Twikoo 评论身份徽章验证用） ============
-
-  async verifyContributor(name: string, verifyCode: string): Promise<Contributor | null> {
-    try {
-      const hash = await sha256(verifyCode)
-      const { data } = await supabase
-        .from('contributors')
-        .select('id, name, is_owner, avatar, tags')
-        .ilike('name', name)
-        .eq('verify_code_hash', hash)
-      if (!data || data.length === 0) return null
-      return data[0] as Contributor
-    } catch {
-      return null
-    }
-  },
-
-  async changeVerifyCode(
-    contributorId: string,
-    oldCode: string,
-    newCode: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const oldHash = await sha256(oldCode)
-      const newHash = await sha256(newCode)
-      const { data: verify } = await supabase
-        .from('contributors')
-        .select('id')
-        .eq('id', contributorId)
-        .eq('verify_code_hash', oldHash)
-      if (!verify || verify.length === 0) {
-        return { success: false, error: '旧口令不正确' }
-      }
-      const { error } = await supabase
-        .from('contributors')
-        .update({ verify_code_hash: newHash })
-        .eq('id', contributorId)
-      if (error) throw error
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: (e as Error).message }
-    }
   },
 
   // ============ 赞助 ============

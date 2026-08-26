@@ -2,13 +2,13 @@
   <div class="space-y-4">
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索名称 / 标签" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索名称 / 标签" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增贡献者</el-button>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="贡献者" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
@@ -37,11 +37,6 @@
             <span v-else class="text-gray-300">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="口令验证" width="85" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.verify_code_hash ? 'success' : 'info'" size="small">{{ row.verify_code_hash ? '已设置' : '未设置' }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="置顶" width="65" align="center">
           <template #default="{ row }">
             <span :class="row.sort > 0 ? 'text-pink-500 font-medium' : 'text-gray-300'">{{ row.sort || 0 }}</span>
@@ -53,7 +48,27 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start gap-3">
+            <img v-if="row.avatar" :src="row.avatar" class="w-10 h-10 rounded-full object-cover shrink-0" />
+            <div v-else class="w-10 h-10 rounded-full bg-pink-100 text-pink-500 flex items-center justify-center shrink-0">{{ row.name?.charAt(0) }}</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-gray-800 flex items-center gap-1">
+                <span class="truncate">{{ row.name }}</span>
+                <el-tag v-if="row.is_owner" size="small" type="danger" class="shrink-0">站长</el-tag>
+              </div>
+              <div v-if="row.tags?.length" class="text-xs text-gray-400 truncate mt-0.5">{{ row.tags.join(' / ') }}</div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ songCount(row.id) }} 首作品<template v-if="row.contact_types?.length"> · {{ row.public_contact ? row.contact_types.map(contactLabel).join('、') : '🔒 ' + row.contact_types.map(contactLabel).join('、') }}</template></div>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -66,6 +81,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -114,12 +130,6 @@
             <span class="text-xs text-gray-400">关闭后前台不展示简介</span>
           </div>
         </el-form-item>
-        <el-form-item label="口令">
-          <div class="flex items-center gap-3 w-full">
-            <el-input v-model="form.password" type="password" show-password placeholder="留空不修改" />
-            <span class="text-xs text-gray-400 whitespace-nowrap">评论区身份验证用</span>
-          </div>
-        </el-form-item>
         <el-form-item label="排序">
           <div class="w-full">
             <el-input-number v-model="form.sort" :min="0" :step="1" class="!w-full" />
@@ -139,10 +149,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import { contactLabel } from '@/lib/constants'
 import type { Contributor } from '@/lib/types'
 
-/** 贡献者管理：站长标识、动态联系方式、口令哈希（SHA-256）、公开开关 */
+/** 贡献者管理：站长标识、动态联系方式、公开开关 */
 
 const CONTACT_TYPES = ['qq', 'wechat', 'email', 'bilibili', 'github', 'blog', 'douyin', 'weibo', 'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile']
 
@@ -208,7 +219,6 @@ const form = reactive({
   public_contact: false,
   bio: '',
   public_bio: true,
-  password: '',
   sort: 0,
 })
 
@@ -216,7 +226,7 @@ function openNew() {
   editing.value = null
   Object.assign(form, {
     name: '', avatar: '', tags: [], is_owner: false, contact_types: [], contact_value: {},
-    public_contact: false, bio: '', public_bio: true, password: '', sort: 0,
+    public_contact: false, bio: '', public_bio: true, sort: 0,
   })
   showDialog.value = true
 }
@@ -233,16 +243,9 @@ function openEdit(row: Contributor) {
     public_contact: !!row.public_contact,
     bio: row.bio || '',
     public_bio: row.public_bio !== false,
-    password: '',
     sort: row.sort || 0,
   })
   showDialog.value = true
-}
-
-async function sha256(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text)
-  const buf = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function save() {
@@ -269,8 +272,6 @@ async function save() {
       public_bio: form.public_bio !== false,
       sort: form.sort || 0,
     }
-    // 设置了新口令才更新哈希，留空不修改
-    if (form.password.trim()) payload.verify_code_hash = await sha256(form.password.trim())
     if (editing.value) {
       await adminApi.update('contributors', editing.value.id, payload)
       ElMessage.success('保存成功')

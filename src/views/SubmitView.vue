@@ -134,6 +134,12 @@
                 <span class="text-xs text-blue-700">勾选后上方输入保持禁用；审核通过时把该贡献者除 ID、昵称、标签外的所有字段置空。要删除 ID 请联系管理员。</span>
               </span>
             </label>
+            <div v-if="userForm.request_update" class="pt-1">
+              <el-button type="primary" size="small" :loading="submitting" @click="handleProfileSubmit">
+                仅提交资料更新（无需投稿歌词）
+              </el-button>
+              <div class="text-xs text-blue-700 mt-1">不投歌词、只想改自己资料时点这个，提交后单独进入审核队列</div>
+            </div>
           </div>
 
           <!-- 公开选项 -->
@@ -254,6 +260,13 @@
               <label class="block text-sm font-medium text-gray-700 mb-1">作曲</label>
               <ArtistTagInput v-model="song.composers" :artists="allArtists" :session-names="sessionNewArtists" filter-type="composer" />
             </div>
+
+            <!-- 编曲（多选 tag） -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">编曲</label>
+              <ArtistTagInput v-model="song.arrangers" :artists="allArtists" :session-names="sessionNewArtists" filter-type="arranger" />
+              <div class="text-xs text-gray-400 mt-1">编曲（Beat/Instrumental 制作）请填在这里，不要填到作曲</div>
+            </div>
           </div>
         </div>
 
@@ -299,9 +312,14 @@
       <!-- 提交成功 -->
       <div v-show="submitted" class="text-center py-12">
         <div class="text-6xl mb-4">✅</div>
-        <h2 class="text-2xl font-bold text-gray-800 mb-2">提交成功！</h2>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">{{ submittedType === 'profile' ? '资料更新已提交！' : '提交成功！' }}</h2>
         <p class="text-gray-500 mb-6">
-          我们已经收到您的歌词投稿，管理员会尽快审核。<br v-if="userForm.email" />审核结果将通过邮件通知您，请留意查收。
+          <template v-if="submittedType === 'profile'">
+            我们已经收到您的资料更新请求，管理员会尽快审核。<br v-if="userForm.email" />审核结果将通过邮件通知您，请留意查收。
+          </template>
+          <template v-else>
+            我们已经收到您的歌词投稿，管理员会尽快审核。<br v-if="userForm.email" />审核结果将通过邮件通知您，请留意查收。
+          </template>
         </p>
         <RouterLink to="/" class="px-6 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600">返回首页</RouterLink>
       </div>
@@ -450,6 +468,7 @@ const song = reactive({
   albumArtists: [] as { id: string | null; name: string }[],
   lyricists: [] as { id: string | null; name: string }[],
   composers: [] as { id: string | null; name: string }[],
+  arrangers: [] as { id: string | null; name: string }[],
   duration: '',
   track: '',
   lrcText: '',
@@ -459,7 +478,7 @@ const song = reactive({
 // 会话内新建艺术家共享池：从各字段当前值实时派生（id 为 null 即本次新建），删除 tag 后自动出池
 const sessionNewArtists = computed(() => {
   const names: string[] = []
-  for (const arr of [song.artists, song.albumArtists, song.lyricists, song.composers]) {
+  for (const arr of [song.artists, song.albumArtists, song.lyricists, song.composers, song.arrangers]) {
     for (const t of arr) {
       if (t.id === null && t.name && !names.includes(t.name)) names.push(t.name)
     }
@@ -504,6 +523,7 @@ function selectAlbum(a: AlbumWithArtists) {
 
 // ============ 提交 ============
 const submitted = ref(false)
+const submittedType = ref<'song' | 'profile'>('song')
 const submitting = ref(false)
 
 async function handleSubmit() {
@@ -559,11 +579,13 @@ async function handleSubmit() {
     album_artists: song.albumArtists.slice(),
     lyricist_arr: song.lyricists.slice(),
     composer_arr: song.composers.slice(),
+    arranger_arr: song.arrangers.slice(),
     // 兼容旧字段：拼接字符串（供后台列表展示）
     artist: song.artists.map(a => a.name).join(' / '),
     album_artist: song.albumArtists.map(a => a.name).join(' / '),
     lyricist: song.lyricists.map(a => a.name).join(' / '),
     composer: song.composers.map(a => a.name).join(' / '),
+    arranger: song.arrangers.map(a => a.name).join(' / '),
     album: albumName.value.trim(),
     album_id: albumId.value,
     year: albumYear.value.trim() || undefined,
@@ -587,9 +609,57 @@ async function handleSubmit() {
       song_data: songData,
     })
     submitted.value = true
+    submittedType.value = 'song'
     window.scrollTo({ top: 0, behavior: 'smooth' })
     // 新投稿通知站长（fire-and-forget：邮件失败不影响投稿结果）
     notifyAdminNewSubmission(name, songData.title)
+  } catch (err) {
+    console.error(err)
+    ElMessage.error('网络错误，请稍后重试')
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** 仅提交资料更新（type=profile 投稿）：不投歌词，单独进审核队列，通过后覆盖贡献者字段 */
+async function handleProfileSubmit() {
+  if (!selectedContributor.value) {
+    ElMessage.warning('资料更新仅支持已有贡献者，请先在昵称中选择你自己')
+    return
+  }
+  const email = (userForm.email || '').trim()
+  if (email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      ElMessage.warning('请填写正确的邮箱地址')
+      return
+    }
+  }
+  const contactObj = collectContactsObj()
+  if (email) contactObj['email'] = email
+  const hasBio = !!(userForm.bio || '').trim()
+  if (!hasBio && Object.keys(contactObj).length === 0) {
+    ElMessage.warning('请至少填写一项要更新的内容（邮箱/联系方式/简介）')
+    return
+  }
+
+  submitting.value = true
+  try {
+    await api.submitSubmissionV2({
+      submitter_name: selectedContributor.value.name,
+      contact_types: Object.keys(contactObj),
+      contact_value: contactObj,
+      submitter_public_contact: !!userForm.public_contact,
+      contributor_id: selectedContributor.value.id,
+      submitter_request_update: true,
+      submitter_request_clear: false,
+      submitter_bio: userForm.bio || null,
+      song_data: { type: 'profile', title: '资料更新' },
+    })
+    submitted.value = true
+    submittedType.value = 'profile'
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    notifyAdminNewSubmission(selectedContributor.value.name, '资料更新')
   } catch (err) {
     console.error(err)
     ElMessage.error('网络错误，请稍后重试')

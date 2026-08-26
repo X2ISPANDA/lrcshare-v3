@@ -14,13 +14,13 @@
 
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索名称 / 描述" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索名称 / 描述" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增赞助</el-button>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="赞助者" min-width="140">
           <template #default="{ row }">
@@ -48,7 +48,26 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex items-center gap-2">
+              <img v-if="row.avatar" :src="row.avatar" class="w-8 h-8 rounded-full object-cover shrink-0" />
+              <div class="min-w-0">
+                <div class="font-medium text-gray-800 truncate">{{ row.name }}</div>
+                <div v-if="row.title" class="text-xs text-gray-400 truncate">{{ row.title }}</div>
+              </div>
+            </div>
+            <span class="text-pink-500 font-medium shrink-0">{{ row.amount }}{{ row.suffix || '元' }}</span>
+          </div>
+          <div class="text-xs text-gray-400 mt-1"><template v-if="row.datatime">{{ row.datatime }}<template v-if="row.descr"> · </template></template><template v-if="row.descr">{{ row.descr }}</template></div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -61,6 +80,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -102,6 +122,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Sponsor } from '@/lib/types'
 
 /** 赞助管理：统计 + 列表 + 新增/编辑（广告位字段） */

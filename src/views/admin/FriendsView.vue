@@ -28,13 +28,13 @@
 
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索名称 / 描述" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索名称 / 描述" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增友链</el-button>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="站点" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
@@ -68,7 +68,30 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start gap-3">
+            <img v-if="row.avatar" :src="row.avatar" class="w-10 h-10 rounded-full object-cover shrink-0" />
+            <div v-else class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-gray-300">{{ row.name?.charAt(0) }}</div>
+            <div class="min-w-0 flex-1">
+              <a :href="row.url" target="_blank" rel="noopener" class="font-medium text-gray-800 hover:text-pink-500 truncate block">{{ row.name }}</a>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.url }}</div>
+              <div v-if="row.descr" class="text-xs text-gray-400 truncate mt-0.5">{{ row.descr }}</div>
+              <div class="mt-1">
+                <el-tag v-if="catMap.get(row.category_id)" size="small" :color="catMap.get(row.category_id)!.color || undefined" :style="catMap.get(row.category_id)!.color ? 'color:#fff;border:none' : ''">
+                  {{ catMap.get(row.category_id)!.icon }} {{ catMap.get(row.category_id)!.name }}
+                </el-tag>
+                <span v-else class="text-gray-300 text-xs">未分类</span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -81,6 +104,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -146,6 +170,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Friend, FriendCategory } from '@/lib/types'
 
 /** 友链管理：分类（emoji+颜色，可点筛选）+ 友链 CRUD */

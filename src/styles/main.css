@@ -46,6 +46,65 @@
   z-index: 3000 !important;
 }
 
+/* 移动端：弹窗宽度压过所有内联 px 定宽（各管理页 dialog 写死 420~880px），
+   配合已有的 max-height:86vh + body 内滚，手机上变为全高纵向表单 */
+@media (max-width: 768px) {
+  .el-dialog {
+    width: 92vw !important;
+  }
+  /* 弹窗内 el-row 栅格列在窄屏强制整行堆叠（配合 :xs/:sm props 的兜底；
+     未改造的旧 :span 列也一并救活） */
+  .el-dialog .el-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+
+  /* ===== 管理页分页移动端吸底 =====
+     根因链：① EP 默认 pager-count=7，页码+省略号+箭头约 330px，窄屏必溢出
+             → 各页 el-pagination 加 :pager-count="5" 从源头减少页码
+            ② 卡片态无勾选框，selected 恒空，"取消选择/批量删除"按钮永远禁用
+             → 吸底条内直接隐藏按钮组，只留分页器
+            ③ 分页埋在卡片流尾部，翻页要先滚到底 → 整条 fixed 吸底常驻可视区 */
+  .el-main .flex.justify-between:has(> .el-pagination) {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 30;
+    background: #fff;
+    border: 1px solid #f3f4f6;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    padding: 6px 8px;
+    margin: 0;
+    justify-content: center !important;
+  }
+  /* 批量按钮组：卡片态无勾选，永远禁用，隐藏 */
+  .el-main .flex.justify-between:has(> .el-pagination) > .flex {
+    display: none;
+  }
+  .el-main .flex.justify-between:has(> .el-pagination) .el-pagination {
+    width: auto;
+    margin: 0;
+    justify-content: center !important;
+  }
+  /* total/sizes 窄屏遮蔽：数字低频且占地最凶 */
+  .el-pagination .el-pagination__total,
+  .el-pagination .el-pagination__sizes {
+    display: none;
+  }
+  /* 箭头防压缩：空间不足时 flex 默认压缩子项，箭头会被压到 0 宽消失 */
+  .el-pagination .btn-prev,
+  .el-pagination .btn-next {
+    flex-shrink: 0;
+  }
+  /* 吸底后避免列表末尾卡片被悬浮条遮住 */
+  .el-main > div {
+    padding-bottom: 76px;
+  }
+}
+
 /* ===== 富文本歌词标注（迁移自老站 hexo bubble 插件；前台歌曲文本歌词 .rich-lyrics、
    文章正文 .article-content、后台编辑预览 .rich-lyrics / .content-preview 四处共用）===== */
 /* Markdown 全量排版（Tailwind preflight 抹平了默认样式，按 marked GFM 输出元素清单逐项恢复：

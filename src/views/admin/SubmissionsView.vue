@@ -15,11 +15,14 @@
         <el-button v-if="selected.length" type="danger" plain size="small" @click="batchDelete">批量删除 ({{ selected.length }})</el-button>
       </div>
 
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="提交人" prop="user_name" width="110" show-overflow-tooltip />
         <el-table-column label="歌曲名" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.song_data?.title || '—' }}</template>
+          <template #default="{ row }">
+            <el-tag v-if="row.song_data?.type === 'profile'" type="warning" size="small">资料更新</el-tag>
+            <template v-else>{{ row.song_data?.title || '—' }}</template>
+          </template>
         </el-table-column>
         <el-table-column label="歌手" width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.song_data?.artist || '—' }}</template>
@@ -40,7 +43,26 @@
             <el-button link type="primary" size="small" @click="openReview(row)">审核</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="font-medium text-gray-800 truncate">
+                <el-tag v-if="row.song_data?.type === 'profile'" type="warning" size="small">资料更新</el-tag>
+                <template v-else>{{ row.song_data?.title || '—' }}</template>
+              </div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.user_name }}<template v-if="row.song_data?.artist"> · {{ row.song_data?.artist }}</template></div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ formatTime(row.created_at) }}</div>
+              <div v-if="tab === 'rejected' && row.reject_reason" class="text-xs text-red-400 mt-1 truncate">拒绝：{{ row.reject_reason }}</div>
+            </div>
+            <el-tag v-if="tab !== 'pending'" :type="statusTagType(row.status)" size="small" class="shrink-0">{{ statusText(row.status) }}</el-tag>
+          </div>
+          <div v-if="tab === 'pending'" class="mt-2 pt-2 border-t border-gray-50">
+            <el-button link type="primary" size="small" @click="openReview(row)">审核</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -53,6 +75,7 @@
           :page-sizes="[10, 20, 50]"
           :total="listSource.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -66,20 +89,36 @@
           <span class="font-medium text-gray-800">{{ review.user_name }}</span>
           <span class="mx-2 text-gray-300">|</span>
           <span>{{ formatTime(review.created_at) }}</span>
+          <el-tag v-if="review.song_data?.type === 'profile'" size="small" class="ml-2" type="warning">资料更新</el-tag>
           <el-tag v-if="review.contributor_id" size="small" class="ml-2" type="info">已关联贡献者</el-tag>
           <el-tag v-if="review.submitter_request_update" size="small" class="ml-2" type="warning">请求更新资料</el-tag>
           <el-tag v-if="review.submitter_request_clear" size="small" class="ml-2" type="danger">请求清空资料</el-tag>
           <el-tag v-if="review.submitter_public_contact" size="small" class="ml-2" type="success">公开联系方式</el-tag>
         </div>
 
+        <!-- 资料更新投稿：展示提交的新资料 -->
+        <div v-if="isProfileReview" class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3 space-y-1.5">
+          <div class="text-sm font-medium text-gray-700 mb-1">👤 提交的新资料（通过后覆盖贡献者对应字段）</div>
+          <div class="text-sm text-gray-600"><span class="text-gray-400">昵称：</span>{{ review.user_name }}</div>
+          <div v-if="review.submitter_bio" class="text-sm text-gray-600"><span class="text-gray-400">简介：</span>{{ review.submitter_bio }}</div>
+          <div class="text-sm text-gray-600">
+            <span class="text-gray-400">联系方式：</span>
+            <template v-if="contactEntries(review).length">
+              <span v-for="c in contactEntries(review)" :key="c.k" class="mr-3 break-all">{{ contactLabel(c.k) }}：{{ c.v }}</span>
+            </template>
+            <span v-else class="text-gray-400">（未填，将清空联系方式）</span>
+          </div>
+          <div class="text-sm text-gray-600"><span class="text-gray-400">公开联系方式：</span>{{ review.submitter_public_contact ? '是' : '否' }}</div>
+        </div>
+
         <!-- 歌词预览 -->
-        <div class="bg-gray-50 rounded-lg p-3 mb-3">
+        <div v-if="!isProfileReview" class="bg-gray-50 rounded-lg p-3 mb-3">
           <div class="text-sm font-medium text-gray-700 mb-2">📝 歌词预览（原文）</div>
           <pre class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0">{{ review.song_data?.lrc_text }}</pre>
         </div>
 
         <!-- 审核修改表单 -->
-        <el-form :model="review.edited_data" label-width="80px">
+        <el-form v-if="!isProfileReview" :model="review.edited_data" label-width="80px">
           <el-row :gutter="12">
             <el-col :span="12"><el-form-item label="歌曲名"><el-input v-model="review.edited_data.title" /></el-form-item></el-col>
             <el-col :span="12">
@@ -89,11 +128,16 @@
                   filterable
                   allow-create
                   default-first-option
+                  :filter-method="filterAlbums"
                   placeholder="搜索库内专辑，或输入新专辑名"
                   class="w-full"
                 >
-                  <el-option v-for="al in albums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
+                  <el-option v-for="al in filteredAlbums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
                 </el-select>
+                <!-- 投稿的专辑名常驻可复制（下拉选不中文字没法复制），附年份信息 -->
+                <div v-if="review.edited_data.album" class="text-xs text-gray-500 mt-1 w-full break-all select-text">
+                  投稿专辑：<span class="select-all">{{ review.edited_data.album }}</span><span v-if="review.edited_data.year">（{{ review.edited_data.year }}）</span>
+                </div>
                 <div v-if="review.edited_data.album_id" class="text-xs text-green-600 mt-1 w-full">已关联库内专辑（沿用该专辑信息）</div>
                 <div v-else-if="albumNameExists" class="text-xs text-red-500 mt-1 w-full">库内已有同名专辑！如需沿用请从下拉选择，否则将新建重复专辑</div>
                 <div v-else-if="review.edited_data.album" class="text-xs text-amber-600 mt-1 w-full">新专辑（发布时创建）</div>
@@ -108,7 +152,15 @@
                 <div v-if="albumTrackOccupied" class="text-xs text-red-500 mt-1 w-full">该曲目号已被专辑内其他歌占用：{{ albumTrackOccupied }}</div>
               </el-form-item>
             </el-col>
-            <el-col :span="8"><el-form-item label="视频链接"><el-input v-model="review.edited_data.video_url" placeholder="B站/YouTube（选填）" /></el-form-item></el-col>
+            <el-col :span="8">
+              <el-form-item label="年份">
+                <el-input v-model="review.edited_data.year" maxlength="4" placeholder="如 2024" />
+                <div v-if="albumYearDiff" class="text-xs text-amber-600 mt-1 w-full">{{ albumYearDiff }}</div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="12">
+            <el-col :span="24"><el-form-item label="视频链接"><el-input v-model="review.edited_data.video_url" placeholder="B站/YouTube（选填）" /></el-form-item></el-col>
           </el-row>
           <el-row :gutter="12">
             <el-col :span="12">
@@ -123,14 +175,19 @@
             </el-col>
           </el-row>
           <el-row :gutter="12">
-            <el-col :span="12">
+            <el-col :span="8">
               <el-form-item label="作词">
                 <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="lyricist" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :span="8">
               <el-form-item label="作曲">
                 <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="composer" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="编曲">
+                <ArtistTagInput v-model="review.edited_data.arranger_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="arranger" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -155,7 +212,7 @@
         </el-form>
 
         <!-- 同名歧义警示 -->
-        <div v-if="ambiguousArtists.length" class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+        <div v-if="!isProfileReview && ambiguousArtists.length" class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
           <div class="text-sm font-semibold text-red-800 mb-1">⚠️ 同名歧义</div>
           <div class="text-xs text-red-700 mb-2">以下艺术家库内有多位同名，无法自动绑定。请删除其在各字段中的标签，从下拉中重新选择正确的一位（下拉带消歧标注）：</div>
           <div v-for="a in ambiguousArtists" :key="a.name" class="text-xs text-red-700 mb-1">
@@ -164,7 +221,7 @@
         </div>
 
         <!-- 待创建艺术家 -->
-        <div v-if="newArtistsList.length" class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+        <div v-if="!isProfileReview && newArtistsList.length" class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
           <div class="text-sm font-semibold text-amber-800 mb-1">🆕 待创建艺术家</div>
           <div class="text-xs text-amber-700 mb-3">发布时将插入 artists 表，需为每位新艺术家填写 ID（如 art_xxx）并选择是否前台展示</div>
           <div v-for="entry in newArtistsList" :key="entry.item.name" class="flex items-center gap-2 mb-2 bg-white p-2 rounded border border-amber-200">
@@ -182,7 +239,7 @@
       <template #footer>
         <el-button @click="showReview = false">取消</el-button>
         <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
-        <el-button type="success" @click="approve(review)">✅ 通过发布</el-button>
+        <el-button type="success" @click="approve(review)">{{ isProfileReview ? '✅ 通过并更新资料' : '✅ 通过发布' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -191,7 +248,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/lib/adminApi'
+import { contactLabel } from '@/lib/constants'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Artist } from '@/lib/types'
 
 /** 投稿审核：列表 + 审核弹窗（edited_data 可编辑、待创建艺术家填 ID、通过时事务链发布） */
@@ -202,6 +261,7 @@ const ARTIST_FIELDS = [
   { key: 'album_artists', label: '专辑艺术家', type: 'singer' },
   { key: 'lyricist_arr', label: '作词', type: 'lyricist' },
   { key: 'composer_arr', label: '作曲', type: 'composer' },
+  { key: 'arranger_arr', label: '编曲', type: 'arranger' },
 ] as const
 
 interface ReviewItem {
@@ -253,6 +313,7 @@ async function load() {
     submissions.value = subs
     artists.value = arts
     albums.value = als
+    filteredAlbums.value = als
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
   } finally {
@@ -270,6 +331,21 @@ function clearSelection() {
 const showReview = ref(false)
 const review = ref<ReviewItem | null>(null)
 
+/** 资料更新类投稿（song_data.type === 'profile'）：弹窗不显示歌曲表单，通过时只更新贡献者 */
+const isProfileReview = computed(() => review.value?.song_data?.type === 'profile')
+
+/** contact_value（JSONB）→ 可展示的键值列表（过滤空值） */
+function contactEntries(row: any): { k: string; v: string }[] {
+  const cv = row?.contact_value
+  let obj: Record<string, any> = {}
+  if (typeof cv === 'string') {
+    try { obj = JSON.parse(cv || '{}') } catch { obj = {} }
+  } else if (cv && typeof cv === 'object') {
+    obj = cv
+  }
+  return Object.entries(obj).filter(([, v]) => v != null && v !== '').map(([k, v]) => ({ k: String(k), v: String(v) }))
+}
+
 function openReview(row: any) {
   const edited = JSON.parse(JSON.stringify(row.song_data || {}))
   // 兼容旧格式：补全新格式数组字段 + 初始化新艺术家的 is_show
@@ -277,6 +353,7 @@ function openReview(row: any) {
   if (!Array.isArray(edited.album_artists)) edited.album_artists = []
   if (!Array.isArray(edited.lyricist_arr)) edited.lyricist_arr = []
   if (!Array.isArray(edited.composer_arr)) edited.composer_arr = []
+  if (!Array.isArray(edited.arranger_arr)) edited.arranger_arr = []
   if (!Array.isArray(edited.genres)) edited.genres = []
   if (edited.album_cover === undefined) edited.album_cover = ''
   if (edited.track === undefined) edited.track = ''
@@ -302,6 +379,7 @@ function openReview(row: any) {
     })
   }
   review.value = { ...row, edited_data: edited }
+  filteredAlbums.value = albums.value
   showReview.value = true
 }
 
@@ -323,6 +401,35 @@ const albumSelect = computed<string>({
       ed.album = val
     }
   },
+})
+
+/** 专辑下拉过滤：精确匹配置顶 → 前缀匹配 → 包含匹配（原 filterable 默认按选项原顺序展示，
+ *  用户输入的专辑名不会排前面，得在长列表里翻找） */
+const albumFilterQuery = ref('')
+const filteredAlbums = ref<{ id: string; name: string; year?: number | null }[]>([])
+function filterAlbums(q: string) {
+  albumFilterQuery.value = q
+  const query = q.trim().toLowerCase()
+  if (!query) {
+    filteredAlbums.value = albums.value
+    return
+  }
+  const hit = albums.value.filter(al => al.name.toLowerCase().includes(query))
+  const exact = hit.filter(al => al.name.toLowerCase() === query)
+  const prefix = hit.filter(al => al.name.toLowerCase().startsWith(query) && !exact.includes(al))
+  const rest = hit.filter(al => !exact.includes(al) && !prefix.includes(al))
+  filteredAlbums.value = [...exact, ...prefix, ...rest]
+}
+
+/** 年份对照：投稿年份与关联专辑的库内年份不一致时提示（发布时按表单年份更新专辑） */
+const albumYearDiff = computed(() => {
+  const ed = review.value?.edited_data
+  if (!ed?.album_id || !ed.year) return ''
+  const album = albums.value.find(a => a.id === ed.album_id)
+  if (!album || album.year === null || album.year === undefined) return `库内专辑暂无年份，发布时将补录为 ${ed.year}`
+  const y = parseInt(String(ed.year), 10)
+  if (!y || y === album.year) return ''
+  return `库内专辑年份为 ${album.year}，发布时将更新为 ${ed.year}`
 })
 
 /** 未关联 ID 时专辑名与库内重名（警示防建重复专辑） */
@@ -417,16 +524,19 @@ function parseEmail(row: any): string {
 // ============ 通过发布（事务链，迁移自 v2 并统一 lyricist/composer 存 ID） ============
 async function approve(sub: ReviewItem | null) {
   if (!sub) return
-  // 1. 校验新建艺术家必须填 ID
-  const missing = newArtistsList.value.filter(e => !e.item.id || !String(e.item.id).trim())
-  if (missing.length) {
-    ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.map(e => e.item.name).join('、')}）`)
-    return
+  const sd = sub.edited_data
+  const isProfile = sd?.type === 'profile'
+
+  // 1. 校验新建艺术家必须填 ID（资料更新类无歌曲表单，跳过）
+  if (!isProfile) {
+    const missing = newArtistsList.value.filter(e => !e.item.id || !String(e.item.id).trim())
+    if (missing.length) {
+      ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.map(e => e.item.name).join('、')}）`)
+      return
+    }
   }
 
   try {
-    const sd = sub.edited_data
-
     // 2. 更新投稿状态
     await adminApi.update('submissions', sub.id, { status: 'approved', approved_at: new Date().toISOString() })
 
@@ -435,44 +545,46 @@ async function approve(sub: ReviewItem | null) {
       action: 'approve',
       to: parseEmail(sub),
       user_name: sub.user_name,
-      song_title: sd.title,
+      song_title: isProfile ? '资料更新' : sd.title,
     }).catch(e => console.warn('通过邮件跳过:', e?.message))
 
-    // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上
+    // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上（资料更新类跳过）
     const nameToId: Record<string, string> = {}
-    for (const e of newArtistsList.value) {
-      const id = String(e.item.id).trim()
-      nameToId[e.item.name] = id
-      await adminApi.insert('artists', {
-        id,
-        name: e.item.name,
-        types: e.types.length ? e.types : ['singer'],
-        is_show: e.item.is_show !== false,
-        sort: 0,
-      })
-    }
-    for (const f of ARTIST_FIELDS) {
-      sd[f.key].forEach((item: any) => {
-        if (item && !item.id && nameToId[item.name]) item.id = nameToId[item.name]
-      })
-    }
-    // 已有艺术家被用于新字段类型（如歌手兼作词）→ 补 type（幂等，已含则跳过）。
-    // 同一艺术家跨字段出现时用本地缓存累计，避免后一次 update 覆盖前一次刚补的类型
-    const typeCache = new Map<string, string[]>()
-    for (const f of ARTIST_FIELDS) {
-      for (const item of sd[f.key] || []) {
-        if (!item?.id) continue
-        let types = typeCache.get(item.id)
-        if (!types) {
-          // 只处理库内已有的（本会话新建的上面 insert 已带全类型并集）
-          const exists = artists.value.find(a => a.id === item.id)
-          if (!exists) continue
-          types = [...(exists.types || ['singer'])]
-          typeCache.set(item.id, types)
-        }
-        if (!types.includes(f.type)) {
-          types.push(f.type)
-          await adminApi.update('artists', item.id, { types })
+    if (!isProfile) {
+      for (const e of newArtistsList.value) {
+        const id = String(e.item.id).trim()
+        nameToId[e.item.name] = id
+        await adminApi.insert('artists', {
+          id,
+          name: e.item.name,
+          types: e.types.length ? e.types : ['singer'],
+          is_show: e.item.is_show !== false,
+          sort: 0,
+        })
+      }
+      for (const f of ARTIST_FIELDS) {
+        sd[f.key].forEach((item: any) => {
+          if (item && !item.id && nameToId[item.name]) item.id = nameToId[item.name]
+        })
+      }
+      // 已有艺术家被用于新字段类型（如歌手兼作词）→ 补 type（幂等，已含则跳过）。
+      // 同一艺术家跨字段出现时用本地缓存累计，避免后一次 update 覆盖前一次刚补的类型
+      const typeCache = new Map<string, string[]>()
+      for (const f of ARTIST_FIELDS) {
+        for (const item of sd[f.key] || []) {
+          if (!item?.id) continue
+          let types = typeCache.get(item.id)
+          if (!types) {
+            // 只处理库内已有的（本会话新建的上面 insert 已带全类型并集）
+            const exists = artists.value.find(a => a.id === item.id)
+            if (!exists) continue
+            types = [...(exists.types || ['singer'])]
+            typeCache.set(item.id, types)
+          }
+          if (!types.includes(f.type)) {
+            types.push(f.type)
+            await adminApi.update('artists', item.id, { types })
+          }
         }
       }
     }
@@ -512,42 +624,54 @@ async function approve(sub: ReviewItem | null) {
       action = 'new'
     }
 
-    // 6. 专辑：沿用已有 / 新建
-    let albumId: string | null = sd.album_id || null
-    if (!albumId && sd.album) {
-      albumId = 'al' + Date.now()
-      await adminApi.insert('albums', {
-        id: albumId,
-        name: sd.album,
-        artist_ids: (sd.album_artists || []).map((a: any) => a.id).filter(Boolean),
-        year: sd.year ? (parseInt(sd.year) || null) : null,
-        cover: sd.album_cover || '',
+    // 6+7. 专辑沿用/新建 + 插入歌曲（资料更新类投稿无歌曲，跳过）
+    if (!isProfile) {
+      let albumId: string | null = sd.album_id || null
+      if (!albumId && sd.album) {
+        albumId = 'al' + Date.now()
+        await adminApi.insert('albums', {
+          id: albumId,
+          name: sd.album,
+          artist_ids: (sd.album_artists || []).map((a: any) => a.id).filter(Boolean),
+          year: sd.year ? (parseInt(sd.year) || null) : null,
+          cover: sd.album_cover || '',
+        })
+      } else if (albumId) {
+        // 沿用已有专辑：投稿封面/年份回填（封面沿用原逻辑仅在有值时更新；年份与库内不同或缺失时更新）
+        const albumRow = albums.value.find(a => a.id === albumId)
+        const patch: Record<string, any> = {}
+        if (sd.album_cover) patch.cover = sd.album_cover
+        if (sd.year) {
+          const y = parseInt(String(sd.year), 10) || null
+          if (y && y !== (albumRow?.year ?? null)) patch.year = y
+        }
+        if (Object.keys(patch).length) await adminApi.update('albums', albumId, patch)
+      }
+
+      // 插入歌曲（lyricist/composer 统一存 ID 逗号分隔）
+      const idsOf = (arr: any[]) => (arr || []).map(a => a.id).filter(Boolean).join(',')
+      await adminApi.insert('songs', {
+        id: 's' + Date.now(),
+        title: sd.title,
+        artist_ids: (sd.artists || []).map((a: any) => a.id).filter(Boolean),
+        album_id: albumId,
+        lyricist: idsOf(sd.lyricist_arr) || sd.lyricist || '',
+        composer: idsOf(sd.composer_arr) || sd.composer || '',
+        arranger: idsOf(sd.arranger_arr) || sd.arranger || '',
+        duration: sd.duration || '',
+        track: sd.track ? (parseInt(String(sd.track), 10) || null) : null,
+        lrc_text: sd.lrc_text,
+        video_url: sd.video_url || null,
+        status: 'published',
+        contributor_id: contributorId,
+        genres: sd.genres || [],
       })
-    } else if (albumId && sd.album_cover) {
-      // 如果是已有专辑且填写了封面，更新专辑封面
-      await adminApi.update('albums', albumId, { cover: sd.album_cover })
     }
 
-    // 7. 插入歌曲（lyricist/composer 统一存 ID 逗号分隔）
-    const idsOf = (arr: any[]) => (arr || []).map(a => a.id).filter(Boolean).join(',')
-    await adminApi.insert('songs', {
-      id: 's' + Date.now(),
-      title: sd.title,
-      artist_ids: (sd.artists || []).map((a: any) => a.id).filter(Boolean),
-      album_id: albumId,
-      lyricist: idsOf(sd.lyricist_arr) || sd.lyricist || '',
-      composer: idsOf(sd.composer_arr) || sd.composer || '',
-      duration: sd.duration || '',
-      track: sd.track ? (parseInt(String(sd.track), 10) || null) : null,
-      lrc_text: sd.lrc_text,
-      video_url: sd.video_url || null,
-      status: 'published',
-      contributor_id: contributorId,
-      genres: sd.genres || [],
-    })
-
-    const actionText = { none: '（已关联贡献者）', new: '（已自动创建贡献者）', update: '（已更新贡献者资料）', clear: '（已清空贡献者资料）' }[action]
-    ElMessage.success('审核通过，已发布' + actionText)
+    const actionText = isProfile
+      ? '（已更新贡献者资料）'
+      : { none: '（已关联贡献者）', new: '（已自动创建贡献者）', update: '（已更新贡献者资料）', clear: '（已清空贡献者资料）' }[action]
+    ElMessage.success(isProfile ? '已通过，贡献者资料已更新' : '审核通过，已发布' + actionText)
     showReview.value = false
     await load()
   } catch (e: any) {

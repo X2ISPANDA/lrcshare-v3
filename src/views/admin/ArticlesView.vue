@@ -2,13 +2,13 @@
   <div class="space-y-4">
     <!-- 工具条 -->
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
-      <el-input v-model="keyword" placeholder="搜索标题 / slug" clearable class="!w-64" :prefix-icon="Search" />
+      <el-input v-model="keyword" placeholder="搜索标题 / slug" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增文章</el-button>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <el-table :data="pagedList" stripe v-loading="loading" row-key="id" @selection-change="selected = $event">
+      <AdminTable :data="pagedList" :loading="loading" row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="45" />
         <el-table-column label="标题" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
@@ -39,7 +39,25 @@
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+
+        <!-- 移动端卡片 -->
+        <template #card="{ row }">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-1">
+                <span class="font-medium text-gray-800 truncate">{{ row.title }}</span>
+                <el-tag v-if="row.status === 'draft'" size="small" type="warning" class="shrink-0">草稿</el-tag>
+              </div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">/post/{{ row.slug }}</div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ row.author || '站长' }}<template v-if="row.created_at"> · {{ row.created_at.slice(0, 10) }}</template> · {{ row.views || 0 }} 浏览<template v-if="row.sort > 0"> · 置顶</template></div>
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
+          </div>
+        </template>
+      </AdminTable>
 
       <div class="flex justify-between items-center px-5 py-4 border-t border-gray-100">
         <div class="flex gap-2">
@@ -52,6 +70,7 @@
           :page-sizes="[10, 20, 50]"
           :total="filteredList.length"
           layout="total, sizes, prev, pager, next"
+          :pager-count="5"
           background
         />
       </div>
@@ -110,6 +129,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { adminApi } from '@/lib/adminApi'
+import AdminTable from '@/components/admin/AdminTable.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import type { Article } from '@/lib/types'
