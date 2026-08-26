@@ -31,33 +31,33 @@ Lyrico 是安卓平台的音乐标签编辑器，支持通过插件接入自定�
 
 ## 第三步：导入插件
 
-![打开 Lyrico 主界面，点击设置按钮](/guide/lyrico/step-1.png){.lyrico-shot}
+![打开 Lyrico 主界面，点击设置按钮](https://i0.hdslb.com/bfs/openplatform/3b81ee35e27c59045ad569fc5f29e6c7c1b2c71a.png){.lyrico-shot}
 
 打开 Lyrico 主界面，点击右上角**设置按钮**。
 
-![找到插件管理菜单](/guide/lyrico/step-2.png){.lyrico-shot}
+![找到插件管理菜单](https://i0.hdslb.com/bfs/openplatform/7ee16dc4565eb014d5e6f357bfb1722a14e1e958.png){.lyrico-shot}
 
 在设置中找到**插件管理**菜单。
 
-![点击加号添加插件](/guide/lyrico/step-3.png){.lyrico-shot}
+![点击加号添加插件](https://i0.hdslb.com/bfs/openplatform/52ca980a2dddc4a5f8a12a5e47348dc5dd7516be.png){.lyrico-shot}
 
 点击右上角**加号**添加插件。
 
-![在手机中找到插件 zip 所在目录并选中](/guide/lyrico/step-4.png){.lyrico-shot}
+![在手机中找到插件 zip 所在目录并选中](https://i0.hdslb.com/bfs/openplatform/9c4735f3dd2e1eedc60ed7c1734a28d1f7bf0b63.png){.lyrico-shot}
 
 在文件选择器中找到你存放插件 zip 的目录，选中 `com.lrcshare.source-x.x.x.zip`，插件就导入完成了。无需任何配置——LrcShare API 匿名调用，没有 API Key 要填。
 
 ## 第四步：搜索并应用标签
 
-![点击歌曲进入歌曲主页，点击上方的放大镜按钮进行搜索](/guide/lyrico/step-5.png){.lyrico-shot}
+![点击歌曲进入歌曲主页，点击上方的放大镜按钮进行搜索](https://i0.hdslb.com/bfs/openplatform/15e518098a861ce2296e46c4b9bc01ea555d90ec.png){.lyrico-shot}
 
 点击歌曲进入歌曲主页，点击上方的**放大镜按钮**进行搜索。
 
-![下方显示 LrcShare 的音乐标签源](/guide/lyrico/step-6.png){.lyrico-shot}
+![下方显示 LrcShare 的音乐标签源](https://i0.hdslb.com/bfs/openplatform/abd0c00827c55c45c9f47d1aacdc7c56b51fa2f2.png){.lyrico-shot}
 
 下方会显示 LrcShare 的音乐标签源，选中正确的结果。
 
-![点击应用](/guide/lyrico/step-7.jpg){.lyrico-shot}
+![点击应用](https://i0.hdslb.com/bfs/openplatform/31c5153429407734b3be629ba3318939f7b7b245.jpg){.lyrico-shot}
 
 点击**应用**，歌词、封面、流派、词曲作者等标签就一次性写入音频文件了。
 
