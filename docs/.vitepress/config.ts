@@ -19,9 +19,16 @@ export default defineConfig({
         ],
       },
       {
+        text: '客户端集成',
+        items: [
+          { text: '在 Lyrico 中使用', link: '/guide/lyrico' },
+        ],
+      },
+      {
         text: 'API 端点',
         items: [
           { text: '搜索', link: '/api/search' },
+          { text: '目录快照', link: '/api/catalog' },
           { text: '歌曲与歌词', link: '/api/songs' },
           { text: '专辑', link: '/api/albums' },
           { text: '艺术家', link: '/api/artists' },

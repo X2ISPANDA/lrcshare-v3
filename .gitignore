@@ -9,3 +9,4 @@ docs/.vitepress/dist
 docs/.vitepress/cache
 debug.log
 lyrico-plugin/
+docs/主流程草稿.md

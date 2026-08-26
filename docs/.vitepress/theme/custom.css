@@ -1,0 +1,8 @@
+/* Lyrico 教程页截图：手机原图分辨率过高，限制展示宽度 */
+.lyrico-shot {
+  max-width: 360px;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}

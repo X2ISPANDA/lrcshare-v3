@@ -12,7 +12,9 @@
  * - 只暴露定义好的端点与字段，内部表结构不出门
  * - 隐藏歌曲（is_hidden）不过滤：网站隐藏逻辑仅作用于前台，API 全量开放
  * - 署名链路：song.comment 与 LRC 末尾统一追加「本歌词来自于:贡献者名@lrcshare.com」
- * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）
+ * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）；另有 zone 级 Cache Rule
+ *   让 JSON 进 CDN 缓存（命中不进 Worker，不消耗请求额度）、WAF 速率限制拦单 IP 洪峰
+ * - 目录快照 /v1/catalog：全库可搜索文本，供调用方本地负向预过滤（批量工具省无效请求）
  * - 子域治理：通配符 Route（*.lrcshare.com/*）接住任意子域。已占用子域（doc 等）在
  *   Worker 内反向代理回真实源站（Workers 路由优先级高于 Pages 自定义域，必须代理），
  *   未知子域返回 HTML 404 页；灰云（仅 DNS）子域不进 CF 网络，不受影响
@@ -158,6 +160,23 @@ async function pgRpc(env, fn, params) {
   return { data, total }
 }
 
+/** 分页拉全表（目录快照用）：PostgREST 单次响应有行数上限，截断会让调用方漏判，
+ *  必须翻页取完（total 已知时按 total 收口，未知时按「页未取满」收口） */
+async function pgListAll(env, table, params, pageSize = 1000) {
+  const rows = []
+  let offset = 0
+  for (;;) {
+    const r = await pgList(env, table, params, { limit: pageSize, offset })
+    if (!r) return null
+    rows.push(...r.data)
+    if (r.data.length < pageSize) break
+    if (r.total !== null && rows.length >= r.total) break
+    offset += pageSize
+    if (offset > 500000) break // 防御性上限，避免异常数据导致死循环
+  }
+  return rows
+}
+
 /** PostgREST 查询单条 */
 async function pgOne(env, table, select, filter) {
   const qs = new URLSearchParams({ select, ...filter })
@@ -297,6 +316,7 @@ function apiIndex() {
     docs: `https://doc.${SITE_DOMAIN}`,
     endpoints: {
       search: '/v1/search?keyword=|title=&artist=&type=song|album|artist|lyric',
+      catalog: '/v1/catalog',
       songs: '/v1/songs?limit=&offset=',
       song: '/v1/song/:id',
       albums: '/v1/albums?limit=&offset=',
@@ -401,6 +421,47 @@ async function handleAlbumSearchStructured(env, title, artist, limit, offset) {
   const artistNames = await getArtistNameMap(env, (result.data || []).flatMap(a => a.artist_ids || []))
   const items = (result.data || []).map(a => mapAlbum(a, artistNames))
   return jsonOk({ title, artist, type: 'album', total: result.total, items }, TTL_LIST)
+}
+
+// ---------- 目录快照（负向预过滤用） ----------
+
+/** 全库可搜索文本快照：已发布歌曲的 title/aliases + 可见艺术家（is_show is not false，与
+ *  search_songs v3 一致，覆盖演唱/词/曲/编四路关联）的 name/aliases + 专辑名。
+ *  覆盖范围必须 ⊇ /v1/search 的全部匹配范围，才能保证调用方的负向过滤不漏判：
+ *  「查询串（整串或任意 title/artist 切分）不在快照文本中 ⇒ 搜索必然 0 结果 ⇒ 可安全跳过请求」 */
+async function handleCatalog(env) {
+  const [songs, artists, albums] = await Promise.all([
+    pgListAll(env, 'songs', { select: 'title,aliases', status: 'eq.published', order: 'id.asc' }),
+    pgListAll(env, 'artists', { select: 'name,aliases', or: '(is_show.neq.false,is_show.is.null)', order: 'id.asc' }),
+    pgListAll(env, 'albums', { select: 'name', order: 'id.asc' }),
+  ])
+  if (!songs || !artists || !albums) return jsonError(502, 'upstream error')
+
+  const tokens = new Set()
+  const add = v => {
+    const s = String(v || '').trim().toLowerCase()
+    if (s) tokens.add(s)
+  }
+  for (const s of songs) {
+    add(s.title)
+    for (const a of s.aliases || []) add(a)
+  }
+  for (const a of artists) {
+    add(a.name)
+    for (const al of a.aliases || []) add(al)
+  }
+  for (const a of albums) add(a.name)
+
+  return jsonOk(
+    {
+      generated_at: new Date().toISOString(),
+      songs: songs.length,
+      artists: artists.length,
+      albums: albums.length,
+      text: [...tokens].join('\n'),
+    },
+    TTL_DETAIL,
+  )
 }
 
 // ---------- 歌曲 ----------
@@ -581,6 +642,8 @@ export default {
         res = apiIndex()
       } else if (path === '/v1/search') {
         res = await handleSearch(env, url)
+      } else if (path === '/v1/catalog') {
+        res = await handleCatalog(env)
       } else if (path === '/v1/songs') {
         res = await handleSongs(env, url)
       } else if (path === '/v1/albums') {
