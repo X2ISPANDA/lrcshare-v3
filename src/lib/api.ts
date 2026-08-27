@@ -362,10 +362,14 @@ export const api = {
     submitter_request_clear?: boolean
     submitter_bio?: string | null
     song_data: SongSubmissionData
+    /** 批量投稿：同一次批量动作共用一个批次 ID，后台按批折叠审核、邮件按批合并 */
+    batch_id?: string | null
+    /** 批次内投稿总数（与 batch_id 一起冗余存于批内每行） */
+    batch_size?: number | null
   }): Promise<null> {
     const { error } = await supabase.from('submissions').insert([
       {
-        id: 'sub' + Date.now(),
+        id: 'sub' + Date.now() + Math.floor(Math.random() * 1000),
         user_name: payload.submitter_name || '匿名',
         contact_value: payload.contact_value || {},
         submitter_public_contact: !!payload.submitter_public_contact,
@@ -376,6 +380,8 @@ export const api = {
         song_data: payload.song_data,
         status: 'pending',
         created_at: new Date().toISOString(),
+        batch_id: payload.batch_id || null,
+        batch_size: payload.batch_size ?? null,
       },
     ])
     if (error) throw error

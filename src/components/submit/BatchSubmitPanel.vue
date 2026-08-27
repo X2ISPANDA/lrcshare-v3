@@ -91,7 +91,7 @@
     <div v-if="rows.length">
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-base font-semibold text-gray-700">③ 确认列表（{{ rows.length }} 首）</h3>
-        <el-button link type="danger" size="small" @click="rows = []">清空重来</el-button>
+        <el-button link type="danger" size="small" @click="clearAll">清空重来</el-button>
       </div>
       <div class="text-xs text-gray-400 mb-2">歌名/曲目号/时长逐行改；▶ 展开可改歌词及该首的歌手/专辑等（与①不同时以行为准）</div>
       <el-table :data="rows" size="small" border max-height="50vh" row-key="uid">
@@ -206,9 +206,9 @@ const props = defineProps<{
   artists: Artist[]
   albums: AlbumWithArtists[]
   /** 单首提交（父组件负责用户信息校验 + submitSubmissionV2 + 站长通知）；校验失败 throw VALIDATION_ABORT 中止整批 */
-  onSubmit: (songData: any) => Promise<void>
+  onSubmit: (songData: any, batchId: string, batchSize: number) => Promise<void>
 }>()
-const emit = defineEmits<{ done: [count: number] }>()
+const emit = defineEmits<{ done: [count: number, summary: { album: string; batchId: string }] }>()
 
 /** 校验中止标记：父组件校验用户信息失败时 throw，面板识别后停止循环不再弹网络错误 */
 const VALIDATION_ABORT = '__VALIDATION_ABORT__'
@@ -378,6 +378,8 @@ async function onFilesChosen(e: Event) {
 // ---------- 提交 ----------
 const submitting = ref(false)
 const progress = reactive({ done: 0 })
+/** 当前批次 ID：首次提交生成；失败重试（列表未清空）沿用同一 ID，清空重来换新 */
+let currentBatchId: string | null = null
 
 /** 组装单首 songData：公共信息 + 行级覆盖（覆盖值非空才生效）；字段结构与单曲投稿完全一致 */
 function buildSongData(row: BatchRow) {
@@ -415,6 +417,12 @@ function buildSongData(row: BatchRow) {
   }
 }
 
+/** 清空重来：列表与批次 ID 一并重置（下一次提交是新的一次投稿动作） */
+function clearAll() {
+  rows.value = []
+  currentBatchId = null
+}
+
 async function submitAll() {
   // 校验：以每行生效值（覆盖优先，缺省用公共值）为准
   if (albumYear.value.trim() && !/^\d{4}$/.test(albumYear.value.trim())) {
@@ -449,10 +457,14 @@ async function submitAll() {
   submitting.value = true
   progress.done = 0
   const failed: string[] = []
+  // 批次 ID：同一批（未清空重来）沿用，保证「一次投稿动作 = 一个批次」
+  if (!currentBatchId) currentBatchId = (crypto.randomUUID ? crypto.randomUUID() : 'batch_' + Date.now() + '_' + Math.random().toString(36).slice(2))
+  const batchId = currentBatchId
+  const batchSize = rows.value.length
   try {
     for (const row of rows.value) {
       try {
-        await props.onSubmit(buildSongData(row))
+        await props.onSubmit(buildSongData(row), batchId, batchSize)
       } catch (e: any) {
         if (e?.message === VALIDATION_ABORT) throw e // 用户信息校验失败 → 整批中止
         failed.push(`「${row.title}」`)
@@ -463,7 +475,8 @@ async function submitAll() {
     if (failed.length) {
       await ElMessageBox.alert(`成功提交 ${ok} 首，失败 ${failed.length} 首：${failed.join('、')}。失败的请稍后单独重投`, '批量提交结果', { type: 'warning' })
     }
-    if (ok > 0) emit('done', ok)
+    if (ok > 0) emit('done', ok, { album: albumName.value.trim(), batchId })
+    else currentBatchId = null // 全军覆没：批次作废，下次重新生成
   } catch (e: any) {
     if (e?.message !== VALIDATION_ABORT) ElMessage.error('提交失败：' + (e?.message || e))
     // 校验中止：不丢列表，用户补完信息再点提交

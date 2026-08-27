@@ -164,7 +164,7 @@
             <h2 class="text-lg font-semibold text-gray-700">🎵 歌曲信息</h2>
             <el-radio-group v-model="mode" size="small">
               <el-radio-button value="single">单曲投稿</el-radio-button>
-              <el-radio-button value="batch">批量投稿（LRC 文件）</el-radio-button>
+              <el-radio-button value="batch">批量投稿</el-radio-button>
             </el-radio-group>
           </div>
 
@@ -729,8 +729,9 @@ function validateUserInfoForBatch() {
   }
 }
 
-/** 面板逐首调用：校验用户信息（每首提交前都校验，改了也能拦住）+ 组装 payload + 提交 + 通知站长 */
-async function submitBatchOne(songData: any) {
+/** 面板逐首调用：校验用户信息（每首提交前都校验，改了也能拦住）+ 组装 payload（带批次 ID）+ 提交。
+ *  batchId 由面板生成并保证「同一批动作」始终一致（失败重试沿用，清空重来换新） */
+async function submitBatchOne(songData: any, batchId: string, batchSize: number) {
   validateUserInfoForBatch()
   const name = (userForm.name || '').trim()
   const email = (userForm.email || '').trim()
@@ -748,15 +749,18 @@ async function submitBatchOne(songData: any) {
     submitter_request_clear: !!(selectedContributor.value && userForm.request_clear),
     submitter_bio: selectedContributor.value && !userForm.request_update ? null : userForm.bio || null,
     song_data: songData,
+    batch_id: batchId,
+    batch_size: batchSize,
   })
-  notifyAdminNewSubmission(name, songData.title)
 }
 
-/** 面板全部提交完成：切成功页（复用单曲成功提示） */
-function onBatchDone(count: number) {
+/** 面板全部提交完成：切成功页（复用单曲成功提示）+ 站长通知按批合并为一封 */
+function onBatchDone(count: number, summary: { album: string; batchId: string }) {
   submitted.value = true
   submittedType.value = 'song'
   ElMessage.success(`批量投稿完成，共 ${count} 首已进入审核队列`)
+  const name = (userForm.name || '').trim()
+  notifyAdminNewSubmission(name, `【批量投稿】${summary.album ? `《${summary.album}》` : ''}等 ${count} 首歌曲`)
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 </script>
