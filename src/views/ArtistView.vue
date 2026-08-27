@@ -211,7 +211,7 @@ const TAB_LABELS: Record<string, string> = { singer: '演唱', lyricist: '作词
 
 interface ArtistPageData {
   artist: Artist
-  songs: (SongWithNames & { contributions: string[] })[]
+  songs: (SongWithNames & { roles: string[]; contributions: string[] })[]
   albums: (AlbumWithArtists & { song_count: number })[]
 }
 
@@ -222,14 +222,9 @@ const { data: page, loading } = useSSGData<ArtistPageData>(`artist:${artistId}`,
     api.getArtistAlbums(artistId),
   ])
 
-  // 计算每首歌的贡献类型
+  // 每首歌的贡献类型由 RPC roles 返回（双源：中间表 ∪ 旧列），前端不再 split 解析
   const withContrib = songs.map(s => {
-    const contributions: string[] = []
-    if (s.artist_ids?.includes(artistId)) contributions.push('singer')
-    if (s.lyricist?.split(',').map(x => x.trim()).includes(artistId)) contributions.push('lyricist')
-    if (s.composer?.split(',').map(x => x.trim()).includes(artistId)) contributions.push('composer')
-    if (s.arranger?.split(',').map(x => x.trim()).includes(artistId)) contributions.push('arranger')
-    return { ...s, contributions }
+    return { ...s, contributions: (s.roles || []).filter(r => TAB_LABELS[r]) }
   })
 
   // 从歌曲数据计算每个专辑的歌曲数

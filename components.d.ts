@@ -54,6 +54,7 @@ declare module 'vue' {
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
     ElTag: typeof import('element-plus/es')['ElTag']
+    ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ImgPreview: typeof import('./src/components/layout/ImgPreview.vue')['default']
     RewardModal: typeof import('./src/components/common/RewardModal.vue')['default']
     RichContentView: typeof import('./src/components/common/RichContentView.vue')['default']

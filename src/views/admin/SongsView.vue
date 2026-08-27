@@ -217,9 +217,12 @@
           <div class="flex flex-col gap-2 w-full">
             <div class="flex items-center gap-3">
               <el-switch v-model="form.is_hidden" active-text="隐藏" inactive-text="公开" />
-              <span class="text-xs text-gray-400">开启后不出现在任何公开列表，仅可通过直链访问</span>
+              <span class="text-xs text-gray-400">开启后歌词上锁，需口令解锁查看；歌曲仍出现在各列表中</span>
             </div>
             <el-input v-model="form.unlock_code" placeholder="独立解锁口令（留空则使用全局口令）" />
+            <div v-if="form.unlock_code.trim() && !form.is_hidden" class="text-xs text-amber-500">
+              未开启隐藏开关，口令暂不生效（已保存，开启后直接使用）
+            </div>
           </div>
         </el-form-item>
       </el-form>
@@ -238,6 +241,8 @@ import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { mdToHtml } from '@/lib/markdown'
+import { recomputeArtistTypes } from '@/lib/artistTypes'
+import { syncSongContributors, syncAlbumContributors, syncSongSecrets } from '@/lib/contribRelations'
 import { adminApi } from '@/lib/adminApi'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
@@ -284,15 +289,44 @@ function namesOf(ids: string[] | null): string {
 async function load() {
   loading.value = true
   try {
-    const [s, a, al, c] = await Promise.all([
+    const [s, a, al, c, sc, ac, sec] = await Promise.all([
       adminApi.getAll('songs', { order: 'created_at', ascending: false }),
       adminApi.getAll<Artist>('artists', { order: 'name' }),
       adminApi.getAll('albums', { order: 'name' }),
       adminApi.getAll<Contributor>('contributors', { order: 'sort' }),
+      adminApi.getAll('song_contributors'),
+      adminApi.getAll('album_contributors'),
+      adminApi.getAll('song_secrets'),
     ])
-    songs.value = s
+    // 中间表 → 歌行装饰（artist_ids=歌手；lyricist/composer/arranger 由关系行拼回字符串，下游沿用旧字段名）
+    const scMap = new Map<string, Record<string, string[]>>()
+    for (const r of sc as any[]) {
+      const e = scMap.get(r.song_id) || { singer: [], lyricist: [], composer: [], arranger: [] }
+      if (e[r.role]) e[r.role].push(r.artist_id)
+      scMap.set(r.song_id, e)
+    }
+    const acMap = new Map<string, string[]>()
+    for (const r of ac as any[]) {
+      const list = acMap.get(r.album_id) || []
+      list.push(r.artist_id)
+      acMap.set(r.album_id, list)
+    }
+    // 口令：song_secrets 为权威数据源（songs.unlock_code 过渡期兜底，phase3 步骤 3 删列）
+    const secMap = new Map<string, string>()
+    for (const r of sec as any[]) secMap.set(r.song_id, r.unlock_code || '')
+    songs.value = (s as any[]).map(row => {
+      const e = scMap.get(row.id)
+      return {
+        ...row,
+        unlock_code: secMap.has(row.id) ? secMap.get(row.id)! : (row.unlock_code || ''),
+        artist_ids: e?.singer || [],
+        lyricist: (e?.lyricist || []).join(','),
+        composer: (e?.composer || []).join(','),
+        arranger: (e?.arranger || []).join(','),
+      }
+    })
     artists.value = a
-    albums.value = al
+    albums.value = (al as any[]).map(row => ({ ...row, artist_ids: acMap.get(row.id) || [] }))
     contributors.value = c
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
@@ -505,6 +539,7 @@ async function save() {
     ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.join('、')}），请点击其头像补全`)
     return
   }
+  // 填了独立口令但没开隐藏：不拦截，保存后轻提示（口令留存 song_secrets，下次开开关直接生效）
   saving.value = true
   try {
     // 1. 解析四类艺术家（album 类新建的实体 types 为空）
@@ -528,31 +563,27 @@ async function save() {
       if (albumChanged) {
         await adminApi.update('albums', albumId, {
           name: form.albumName.trim(),
-          artist_ids: albumArtistIds,
           year: form.year.trim() ? parseInt(form.year.trim()) : null,
         })
+        await syncAlbumContributors(albumId, albumArtistIds)
       }
     } else {
       const created = await adminApi.insert('albums', {
         id: 'al' + Date.now(),
         name: form.albumName.trim(),
-        artist_ids: albumArtistIds,
         year: form.year.trim() ? parseInt(form.year.trim()) : null,
         cover: '',
       })
       albumId = created!.id
-      albums.value.push(created)
+      albums.value.push({ ...created, artist_ids: albumArtistIds })
+      await syncAlbumContributors(albumId, albumArtistIds)
     }
 
-    // 3. 歌曲记录（lyricist/composer/arranger 统一存 ID 逗号分隔）
+    // 3. 歌曲记录（贡献关系只写 song_contributors 中间表，不再写旧列）
     const payload: Record<string, unknown> = {
       title: form.title.trim(),
       aliases: form.aliases.map(a => a.trim()).filter(Boolean),
-      artist_ids: artistIds,
       album_id: albumId,
-      lyricist: lyricistIds.join(','),
-      composer: composerIds.join(','),
-      arranger: arrangerIds.join(','),
       duration: form.duration.trim(),
       track: form.track || 0,
       lrc_text: form.lrc_text.trim(),
@@ -562,16 +593,38 @@ async function save() {
       genres: form.genres,
       contributor_id: form.contributor_id || null,
       is_hidden: !!form.is_hidden,
-      unlock_code: form.unlock_code.trim(),
+      // 独立口令不入 songs（phase3 已拆表 song_secrets，由下方 syncSongSecrets 单独同步）
     }
 
     if (editing.value) {
       await adminApi.update('songs', editing.value.id, payload)
+      await syncSongSecrets(editing.value.id, form.unlock_code.trim())
+      // 双写中间表（全量替换，幂等）
+      await syncSongContributors(editing.value.id, {
+        singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,
+      })
+      // 编辑牵涉的艺术家（新旧值都算）→ 重算 types（角色变化/移除后清掉失去支撑的类型）
+      const affected = new Set<string>()
+      const oldIdsOf = (v: string | null) => String(v || '').split(',').map(x => x.trim()).filter(Boolean)
+      ;(editing.value.artist_ids || []).forEach((id: string) => affected.add(id))
+      oldIdsOf(editing.value.lyricist).forEach(id => affected.add(id))
+      oldIdsOf(editing.value.composer).forEach(id => affected.add(id))
+      oldIdsOf(editing.value.arranger).forEach(id => affected.add(id))
+      ;(albumMap.value.get(editing.value.album_id)?.artist_ids || []).forEach((id: string) => affected.add(id))
+      ;(albumMap.value.get(albumId)?.artist_ids || []).forEach((id: string) => affected.add(id))
+      ;[...artistIds, ...lyricistIds, ...composerIds, ...arrangerIds].forEach(id => affected.add(id))
+      await recomputeArtistTypes([...affected])
       ElMessage.success('保存成功')
     } else {
       payload.id = 's' + Date.now()
       payload.status = 'published'
       await adminApi.insert('songs', payload)
+      await syncSongSecrets(payload.id as string, form.unlock_code.trim())
+      await syncSongContributors(payload.id as string, {
+        singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,
+      })
+      // 新增只补类型不减（与发布链一致），走重算同样正确
+      await recomputeArtistTypes([...artistIds, ...lyricistIds, ...composerIds, ...arrangerIds, ...albumArtistIds])
       ElMessage.success('新增歌曲成功')
     }
     showDialog.value = false
@@ -583,10 +636,26 @@ async function save() {
   }
 }
 
+/** 删除的歌曲牵涉的艺术家（演唱/作词/作曲/编曲/专辑艺术家）→ 删后重算其 types（清掉失去作品支撑的类型） */
+function affectedArtistIds(rows: any[]) {
+  const ids = new Set<string>()
+  const idsOf = (s: string | null) => String(s || '').split(',').map(x => x.trim()).filter(Boolean)
+  for (const r of rows) {
+    ;(r.artist_ids || []).forEach((id: string) => ids.add(id))
+    idsOf(r.lyricist).forEach(id => ids.add(id))
+    idsOf(r.composer).forEach(id => ids.add(id))
+    idsOf(r.arranger).forEach(id => ids.add(id))
+    ;(albumMap.value.get(r.album_id)?.artist_ids || []).forEach((id: string) => ids.add(id))
+  }
+  return [...ids]
+}
+
 async function removeOne(row: any) {
   try {
     await ElMessageBox.confirm(`确定删除歌曲《${row.title}》？`, '确认删除', { type: 'warning' })
+    const artistIds = affectedArtistIds([row])
     await adminApi.remove('songs', row.id)
+    await recomputeArtistTypes(artistIds)
     ElMessage.success('已删除')
     await load()
   } catch (e: any) {
@@ -598,7 +667,9 @@ async function batchRemove() {
   if (!selected.value.length) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 首歌曲？`, '批量删除', { type: 'warning' })
+    const artistIds = affectedArtistIds(selected.value)
     await adminApi.removeBatch('songs', selected.value.map(s => s.id))
+    await recomputeArtistTypes(artistIds)
     ElMessage.success('批量删除完成')
     clearSelection()
     await load()

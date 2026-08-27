@@ -22,9 +22,6 @@
         <el-table-column label="作者" width="100" show-overflow-tooltip>
           <template #default="{ row }">{{ row.author || '站长' }}</template>
         </el-table-column>
-        <el-table-column label="浏览" width="70" align="center">
-          <template #default="{ row }">{{ row.views || 0 }}</template>
-        </el-table-column>
         <el-table-column label="置顶" width="65" align="center">
           <template #default="{ row }">
             <span :class="row.sort > 0 ? 'text-pink-500 font-medium' : 'text-gray-300'">{{ row.sort || 0 }}</span>
@@ -49,7 +46,7 @@
                 <el-tag v-if="row.status === 'draft'" size="small" type="warning" class="shrink-0">草稿</el-tag>
               </div>
               <div class="text-xs text-gray-400 truncate mt-0.5">/post/{{ row.slug }}</div>
-              <div class="text-xs text-gray-400 mt-0.5">{{ row.author || '站长' }}<template v-if="row.created_at"> · {{ row.created_at.slice(0, 10) }}</template> · {{ row.views || 0 }} 浏览<template v-if="row.sort > 0"> · 置顶</template></div>
+              <div class="text-xs text-gray-400 mt-0.5">{{ row.author || '站长' }}<template v-if="row.created_at"> · {{ row.created_at.slice(0, 10) }}</template><template v-if="row.sort > 0"> · 置顶</template></div>
             </div>
           </div>
           <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
@@ -237,7 +234,7 @@ async function save() {
       await adminApi.update('articles', editing.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('articles', { id: 'art_' + Date.now(), views: 0, created_at: new Date().toISOString(), ...payload })
+      await adminApi.insert('articles', { id: 'art_' + Date.now(), created_at: new Date().toISOString(), ...payload })
       ElMessage.success('新增文章成功')
     }
     showDialog.value = false

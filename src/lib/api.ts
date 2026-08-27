@@ -18,9 +18,28 @@ import type {
 /** 歌手字段精简选择（列表场景，避免拉全量） */
 const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls, initial'
 
-/** 匿名端歌曲查询列：不含 unlock_code（该列对 anon 已收列级权限，口令仅在库端 RPC 校验） */
+/** 匿名端歌曲查询列：不含口令（独立口令已拆至 song_secrets 表，anon 零授权，
+ *  前后台均经 verify_hidden_unlock_code RPC 校验；全局口令存 settings）。
+ *  歌手/词曲编关系一律经 song_contributors 中间表嵌入，api 层计算 artist_ids（=歌手）装饰回对象 */
 const SONG_PUBLIC_FIELDS =
-  'id, title, aliases, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, description, genres, lrc_text, lyrics_text, video_url, cover, contributor_id, created_at'
+  'id, title, aliases, album_id, duration, track, disc, status, is_hidden, description, genres, lrc_text, lyrics_text, video_url, cover, contributor_id, created_at, song_contributors(role,artist_id)'
+
+/** 专辑贡献关系（专辑艺术家）嵌入列 */
+const ALBUM_CONTRIB_EMBED = 'album_contributors(artist_id)'
+
+/** 歌曲贡献关系嵌入列 */
+const SONG_CONTRIB_EMBED = 'song_contributors(role,artist_id)'
+
+/** 从嵌入的贡献关系行计算角色 → id 列表；artist_ids 取 singer（保持旧列语义） */
+function creditIdsOf(row: { song_contributors?: { role: string; artist_id: string }[] } | null | undefined) {
+  const byRole = new Map<string, string[]>()
+  for (const r of row?.song_contributors || []) {
+    const list = byRole.get(r.role) || []
+    list.push(r.artist_id)
+    byRole.set(r.role, list)
+  }
+  return { artist_ids: byRole.get('singer') || [], byRole }
+}
 
 /** 批量取艺术家 id→name 映射 */
 async function getArtistNameMap(ids: Iterable<string>): Promise<Map<string, string>> {
@@ -93,78 +112,66 @@ export const api = {
     return (data || []) as Artist[]
   },
 
-  /** 同歌手的其他歌曲 */
+  /** 同歌手的其他歌曲（经 song_contributors 反查，role=singer） */
   async getRelatedSongs(artistIds: string[], excludeSongId: string): Promise<Song[]> {
     if (!artistIds || artistIds.length === 0) return []
-    const queries = artistIds.map(id =>
-      supabase
-        .from('songs')
-        .select('id, title, artist_ids, album_id, duration, is_hidden, created_at, albums(name)')
-        .eq('status', 'published')
-        .contains('artist_ids', [id])
-        .neq('id', excludeSongId),
+    const { data: refRows, error: refErr } = await supabase
+      .from('song_contributors')
+      .select('song_id')
+      .in('artist_id', artistIds)
+      .eq('role', 'singer')
+    if (refErr) throw refErr
+    const songIds = [...new Set((refRows || []).map((r: { song_id: string }) => r.song_id))].filter(
+      id => id !== excludeSongId,
     )
-    const results = await Promise.all(queries)
-    const seen = new Set<string>()
-    const songs: Song[] = []
-    results.forEach(r => {
-      ;(r.data || []).forEach(s => {
-        if (!seen.has(s.id)) {
-          seen.add(s.id)
-          songs.push(s as unknown as Song)
-        }
-      })
-    })
-    return songs
+    if (!songIds.length) return []
+    const { data, error } = await supabase
+      .from('songs')
+      .select(`id, title, album_id, duration, is_hidden, created_at, ${SONG_CONTRIB_EMBED}, albums(name)`)
+      .eq('status', 'published')
+      .in('id', songIds)
+    if (error) throw error
+    return ((data || []) as any[]).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
   },
 
-  /** 艺术家的歌曲（演唱 + 作词/作曲/编曲） */
-  async getArtistSongs(artistId: string): Promise<SongWithNames[]> {
-    const [singRes, workRes] = await Promise.all([
-      supabase
-        .from('songs')
-        .select(`${SONG_PUBLIC_FIELDS}, albums(name, year)`)
-        .eq('status', 'published')
-        .overlaps('artist_ids', [artistId])
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('songs')
-        .select(`${SONG_PUBLIC_FIELDS}, albums(name, year)`)
-        .eq('status', 'published')
-        .or(
-          `lyricist.ilike.%${artistId}%,composer.ilike.%${artistId}%,arranger.ilike.%${artistId}%`,
-        )
-        .order('created_at', { ascending: false }),
-    ])
-    if (singRes.error) throw singRes.error
-    if (workRes.error) throw workRes.error
-
-    const songMap = new Map<string, Song>()
-    ;[...(singRes.data || []), ...(workRes.data || [])].forEach(s => {
-      if (!songMap.has(s.id)) songMap.set(s.id, s as unknown as Song)
-    })
-
-    const nameMap = await getArtistNameMap(
-      Array.from(songMap.values()).flatMap(s => s.artist_ids || []),
-    )
-
-    return Array.from(songMap.values()).map(s => ({
+  /** 艺术家的歌曲（演唱 + 作词/作曲/编曲）——走库端双源 RPC（中间表 ∪ 旧列），替代旧 ilike 模糊匹配 */
+  async getArtistSongs(artistId: string): Promise<(SongWithNames & { roles: string[] })[]> {
+    const { data, error } = await supabase
+      .rpc('get_artist_songs', { p_artist_id: artistId })
+    if (error) throw error
+    const songs = ((data || []) as any[]).map(s => ({
+      ...s,
+      albums: s.albums ?? undefined,
+    }))
+    const nameMap = await getArtistNameMap(songs.flatMap(s => s.artist_ids || []))
+    return songs.map(s => ({
       ...s,
       artist_name: joinNames(s.artist_ids, nameMap),
       album_name: s.albums?.name || '',
       album_year: s.albums?.year || '',
+      roles: (s.roles as string[]) || [],
     }))
   },
 
-  /** 艺术家的专辑 */
+  /** 艺术家的专辑（经 album_contributors 反查） */
   async getArtistAlbums(artistId: string): Promise<AlbumWithArtists[]> {
+    const { data: refRows, error: refErr } = await supabase
+      .from('album_contributors')
+      .select('album_id')
+      .eq('artist_id', artistId)
+    if (refErr) throw refErr
+    const albumIds = [...new Set((refRows || []).map((r: { album_id: string }) => r.album_id))]
+    if (!albumIds.length) return []
     const { data, error } = await supabase
       .from('albums')
-      .select('*')
-      .overlaps('artist_ids', [artistId])
+      .select(`*, ${ALBUM_CONTRIB_EMBED}`)
+      .in('id', albumIds)
       .order('name')
     if (error) throw error
-    const albums = (data || []) as Album[]
+    const albums = ((data || []) as any[]).map(a => ({
+      ...a,
+      artist_ids: (a.album_contributors || []).map((r: { artist_id: string }) => r.artist_id),
+    })) as Album[]
 
     const fullMap = await getArtistFullMap(albums.flatMap(a => a.artist_ids || []))
     return albums.map(a => {
@@ -180,9 +187,12 @@ export const api = {
   // ============ 专辑 ============
 
   async getAlbums(includeCount = false): Promise<AlbumWithArtists[]> {
-    const { data, error } = await supabase.from('albums').select('*').order('name')
+    const { data, error } = await supabase.from('albums').select(`*, ${ALBUM_CONTRIB_EMBED}`).order('name')
     if (error) throw error
-    const albums = (data || []) as Album[]
+    const albums = ((data || []) as any[]).map(a => ({
+      ...a,
+      artist_ids: (a.album_contributors || []).map((r: { artist_id: string }) => r.artist_id),
+    })) as Album[]
 
     const fullMap = await getArtistFullMap(albums.flatMap(a => a.artist_ids || []))
 
@@ -212,9 +222,12 @@ export const api = {
   },
 
   async getAlbum(id: string): Promise<AlbumWithArtists> {
-    const { data, error } = await supabase.from('albums').select('*').eq('id', id).single()
+    const { data, error } = await supabase.from('albums').select(`*, ${ALBUM_CONTRIB_EMBED}`).eq('id', id).single()
     if (error) throw error
-    const album = data as Album
+    const album = {
+      ...(data as any),
+      artist_ids: ((data as any).album_contributors || []).map((r: { artist_id: string }) => r.artist_id),
+    } as Album
 
     const ids = album.artist_ids || []
     const fullMap = await getArtistFullMap(ids)
@@ -234,8 +247,9 @@ export const api = {
       .order('track')
     if (error) throw error
 
-    const nameMap = await getArtistNameMap((data || []).flatMap(s => s.artist_ids || []))
-    return (data || []).map(s => ({
+    const rows = ((data || []) as any[]).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
+    const nameMap = await getArtistNameMap(rows.flatMap(s => s.artist_ids || []))
+    return rows.map(s => ({
       ...s,
       artist_name: joinNames(s.artist_ids, nameMap) || '未知',
     }))
@@ -247,17 +261,16 @@ export const api = {
   async getSongs(limit?: number): Promise<SongWithNames[]> {
     let query = supabase
       .from('songs')
-      .select(
-        'id, title, artist_ids, album_id, lyricist, composer, arranger, duration, track, disc, status, is_hidden, cover, created_at, albums(name, cover)',
-      )
+      .select(`id, title, album_id, duration, track, disc, status, is_hidden, cover, created_at, ${SONG_CONTRIB_EMBED}, albums(name, cover)`)
       .eq('status', 'published')
       .order('created_at', { ascending: false })
     if (limit) query = query.limit(limit)
     const { data, error } = await query
     if (error) throw error
 
-    const nameMap = await getArtistNameMap((data || []).flatMap(s => s.artist_ids || []))
-    return (data || []).map(s => {
+    const rows = ((data || []) as any[]).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
+    const nameMap = await getArtistNameMap(rows.flatMap(s => s.artist_ids || []))
+    return rows.map(s => {
       const { albums, ...rest } = s
       return {
         ...rest,
@@ -268,7 +281,7 @@ export const api = {
     })
   },
 
-  async getSong(id: string): Promise<SongWithNames & { artists: Artist[]; credit_artists: Artist[] }> {
+  async getSong(id: string): Promise<SongWithNames & { artists: Artist[]; credit_artists: Artist[]; credits: { role: string; artist_ids: string[] }[] }> {
     const { data, error } = await supabase
       .from('songs')
       .select(`${SONG_PUBLIC_FIELDS}, albums(name, year, cover)`)
@@ -276,22 +289,23 @@ export const api = {
       .single()
     if (error) throw error
 
-    const ids = (data.artist_ids as string[]) || []
-    // 作词/作曲/编曲字段的 id 也需解析为名称（可能含未出现在 artist_ids 中的编曲人等）
-    const creditIds = [data.lyricist, data.composer, data.arranger]
-      .filter(Boolean)
-      .join(',')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-    const fullMap = await getArtistFullMap([...ids, ...creditIds])
+    // 贡献关系（含歌手）统一从 song_contributors 嵌入取；artist_ids = singer（保持旧字段语义）
+    const { artist_ids: ids, byRole } = creditIdsOf(data as any)
+    const credits = ['singer', 'lyricist', 'composer', 'arranger'].map(role => ({
+      role,
+      artist_ids: byRole.get(role) || [],
+    }))
+    const creditIds = credits.flatMap(c => c.artist_ids)
+    const fullMap = await getArtistFullMap([...new Set([...ids, ...creditIds])])
     const album = data.albums as unknown as { name?: string; year?: string; cover?: string | null } | null
     return {
       ...data,
+      artist_ids: ids,
       albums: album as unknown as Song['albums'],
       artist_name: ids.map(id => fullMap.get(id)?.name || '').filter(Boolean).join(' / ') || '未知',
       artists: ids.map(id => fullMap.get(id)).filter((x): x is Artist => !!x),
-      credit_artists: creditIds.map(id => fullMap.get(id)).filter((x): x is Artist => !!x),
+      credit_artists: [...new Set(creditIds)].map(id => fullMap.get(id)).filter((x): x is Artist => !!x),
+      credits,
       album_name: album?.name || '',
       album_year: album?.year || '',
       album_cover: album?.cover || null,
@@ -319,12 +333,14 @@ export const api = {
       supabase.from('albums').select('*').ilike('name', `%${kw}%`),
       // 单曲：匹配歌曲名或别名/译名（search_songs RPC，数组列 ilike 需在库端 unnest）
       supabase.rpc('search_songs', { p_q: kw }).select(songSelect),
-      // 歌词：匹配 LRC 或纯文本歌词内容（同一首去重，纯逗号输入时跳过）
+      // 歌词：匹配 LRC 或纯文本歌词内容（同一首去重，纯逗号输入时跳过）。
+      // 隐藏歌的歌词内容不参与匹配，否则拿任意一句歌词片段搜索即可白嫖口令锁内容
       kwOr
         ? supabase
             .from('songs')
             .select(songSelect)
             .eq('status', 'published')
+            .neq('is_hidden', true)
             .or(`lrc_text.ilike.%${kwOr}%,lyrics_text.ilike.%${kwOr}%`)
         : Promise.resolve({ data: null as any[] | null }),
     ])
@@ -335,13 +351,17 @@ export const api = {
     ;(songLrcRes.data || []).forEach(s => lrcMap.set(s.id, s))
 
     const nameMap = await getArtistNameMap(
-      Array.from([...songMap.values(), ...lrcMap.values()]).flatMap(s => s.artist_ids || []),
+      Array.from([...songMap.values(), ...lrcMap.values()]).flatMap(s => creditIdsOf(s).artist_ids),
     )
-    const decorate = (s: any): SongWithNames => ({
-      ...s,
-      artist_name: joinNames(s.artist_ids, nameMap) || '未知',
-      album_name: s.albums?.name || '',
-    })
+    const decorate = (s: any): SongWithNames => {
+      const artist_ids = creditIdsOf(s).artist_ids
+      return {
+        ...s,
+        artist_ids,
+        artist_name: joinNames(artist_ids, nameMap) || '未知',
+        album_name: s.albums?.name || '',
+      }
+    }
 
     return {
       artists: (artistRes.data || []) as Artist[],
@@ -424,16 +444,6 @@ export const api = {
     return data as Article
   },
 
-  /** 浏览量 +1（仅客户端调用，SSG 构建时不可执行，否则每次构建都涨） */
-  async incrementArticleView(id: string): Promise<void> {
-    const { data } = await supabase.from('articles').select('views').eq('id', id).single()
-    try {
-      await supabase.from('articles').update({ views: (data?.views || 0) + 1 }).eq('id', id)
-    } catch {
-      /* 忽略 */
-    }
-  },
-
   // ============ 贡献者 ============
 
   async getContributors(options: { limit?: number } = {}): Promise<Contributor[]> {
@@ -466,16 +476,18 @@ export const api = {
   async getContributorWorks(
     contributorId: string,
   ): Promise<{ id: string; title: string; artist: string; type: string; created_at: string }[]> {
-    const { data: songs } = await supabase
+    const { data: songs, error } = await supabase
       .from('songs')
-      .select('id, title, artist_ids, created_at')
+      .select(`id, title, created_at, ${SONG_CONTRIB_EMBED}`)
       .eq('contributor_id', contributorId)
       .eq('status', 'published')
       .order('created_at', { ascending: false })
+    if (error) throw error
 
     if (songs && songs.length > 0) {
-      const nameMap = await getArtistNameMap(songs.flatMap(s => s.artist_ids || []))
-      return songs.map(s => ({
+      const rows = ((songs as any[]) || []).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
+      const nameMap = await getArtistNameMap(rows.flatMap(s => s.artist_ids || []))
+      return rows.map(s => ({
         id: s.id,
         title: s.title,
         artist: joinNames(s.artist_ids, nameMap),

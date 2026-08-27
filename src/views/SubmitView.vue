@@ -342,7 +342,10 @@
             我们已经收到您的歌词投稿，管理员会尽快审核。<br v-if="userForm.email" />审核结果将通过邮件通知您，请留意查收。
           </template>
         </p>
-        <RouterLink to="/" class="px-6 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600">返回首页</RouterLink>
+        <div class="flex items-center justify-center gap-3">
+          <button class="px-6 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600" @click="continueSubmit">继续投稿</button>
+          <RouterLink to="/" class="px-6 py-2 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50">返回首页</RouterLink>
+        </div>
       </div>
     </div>
   </main>
@@ -604,12 +607,6 @@ async function handleSubmit() {
     lyricist_arr: song.lyricists.slice(),
     composer_arr: song.composers.slice(),
     arranger_arr: song.arrangers.slice(),
-    // 兼容旧字段：拼接字符串（供后台列表展示）
-    artist: song.artists.map(a => a.name).join(' / '),
-    album_artist: song.albumArtists.map(a => a.name).join(' / '),
-    lyricist: song.lyricists.map(a => a.name).join(' / '),
-    composer: song.composers.map(a => a.name).join(' / '),
-    arranger: song.arrangers.map(a => a.name).join(' / '),
     album: albumName.value.trim(),
     album_id: albumId.value,
     year: albumYear.value.trim() || undefined,
@@ -644,6 +641,21 @@ async function handleSubmit() {
   }
 }
 
+/** 继续投稿：回到表单，清空歌曲部分，「你的信息」保留（同人连投常用），滚动回顶部 */
+function continueSubmit() {
+  submitted.value = false
+  submittedType.value = 'song'
+  // 清空歌曲表单（单曲 + 批量面板的公共专辑选择）
+  Object.assign(song, { title: '', artists: [], albumArtists: [], lyricists: [], composers: [], arrangers: [], duration: '', track: '', lrcText: '', videoUrl: '' })
+  albumName.value = ''
+  albumYear.value = ''
+  albumId.value = null
+  albumDropdown.value = []
+  albumDropdownOpen.value = false
+  mode.value = 'single'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 /** 仅提交资料更新（type=profile 投稿）：不投歌词，单独进审核队列，通过后覆盖贡献者字段 */
 async function handleProfileSubmit() {
   if (!selectedContributor.value) {
@@ -676,7 +688,7 @@ async function handleProfileSubmit() {
       submitter_request_update: true,
       submitter_request_clear: false,
       submitter_bio: userForm.bio || null,
-      song_data: { type: 'profile', title: '资料更新' },
+      song_data: { type: 'profile', title: '资料更新' } as any,
     })
     submitted.value = true
     submittedType.value = 'profile'

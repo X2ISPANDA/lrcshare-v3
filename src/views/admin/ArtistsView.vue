@@ -8,6 +8,9 @@
         <el-option label="🏢 非创作者" value="__none__" />
       </el-select>
       <div class="flex-1"></div>
+      <el-tooltip content="按全部歌曲/专辑关联重算每位艺术家的类型（singer/lyricist/composer/arranger），修正历史脏数据" placement="top">
+        <el-button :loading="recomputing" @click="recomputeAllTypes">重算全部类型</el-button>
+      </el-tooltip>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增艺术家</el-button>
     </div>
 
@@ -106,12 +109,6 @@
         <el-form-item label="区分信息">
           <el-input v-model="form.disambiguation" placeholder="用于区分同名艺术家，如：北京民谣歌手" />
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="form.types" multiple placeholder="选择类型（可多选）" class="w-full">
-            <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
-          </el-select>
-          <div class="text-xs text-gray-400 mt-1 w-full">唱片公司 / 平台等非创作者实体可不选类型，并关闭下方「前台展示」</div>
-        </el-form-item>
         <el-form-item label="头像 URL">
           <el-input v-model="form.avatar" placeholder="留空使用默认头像" />
         </el-form-item>
@@ -173,6 +170,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import { recomputeArtistTypes } from '@/lib/artistTypes'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import { contactLabel } from '@/lib/constants'
 import type { Artist } from '@/lib/types'
@@ -198,17 +196,17 @@ const pageSize = ref(20)
 const selected = ref<Artist[]>([])
 const tableRef = ref()
 
-/** 歌曲关联的艺术家 ID（含 singer/lyricist/composer/arranger），用于作品计数 */
+/** 歌曲关联的艺术家 ID（含 singer/lyricist/composer/arranger），用于作品计数——直接读中间表 */
 async function loadSongRefs() {
-  const songs = await adminApi.getAll<any>('songs', { select: 'artist_ids,lyricist,composer,arranger' })
+  const sc = await adminApi.getAll<any>('song_contributors')
+  // 一首歌对一个艺术家只算 1 个作品：按 (song_id, artist_id) 去重
+  const seen = new Set<string>()
   const ids: string[] = []
-  for (const s of songs) {
-    // 一首歌对一个艺术家只算 1 个作品：先按首歌去重（避免演唱+作词+作曲重复累加）
-    const songIds = new Set<string>(s.artist_ids || [])
-    for (const f of [s.lyricist, s.composer, s.arranger]) {
-      for (const id of String(f || '').split(',').map(x => x.trim()).filter(Boolean)) songIds.add(id)
-    }
-    ids.push(...songIds)
+  for (const r of sc) {
+    const key = `${r.song_id}:${r.artist_id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    ids.push(r.artist_id)
   }
   songArtists.value = ids
 }
@@ -283,7 +281,6 @@ const saving = ref(false)
 const form = reactive({
   name: '',
   disambiguation: '',
-  types: [] as string[],
   avatar: '',
   bg_image: '',
   bg_position_y: 50,
@@ -299,7 +296,7 @@ const form = reactive({
 function openNew() {
   editing.value = null
   Object.assign(form, {
-    name: '', disambiguation: '', types: ['singer'], avatar: '', bg_image: '', bg_position_y: 50,
+    name: '', disambiguation: '', avatar: '', bg_image: '', bg_position_y: 50,
     bio: '', aliases: [], urls: {}, urlRows: [],
     sort: 0, initial: '', is_show: true,
   })
@@ -312,7 +309,6 @@ function openEdit(row: Artist) {
   Object.assign(form, {
     name: row.name || '',
     disambiguation: row.disambiguation || '',
-    types: [...(row.types || [])],
     avatar: row.avatar || '',
     bg_image: row.bg_image || '',
     bg_position_y: Number.isInteger(row.bg_position_y) ? row.bg_position_y : 50,
@@ -346,7 +342,8 @@ async function save() {
     const payload = {
       name: form.name.trim(),
       disambiguation: form.disambiguation.trim(),
-      types: form.types,
+      // types 不人工维护：新增为空，编辑保持库内值，由歌曲/专辑关联派生（发布补全、删除重算）
+      types: editing.value ? (editing.value.types || []) : [],
       avatar: form.avatar.trim() || null,
       bg_image: form.bg_image.trim() || '',
       bg_position_y: form.bg_position_y,
@@ -371,6 +368,24 @@ async function save() {
     ElMessage.error('保存失败：' + (e?.message || e))
   } finally {
     saving.value = false
+  }
+}
+
+/** 全量重算类型：按全部歌曲/专辑关联修正每位艺术家的 types（历史脏数据一键修复） */
+const recomputing = ref(false)
+async function recomputeAllTypes() {
+  try {
+    await ElMessageBox.confirm('将按全部歌曲/专辑关联重算所有艺术家的类型（覆盖现有值，人工曾标注的类型如有作品支撑会保留）。是否继续？', '重算全部类型', { type: 'warning' })
+  } catch { return }
+  recomputing.value = true
+  try {
+    await recomputeArtistTypes(artists.value.map(a => a.id))
+    ElMessage.success('已按歌曲/专辑关联重算全部艺术家类型')
+    await load()
+  } catch (e: any) {
+    ElMessage.error('重算失败：' + (e?.message || e))
+  } finally {
+    recomputing.value = false
   }
 }
 

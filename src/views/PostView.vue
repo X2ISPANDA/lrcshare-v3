@@ -24,7 +24,7 @@
               <span v-if="article.author === '站长'" class="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-1">站长</span>
             </span>
             <span>📅 {{ formatDate(article.created_at) }}</span>
-            <span>👁 {{ article.views || 0 }} 浏览</span>
+            <span>👁 <span id="busuanzi_value_page_pv"></span> 次浏览</span>
           </div>
         </div>
 
@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
@@ -87,9 +87,4 @@ function onContentClick(e: MouseEvent) {
 function formatDate(dateStr: string | null): string {
   return dateStr ? new Date(dateStr).toISOString().slice(0, 10) : ''
 }
-
-// 浏览量计数仅客户端执行（SSG 构建时不可自增）
-onMounted(() => {
-  if (article.value?.status === 'published') api.incrementArticleView(article.value.id)
-})
 </script>

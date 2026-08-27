@@ -79,7 +79,7 @@ npm run docs:dev       # API 文档站（可选）
 - **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
 - **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
-- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索等），执行记录见各文件头部说明
+- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md` 等），执行记录见各文件头部说明
 
 ## 目录结构
 
@@ -103,8 +103,19 @@ npm run docs:dev       # API 文档站（可选）
 
 ## 更新日志
 
+### 2026-08-28
+
+- 隐藏口令拆表：`unlock_code` 从 `songs` 拆至独立表 `song_secrets`（anon 零授权，`verify_hidden_unlock_code` RPC 是唯一校验正门），songs 表不再承载敏感数据，原有列级收权补丁链随之作废
+- 隐藏歌词解锁改「通行证」语义：全局口令验证一次，会话内对所有无独立口令的隐藏歌生效；设了独立口令的歌逐首校验，不被全局口令绕过；解锁状态按歌记账，关闭标签页重置
+- 歌词内容搜索排除隐藏歌（单曲搜索照常命中，Worker API 维持全量开放）
+- 后台歌曲编辑：口令与隐藏开关联动提示（填口令未开隐藏时内联提醒，口令照存不生效）
+- 修复 B 段遗留故障：`get_artist_songs` 引用已删除的旧贡献列导致艺术家作品页报错
+
 ### 2026-08-27
 
+- 数据库重构阶段二完成：歌曲贡献关系（歌手 / 作词 / 作曲 / 编曲）与专辑艺术家全面迁移至 `song_contributors` / `album_contributors` 多对多中间表，外键级联与引用保护生效（删歌自动清关系行、被引用艺术家禁止删除），`songs.artist_ids` / `lyricist` / `composer` / `arranger` 及 `albums.artist_ids` 旧列删除，中间表成为唯一数据源；前台、后台、开放 API 同步切换
+- 艺术家类型改为自动派生：`recompute_artist_types` RPC 按歌曲 / 专辑贡献关系重算（后台保留「重算全部类型」入口），不再依赖人工维护，杜绝类型固化与筛选错误
+- 存量投稿数据规范化：`song_data` 内 v2 拼接字符串字段（artist / lyricist 等）全部转为数组格式（artists / lyricist_arr 等），消灭双键漂移；投稿端停写兼容字段
 - 批量投稿升级为「按批审核」：同一次批量投稿共用批次 ID（`submissions.batch_id`），后台待审核列表按批折叠为一行（「《专辑》等 N 首歌曲」），点「审核整批」进批量审核弹窗
 - 批量审核弹窗新增行级「通过/拒绝」决定列：混合场景（A 通过 B 拒绝）逐行标记 + 拒绝原因，一键按标记提交；未留邮箱自动跳过
 - 审核结果邮件按批合并为一封：全部通过 / 全部拒绝 / 部分通过（逐首列表 + 各自原因）三种模板；跨提交人混审时按提交人各发一封
@@ -116,6 +127,8 @@ npm run docs:dev       # API 文档站（可选）
 - 艺术家 / 专辑匹配全面改为大小写不敏感，杜绝「AA」被重复建成「aa」
 - 批量场景修复：连续创建同毫秒主键冲突（ID 加随机尾）、ElMessage 被多层弹窗遮挡（z-index 层级补丁）、后台挂载图片预览组件
 - 投稿审核拒绝支持批量（列表多选 + 批量审核表格内），共用一次拒绝原因，逐条发通知邮件
+- 删除已通过投稿支持级联回收：发布链把本次新建的歌曲 / 专辑 / 艺术家 / 贡献者记入 `submissions.published_refs`，删除时按引用检查回收（被其他内容引用的保留），测试 / 误发布不再污染数据库
+- 投稿成功页新增「继续投稿」：保留投稿人信息清空歌曲表单，连续投稿不用重填昵称邮箱
 
 ### 2026-08-26
 

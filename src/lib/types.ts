@@ -37,8 +37,10 @@ export interface Album {
   name: string
   cover: string | null
   year: string | null
-  /** 专辑艺术家（可含唱片公司等非创作者实体） */
+  /** 专辑艺术家（可含唱片公司等非创作者实体）——api 层由 album_contributors 中间表计算装饰 */
   artist_ids: string[] | null
+  /** 关联查询带出（中间表嵌入） */
+  album_contributors?: { artist_id: string }[] | null
   /** 人工覆盖的拼音首字母（A-Z 或 #），空则前端自动计算（多音字兜底） */
   initial?: string | null
   /** 专辑介绍（Markdown 富文本，前台专辑页展示） */
@@ -52,19 +54,17 @@ export interface Song {
   title: string
   /** 别名/译名（同一首可并存中日英多名，参与单曲维度搜索） */
   aliases?: string[] | null
+  /** 演唱者（= song_contributors 中 role=singer，api 层计算装饰） */
   artist_ids: string[] | null
   album_id: string | null
-  lyricist: string | null
-  composer: string | null
-  arranger: string | null
+  /** 贡献关系（中间表嵌入；作词/作曲/编曲/歌手统一在此，不再有独立列） */
+  song_contributors?: { role: string; artist_id: string }[] | null
   duration: string | null
   track: number | null
   disc: number | null
   status: 'published' | 'draft' | 'pending'
-  /** 隐藏歌曲（口令解锁） */
+  /** 隐藏歌曲（口令解锁；口令存 song_secrets 独立表，经 verify RPC 校验，前端永不接触明文） */
   is_hidden: boolean
-  /** 隐藏歌曲专属解锁口令（另有全局口令存 settings 表） */
-  unlock_code?: string | null
   /** 歌曲简介（Markdown，支持 Hexo tip 标签） */
   description?: string | null
   /** 流派 */
@@ -147,15 +147,10 @@ export interface SongSubmissionData {
   album_artists: { id: string | null; name: string }[]
   lyricist_arr: { id: string | null; name: string }[]
   composer_arr: { id: string | null; name: string }[]
-  /** 兼容旧格式的拼接字符串 */
-  artist?: string
-  album_artist?: string
-  lyricist?: string
-  composer?: string
+  arranger_arr?: { id: string | null; name: string }[]
   album?: string
   album_id?: string | null
   year?: string
-  arranger?: string
   duration?: string
   lrc_text: string
   video_url?: string
@@ -190,7 +185,6 @@ export interface Article {
   author?: string | null
   status: 'published' | 'draft'
   sort: number
-  views: number
   created_at: string
   updated_at?: string
 }

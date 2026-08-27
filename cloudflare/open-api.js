@@ -29,8 +29,9 @@ const SITE_DOMAIN = 'lrcshare.com'
 const DOCS_UPSTREAM = 'https://lrcshare-v3.pages.dev'
 
 /** 歌曲摘要（列表/搜索返回）：id/歌名/歌手/专辑/风格；封面只在 album.cover（专辑封面，全站唯一封面来源）；
- *  album.artists 为专辑艺术家（TPE2/ALBUMARTIST） */
-const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,albums(name,year,cover,artist_ids)'
+ *  album.artists 为专辑艺术家（TPE2/ALBUMARTIST）。
+ *  歌手/专辑艺术家分别经 song_contributors / album_contributors 中间表嵌入 */
+const SONG_SUMMARY_SELECT = 'id,title,album_id,genres,song_contributors(role,artist_id),albums(name,year,cover,album_contributors(artist_id))'
 /** 歌曲详情（确认目标后获取全部数据，含歌词）。
  *  字段严格对齐音频标签标准（ID3v2 / Vorbis Comment）：
  *  title=TIT2/TITLE, artists=TPE1/ARTIST, album=TALB/ALBUM, year=TDRC/DATE,
@@ -40,19 +41,21 @@ const SONG_SUMMARY_SELECT = 'id,title,artist_ids,album_id,genres,albums(name,yea
  *  网站内部字段（video_url/created_at/description）不对外输出；
  *  contributor_id 仅用于在库端拼 comment 署名，不作为独立字段暴露 */
 const SONG_DETAIL_SELECT =
-  'id,title,aliases,artist_ids,album_id,lyricist,composer,arranger,track,disc,genres,contributor_id,lrc_text,albums(name,year,cover,artist_ids)'
-/** 艺术家作品：摘要 + 词曲编列（仅用于计算 roles，不进输出） */
-const SONG_ROLES_SELECT = 'id,title,artist_ids,album_id,genres,lyricist,composer,arranger,albums(name,year,cover,artist_ids)'
+  'id,title,aliases,album_id,track,disc,genres,contributor_id,lrc_text,song_contributors(role,artist_id),albums(name,year,cover,album_contributors(artist_id))'
 /** 专辑曲目：摘要 + 曲目号/碟号 */
-const ALBUM_TRACK_SELECT = 'id,title,artist_ids,album_id,genres,track,disc'
+const ALBUM_TRACK_SELECT = 'id,title,album_id,genres,track,disc,song_contributors(role,artist_id)'
 /** 专辑对象：同样只输出标签可用字段（name=TALB, year=DATE, cover=APIC, artists=TPE2）；
  *  专辑介绍/收录时间为网站内部数据，不对外 */
-const ALBUM_SELECT = 'id,name,cover,year,artist_ids'
+const ALBUM_SELECT = 'id,name,cover,year,album_contributors(artist_id)'
 const ARTIST_SELECT = 'id,name,aliases,types,avatar,bio,disambiguation'
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
 const TTL_DETAIL = 3600 // 详情缓存 1h
 const TTL_LIST = 600 // 列表/搜索缓存 10min
+
+/** 中间表嵌入行 → 各角色 id 列表 */
+const singerIdsOf = row => ((row && row.song_contributors) || []).filter(r => r.role === 'singer').map(r => r.artist_id)
+const albumArtistIdsOf = a => ((a && a.album_contributors) || []).map(r => r.artist_id)
 
 // ============ 工具 ============
 
@@ -234,17 +237,6 @@ async function getContributorNameMap(env, ids) {
   return new Map((data || []).map(c => [c.id, c.name]))
 }
 
-/** 逗号分隔的艺术家 id 串 → 名字数组（去空） */
-function idsToNames(csv, nameMap) {
-  if (!csv) return []
-  return String(csv)
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(id => nameMap.get(id) || '')
-    .filter(Boolean)
-}
-
 /** 歌曲内嵌的 album 对象装配（含专辑艺术家，TPE2/ALBUMARTIST） */
 function buildAlbumObject(row, albumArtistNames) {
   const a = row.albums || {}
@@ -253,7 +245,7 @@ function buildAlbumObject(row, albumArtistNames) {
     name: a.name || '',
     year: a.year || null,
     cover: a.cover || null,
-    artists: (a.artist_ids || []).map(id => ({ id, name: (albumArtistNames && albumArtistNames.get(id)) || '' })).filter(x => x.name),
+    artists: albumArtistIdsOf(a).map(id => ({ id, name: (albumArtistNames && albumArtistNames.get(id)) || '' })).filter(x => x.name),
   }
 }
 
@@ -263,7 +255,7 @@ function mapSongSummary(row, artistNames, albumArtistNames, albumFallback) {
   return {
     id: row.id,
     title: row.title,
-    artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
+    artists: singerIdsOf(row).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
     album,
     genres: row.genres || [],
   }
@@ -275,35 +267,14 @@ async function assembleSummaries(env, rows, albumFallback) {
   const artistIds = []
   const albumArtistIds = []
   for (const r of rows) {
-    artistIds.push(...(r.artist_ids || []))
-    if (r.albums) albumArtistIds.push(...(r.albums.artist_ids || []))
+    artistIds.push(...singerIdsOf(r))
+    if (r.albums) albumArtistIds.push(...albumArtistIdsOf(r.albums))
   }
   const [artistNames, albumArtistNames] = await Promise.all([
     getArtistNameMap(env, artistIds),
     getArtistNameMap(env, albumArtistIds),
   ])
   return rows.map(r => mapSongSummary(r, artistNames, albumArtistNames, albumFallback))
-}
-
-/** 组装对外 song 详情（含歌词与全部署名） */
-function mapSongDetail(row, artistNames, albumArtistNames, contributorName) {
-  const credit = contributorName ? `本歌词来自于:${contributorName}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
-  const album = row.albums ? buildAlbumObject(row, albumArtistNames) : null
-  return {
-    id: row.id,
-    title: row.title,
-    aliases: row.aliases || [],
-    artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
-    album,
-    track: row.track ?? null,
-    disc: row.disc ?? null,
-    genres: row.genres || [],
-    lyricist: idsToNames(row.lyricist, artistNames),
-    composer: idsToNames(row.composer, artistNames),
-    arranger: idsToNames(row.arranger, artistNames),
-    comment: credit,
-    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
-  }
 }
 
 /** 组装对外 album 对象 */
@@ -313,7 +284,7 @@ function mapAlbum(row, artistNames) {
     name: row.name,
     year: row.year || null,
     cover: row.cover || null,
-    artists: (row.artist_ids || []).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
+    artists: albumArtistIdsOf(row).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
   }
 }
 
@@ -376,7 +347,7 @@ async function handleSearch(env, url) {
   if (type === 'album') {
     const result = await pgList(env, 'albums', { select: ALBUM_SELECT, name: `ilike.*${keyword}*`, order: 'name.asc' }, { limit, offset })
     if (!result) return jsonError(502, 'upstream error')
-    const artistNames = await getArtistNameMap(env, result.data.flatMap(a => a.artist_ids || []))
+    const artistNames = await getArtistNameMap(env, result.data.flatMap(a => albumArtistIdsOf(a)))
     const items = result.data.map(a => mapAlbum(a, artistNames))
     return jsonOk({ keyword, type, total: result.total, items }, TTL_LIST)
   }
@@ -429,7 +400,7 @@ async function handleAlbumSearchStructured(env, title, artist, limit, offset) {
   if (artist) params.p_artist = artist
   const result = await pgRpc(env, 'search_albums_structured', params)
   if (!result) return jsonError(502, 'upstream error')
-  const artistNames = await getArtistNameMap(env, (result.data || []).flatMap(a => a.artist_ids || []))
+  const artistNames = await getArtistNameMap(env, (result.data || []).flatMap(a => albumArtistIdsOf(a)))
   const items = (result.data || []).map(a => mapAlbum(a, artistNames))
   return jsonOk({ title, artist, type: 'album', total: result.total, items }, TTL_LIST)
 }
@@ -486,18 +457,53 @@ async function handleSongs(env, url) {
 }
 
 async function handleSong(env, id) {
-  const row = await pgOne(env, 'songs', SONG_DETAIL_SELECT, { id: `eq.${id}`, status: 'eq.published' })
+  // song_contributors 嵌套（FK song_id）：贡献关系唯一数据源（含歌手/词/曲/编）
+  const select = SONG_DETAIL_SELECT
+  const row = await pgOne(env, 'songs', select, { id: `eq.${id}`, status: 'eq.published' })
   if (!row) return jsonError(404, 'song not found')
-  const artistIds = [...(row.artist_ids || [])]
-  for (const k of ['lyricist', 'composer', 'arranger']) {
-    if (row[k]) artistIds.push(...String(row[k]).split(',').map(s => s.trim()))
+  const byRole = { singer: [], lyricist: [], composer: [], arranger: [] }
+  for (const r of row.song_contributors || []) {
+    if (byRole[r.role]) byRole[r.role].push(r.artist_id)
   }
+  const creditIds = {
+    lyricist: byRole.lyricist,
+    composer: byRole.composer,
+    arranger: byRole.arranger,
+  }
+  const artistIds = [...byRole.singer, ...creditIds.lyricist, ...creditIds.composer, ...creditIds.arranger]
   const [artistNames, albumArtistNames, contributorNames] = await Promise.all([
     getArtistNameMap(env, artistIds),
-    row.albums ? getArtistNameMap(env, row.albums.artist_ids || []) : Promise.resolve(new Map()),
+    row.albums ? getArtistNameMap(env, albumArtistIdsOf(row.albums)) : Promise.resolve(new Map()),
     row.contributor_id ? getContributorNameMap(env, [row.contributor_id]) : Promise.resolve(new Map()),
   ])
-  return jsonOk(mapSongDetail(row, artistNames, albumArtistNames, contributorNames.get(row.contributor_id) || null), TTL_DETAIL)
+  const idsToNames = ids => ids.map(x => artistNames.get(x)).filter(Boolean)
+  return jsonOk(
+    {
+      ...mapSongDetailBase(row, artistNames, albumArtistNames, contributorNames.get(row.contributor_id) || null),
+      lyricist: idsToNames(creditIds.lyricist),
+      composer: idsToNames(creditIds.composer),
+      arranger: idsToNames(creditIds.arranger),
+    },
+    TTL_DETAIL,
+  )
+}
+
+/** 详情装配的公共部分（lyricist/composer/arranger 由调用方按角色结果传入覆盖） */
+function mapSongDetailBase(row, artistNames, albumArtistNames, contributorName) {
+  const credit = contributorName ? `本歌词来自于:${contributorName}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
+  const album = row.albums ? buildAlbumObject(row, albumArtistNames) : null
+  return {
+    id: row.id,
+    title: row.title,
+    aliases: row.aliases || [],
+    artists: singerIdsOf(row).map(id => ({ id, name: artistNames.get(id) || '' })).filter(a => a.name),
+    album,
+    track: row.track ?? null,
+    disc: row.disc ?? null,
+    genres: row.genres || [],
+    comment: credit,
+    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
+  }
 }
 
 // ---------- 专辑 ----------
@@ -514,7 +520,7 @@ async function handleAlbums(env, url) {
 async function handleAlbum(env, id) {
   const row = await pgOne(env, 'albums', ALBUM_SELECT, { id: `eq.${id}` })
   if (!row) return jsonError(404, 'album not found')
-  const artistNames = await getArtistNameMap(env, row.artist_ids || [])
+  const artistNames = await getArtistNameMap(env, albumArtistIdsOf(row))
   // 曲目表：含隐藏歌曲（API 全量开放），按碟号/曲目号排序
   const songsRes = await pgList(
     env,
@@ -523,7 +529,7 @@ async function handleAlbum(env, id) {
     { limit: 500, offset: 0 },
   )
   const trackRows = (songsRes && songsRes.data) || []
-  const trackArtistNames = await getArtistNameMap(env, trackRows.flatMap(r => r.artist_ids || []))
+  const trackArtistNames = await getArtistNameMap(env, trackRows.flatMap(r => singerIdsOf(r)))
   const albumObj = mapAlbum(row, artistNames) // 曲目内嵌的 album 直接复用（含 artists）
   return jsonOk(
     {
@@ -575,26 +581,25 @@ async function handleArtist(env, id) {
 
 async function handleArtistSongs(env, id, url) {
   const { limit, offset } = parsePage(url)
-  // 演唱（数组 overlaps）+ 词曲编（逗号串 ilike，与主站 getArtistSongs 同口径）
-  const or = `(artist_ids.ov.${id},lyricist.ilike.*${id}*,composer.ilike.*${id}*,arranger.ilike.*${id}*)`
-  const result = await pgList(
-    env,
-    'songs',
-    { select: SONG_ROLES_SELECT, status: 'eq.published', or, order: 'created_at.desc' },
-    { limit, offset },
-  )
+  // 库端 RPC（B 段起单源读中间表），出参：id/title/artist_ids/albums(jsonb 含 artist_ids)/roles。
+  // 装配前适配成 embed 形状（song_contributors / album_contributors），复用统一摘要装配
+  const result = await pgRpc(env, 'get_artist_songs', { p_artist_id: id })
   if (!result) return jsonError(502, 'upstream error')
-  const summaries = await assembleSummaries(env, result.data)
-  // 每首标注该艺术家的实际角色
-  const items = result.data.map((r, i) => {
-    const roles = []
-    if ((r.artist_ids || []).includes(id)) roles.push('singer')
-    for (const k of ['lyricist', 'composer', 'arranger']) {
-      if (r[k] && String(r[k]).split(',').map(s => s.trim()).includes(id)) roles.push(k)
-    }
-    return { ...summaries[i], roles }
-  })
-  return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
+  const all = (result.data || []).map(r => ({
+    ...r,
+    song_contributors: (r.artist_ids || []).map(x => ({ role: 'singer', artist_id: x })),
+    albums: r.albums
+      ? { ...r.albums, album_contributors: (r.albums.artist_ids || []).map(x => ({ artist_id: x })) }
+      : undefined,
+  }))
+  const summaries = await assembleSummaries(env, all)
+  const pageRows = all.slice(offset, offset + limit)
+  const pageSummaries = summaries.slice(offset, offset + limit)
+  const items = pageRows.map((r, i) => ({
+    ...pageSummaries[i],
+    roles: (r.roles || []).filter(x => ['singer', 'lyricist', 'composer', 'arranger'].includes(x)),
+  }))
+  return jsonOk({ total: all.length, limit, offset, items }, TTL_LIST)
 }
 
 // ============ 入口 ============

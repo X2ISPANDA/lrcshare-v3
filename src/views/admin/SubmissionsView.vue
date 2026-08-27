@@ -11,7 +11,7 @@
 
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
       <div class="flex justify-between items-center px-5 py-3">
-        <span class="text-sm text-gray-500">共 {{ displayCount }} {{ tab === 'pending' ? '条投稿（批量按批合并）' : '条' }}</span>
+        <span class="text-sm text-gray-500">共 {{ displayCount }} 条投稿（批量按批合并）</span>
         <div v-if="tab === 'pending'" class="flex gap-2">
           <el-button v-if="!selected.length" size="small" type="success" plain @click="openBatchReviewAll">批量审核全部待审核</el-button>
           <template v-else>
@@ -23,7 +23,7 @@
       </div>
 
       <AdminTable :data="pagedDisplay" :loading="loading" row-key="__key" @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="45" :selectable="(row: any) => row.kind === 'single'" />
+        <el-table-column type="selection" width="45" />
         <el-table-column label="提交人" width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.row.user_name }}</template>
         </el-table-column>
@@ -42,9 +42,9 @@
         <el-table-column label="歌手" width="130" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.kind === 'batch' && row.rows">
-              {{ [...new Set(row.rows.map((r: any) => r.song_data?.artist).filter(Boolean))].join('、') || '—' }}
+              {{ [...new Set(row.rows.map((r: any) => artistNamesOf(r.song_data)).filter(Boolean))].join('、') || '—' }}
             </span>
-            <span v-else>{{ row.row.song_data?.artist || '—' }}</span>
+            <span v-else>{{ artistNamesOf(row.row.song_data) || '—' }}</span>
           </template>
         </el-table-column>
         <el-table-column v-if="tab !== 'pending'" label="状态" width="90">
@@ -58,10 +58,17 @@
         <el-table-column label="提交时间" width="165">
           <template #default="{ row }">{{ formatTime(row.row.created_at) }}</template>
         </el-table-column>
-        <el-table-column v-if="tab === 'pending'" label="操作" width="110" align="center">
+        <el-table-column label="操作" width="110" align="center">
           <template #default="{ row }">
-            <el-button v-if="row.kind === 'batch'" link type="success" size="small" @click="openBatchReviewForBatch(row)">审核整批</el-button>
-            <el-button v-else link type="primary" size="small" @click="openReview(row.row)">审核</el-button>
+            <template v-if="tab === 'pending'">
+              <el-button v-if="row.kind === 'batch'" link type="success" size="small" @click="openBatchReviewForBatch(row)">审核整批</el-button>
+              <el-button v-else link type="primary" size="small" @click="openReview(row.row)">审核</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="danger" size="small" @click="recallRow(row)">
+                {{ row.kind === 'batch' ? '撤回整批' : '撤回' }}
+              </el-button>
+            </template>
           </template>
         </el-table-column>
 
@@ -78,15 +85,18 @@
                   <template v-else>{{ row.row.song_data?.title || '—' }}</template>
                 </template>
               </div>
-              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.row.user_name }}<template v-if="row.row.song_data?.artist"> · {{ row.row.song_data?.artist }}</template></div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.row.user_name }}<template v-if="artistNamesOf(row.row.song_data)"> · {{ artistNamesOf(row.row.song_data) }}</template></div>
               <div class="text-xs text-gray-400 mt-0.5">{{ formatTime(row.row.created_at) }}</div>
               <div v-if="tab === 'rejected' && row.row.reject_reason" class="text-xs text-red-400 mt-1 truncate">拒绝：{{ row.row.reject_reason }}</div>
             </div>
             <el-tag v-if="tab !== 'pending'" :type="statusTagType(row.row.status)" size="small" class="shrink-0">{{ statusText(row.row.status) }}</el-tag>
           </div>
-          <div v-if="tab === 'pending'" class="mt-2 pt-2 border-t border-gray-50">
-            <el-button v-if="row.kind === 'batch'" link type="success" size="small" @click="openBatchReviewForBatch(row)">审核整批</el-button>
-            <el-button v-else link type="primary" size="small" @click="openReview(row.row)">审核</el-button>
+          <div class="mt-2 pt-2 border-t border-gray-50">
+            <el-button v-if="tab === 'pending' && row.kind === 'batch'" link type="success" size="small" @click="openBatchReviewForBatch(row)">审核整批</el-button>
+            <el-button v-else-if="tab === 'pending'" link type="primary" size="small" @click="openReview(row.row)">审核</el-button>
+            <el-button v-else link type="danger" size="small" @click="recallRow(row)">
+              {{ row.kind === 'batch' ? '撤回整批' : '撤回' }}
+            </el-button>
           </div>
         </template>
       </AdminTable>
@@ -300,7 +310,7 @@
     <el-dialog v-model="showBatchReview" title="批量审核" width="min(1500px, 94vw)" :close-on-click-modal="false" append-to-body>
       <div class="text-xs text-gray-400 mb-3">
         行首勾选后，列头「⚡」只应用到勾选的行（不勾 = 全部行）；歌手/作词/作曲/编曲/专辑单元格可点击编辑该行；▶ 展开歌词。
-        同名歧义、新建艺术家未填 ID 的行发布时自动跳过。
+        行状态「就绪」= 数据完整可提交；「待补 ID」= 有新建艺术家未填 ID（悬停看明细，点击徽标直达补全）；存在待补行时无法提交。
       </div>
       <el-table :data="batchRows" size="small" border max-height="60vh" row-key="row.id" @selection-change="batchSelected = $event">
         <el-table-column type="selection" width="40" fixed="left" />
@@ -406,13 +416,20 @@
           </template>
           <template #default="{ row }">{{ row.sd.genres.join('、') || '—' }}</template>
         </el-table-column>
-        <el-table-column label="决定" width="130" align="center">
+        <el-table-column label="行状态" width="160" align="center">
           <template #default="{ row, $index }">
-            <div class="flex items-center justify-center gap-1">
-              <el-button :type="row.decision === 'approve' ? 'success' : ''" size="small" @click="setDecision($index, 'approve')">通过</el-button>
-              <el-button :type="row.decision === 'reject' ? 'danger' : ''" size="small" @click="markReject($index)">拒绝</el-button>
-            </div>
-            <div v-if="row.decision === 'reject'" class="text-[11px] text-red-400 mt-0.5 px-1 truncate" :title="row.rejectReason">原因：{{ row.rejectReason || '未填' }}</div>
+            <template v-if="row.decision === 'reject'">
+              <el-tag type="danger" size="small">已标拒绝</el-tag>
+              <el-button link size="small" class="ml-1" @click="setDecision($index, 'approve')">恢复</el-button>
+              <div class="text-[11px] text-red-400 mt-0.5 px-1 truncate" :title="row.rejectReason">原因：{{ row.rejectReason || '未填' }}</div>
+            </template>
+            <template v-else>
+              <el-tooltip v-if="rowIssues(row.sd).length" :content="rowIssues(row.sd).join('；')" placement="top">
+                <el-tag type="warning" size="small" class="cursor-pointer" @click="openFill(firstIssueField(row.sd), $index)">待补 ID</el-tag>
+              </el-tooltip>
+              <el-tag v-else type="success" size="small">就绪</el-tag>
+              <el-button link size="small" type="danger" class="ml-1" @click="markReject($index)">拒绝</el-button>
+            </template>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="65" align="center">
@@ -423,11 +440,11 @@
       </el-table>
       <template #footer>
         <div class="flex justify-between w-full">
-          <el-button type="danger" plain :disabled="!batchSelected.length" @click="rejectBatchRows">直接拒绝勾选的 {{ batchSelected.length }} 行</el-button>
+          <el-button type="danger" plain :disabled="!batchSelected.length" @click="rejectBatchRows">勾选行标为拒绝（{{ batchSelected.length }}）</el-button>
           <div>
             <el-button @click="showBatchReview = false">取消</el-button>
             <el-button type="success" :loading="batchPublishing" @click="publishBatch">
-              ✅ 按标记提交（通过 {{ batchRows.filter(r => r.decision !== 'reject').length }} / 拒绝 {{ batchRows.filter(r => r.decision === 'reject').length }}）
+              ✅ 按标记提交（就绪 {{ batchStats.ready }} / 待补 {{ batchStats.blocked }} / 拒绝 {{ batchStats.rejected }}）
             </el-button>
           </div>
         </div>
@@ -493,6 +510,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/lib/adminApi'
+import { recomputeArtistTypes } from '@/lib/artistTypes'
+import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
@@ -566,7 +585,36 @@ interface ListEntry {
 }
 
 const displayList = computed<ListEntry[]>(() => {
-  if (tab.value !== 'pending') return listSource.value.map(row => ({ kind: 'single' as const, row, label: row.song_data?.type === 'profile' ? '资料更新' : (row.song_data?.title || '—') }))
+  if (tab.value !== 'pending') {
+    // 已通过/已拒绝同样按批折叠；批内数据取全状态（同批的通过/拒绝分散在两个 tab，
+    // 撤回整批 / 勾选删除都以批为单位一次性处理，不用切 tab 分两次）
+    const seen = new Set<string>()
+    const out: ListEntry[] = []
+    for (const row of listSource.value) {
+      const bid = row.batch_id
+      if (bid && !seen.has(bid)) {
+        seen.add(bid)
+        const all = submissions.value.filter((r: any) => r.batch_id === bid)
+        const sd = all[0].song_data || {}
+        const okN = all.filter(r => r.status === 'approved').length
+        const rjN = all.filter(r => r.status === 'rejected').length
+        const parts: string[] = []
+        if (okN) parts.push(`通过 ${okN}`)
+        if (rjN) parts.push(`拒绝 ${rjN}`)
+        out.push({
+          kind: 'batch',
+          row: all.find(r => r.status === tab.value) || all[0],
+          rows: all,
+          batchId: bid,
+          label: `${sd.album ? `《${sd.album}》` : ''}等 ${all.length} 首${parts.length ? `（${parts.join(' / ')}）` : ''}`,
+          artist: artistNamesOf(sd),
+        })
+      } else if (!bid) {
+        out.push({ kind: 'single', row, label: row.song_data?.type === 'profile' ? '资料更新' : (row.song_data?.title || '—') })
+      }
+    }
+    return out
+  }
   const seen = new Set<string>()
   const out: ListEntry[] = []
   for (const row of listSource.value) {
@@ -583,7 +631,7 @@ const displayList = computed<ListEntry[]>(() => {
         rows,
         batchId: bid,
         label: `${album ? `《${album}》` : ''}等 ${rows.length} 首歌曲`,
-        artist: sd.artist || '',
+        artist: artistNamesOf(sd),
       })
     } else if (!bid) {
       out.push({ kind: 'single', row, label: row.song_data?.type === 'profile' ? '资料更新' : (row.song_data?.title || '—') })
@@ -595,23 +643,39 @@ const pagedDisplay = computed(() => displayList.value.map(e => ({ ...e, __key: e
 /** 展示计数：按投稿动作计（批次算一次） */
 const displayCount = computed(() => displayList.value.length)
 
-/** 选择变化：列表行是 ListEntry 包装，勾选只对单曲行开放，取回原投稿行 */
+/** 选择变化：列表行是 ListEntry 包装；勾选批次行 = 选中批内全部投稿（删除/拒绝按整批展开） */
 function onSelectionChange(entries: any[]) {
-  selected.value = entries.filter(e => e?.kind === 'single').map(e => e.row)
+  const out: any[] = []
+  for (const e of entries) {
+    if (!e) continue
+    if (e.kind === 'batch' && e.rows) out.push(...e.rows)
+    else if (e.kind === 'single') out.push(e.row)
+  }
+  // 批内多行去重（批次行与单曲行不会重叠，稳妥起见仍去重）
+  selected.value = [...new Map(out.map(r => [r.id, r])).values()]
 }
 
 async function load() {
   loading.value = true
   try {
-    const [subs, arts, als] = await Promise.all([
+    const [subs, arts, als, ac] = await Promise.all([
       adminApi.getAll('submissions', { order: 'created_at', ascending: false }),
       adminApi.getAll<Artist>('artists', { order: 'name' }),
       adminApi.getAll<{ id: string; name: string; year?: number | null; cover?: string | null; description?: string | null; artist_ids?: string[] | null }>('albums', { order: 'name' }),
+      adminApi.getAll<any>('album_contributors'),
     ])
     submissions.value = subs
     artists.value = arts
-    albums.value = als
-    filteredAlbums.value = als
+    // 中间表 → 专辑池装饰 artist_ids（下游沿用旧字段名）
+    const acMap = new Map<string, string[]>()
+    for (const r of ac) {
+      const list = acMap.get(r.album_id) || []
+      list.push(r.artist_id)
+      acMap.set(r.album_id, list)
+    }
+    const decorated = als.map(a => ({ ...a, artist_ids: acMap.get(a.id) || [] }))
+    albums.value = decorated
+    filteredAlbums.value = decorated
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
   } finally {
@@ -670,6 +734,10 @@ function openReview(row: any) {
   filteredAlbums.value = albums.value
   showReview.value = true
 }
+
+/** 歌手名拼接（song_data.artists 数组，唯一格式；v2 裸键 artist 已在 phase2-B ⑨ 规范化清除） */
+const artistNamesOf = (sd: any) =>
+  (Array.isArray(sd?.artists) ? sd.artists : []).map((a: any) => a?.name).filter(Boolean).join('、')
 
 /** 深拷贝 song_data 并规范化：补数组字段、_new 标记、按名自动绑定已入库艺术家（大小写不敏感，
  *  仅库内名字唯一时绑——同名多人保留待创建态）。单曲审核与批量通过共用 */
@@ -889,6 +957,9 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     // 2. 更新投稿状态
     await adminApi.update('submissions', sub.id, { status: 'approved', approved_at: new Date().toISOString() })
 
+    /** 本次发布新建的实体（删除已通过投稿时按引用检查级联回收） */
+    const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string } = { artist_ids: [] }
+
     // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
     if (!skipMail) {
       adminApi.callMailServer('/api/mailer', {
@@ -905,11 +976,12 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       for (const e of newList) {
         const id = String(e.item.id).trim()
         nameToId[e.item.name] = id
+        // types 由歌曲关联派生：取该艺术家在本投稿各字段类型的并集
+        const derivedTypes = e.types.length ? e.types : ['singer']
         await adminApi.insert('artists', {
           id,
           name: e.item.name,
-          // 内联表单补全过的 types 优先，否则用各字段类型的并集
-          types: e.item.types?.length ? e.item.types : (e.types.length ? e.types : ['singer']),
+          types: derivedTypes,
           is_show: e.item.is_show !== false,
           sort: 0,
           // 点击头像内联补全的信息（未补全则为空值，行为与原先一致）
@@ -919,6 +991,14 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
           disambiguation: e.item.disambiguation || '',
           urls: e.item.urls || {},
         })
+        refs.artist_ids.push(id)
+        // 同步本地艺术家池：批量发布后续行的同名自动绑定 / 头像显示 / 歧义检测都依赖它
+        artists.value.push({
+          id, name: e.item.name, types: [...derivedTypes],
+          avatar: e.item.avatar || null, disambiguation: e.item.disambiguation || null,
+          aliases: e.item.aliases || [], bio: e.item.bio || '', urls: e.item.urls || {},
+          is_show: e.item.is_show !== false,
+        } as any)
       }
       for (const f of ARTIST_FIELDS) {
         sd[f.key].forEach((item: any) => {
@@ -979,6 +1059,7 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         is_owner: false,
         sort: 0,
       })
+      refs.contributor_id = contributorId
       action = 'new'
     }
 
@@ -987,21 +1068,23 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       let albumId: string | null = sd.album_id || null
       if (!albumId && sd.album) {
         albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
+        const albumArtistIds = (sd.album_artists || []).map((a: any) => a.id).filter(Boolean)
         await adminApi.insert('albums', {
           id: albumId,
           name: sd.album,
-          artist_ids: (sd.album_artists || []).map((a: any) => a.id).filter(Boolean),
           year: sd.year ? (parseInt(sd.year) || null) : null,
           cover: sd.album_cover || '',
           description: sd.album_desc || null,
         })
+        await syncAlbumContributors(albumId, albumArtistIds)
+        refs.album_id = albumId
       } else if (albumId) {
         // 沿用已有专辑：审核表单里的专辑艺术家/封面/年份/简介与库内不同则写回（预填库内值，改了才生效）
         const albumRow = albums.value.find(a => a.id === albumId)
         const patch: Record<string, any> = {}
         const newArtistIds = (sd.album_artists || []).map((a: any) => a.id).filter(Boolean)
         const oldArtistIds = albumRow?.artist_ids || []
-        if (newArtistIds.length && JSON.stringify(newArtistIds) !== JSON.stringify(oldArtistIds)) patch.artist_ids = newArtistIds
+        const artistIdsChanged = newArtistIds.length && JSON.stringify(newArtistIds) !== JSON.stringify(oldArtistIds)
         if (sd.album_cover && sd.album_cover !== (albumRow?.cover ?? '')) patch.cover = sd.album_cover
         if (sd.year) {
           const y = parseInt(String(sd.year), 10) || null
@@ -1009,18 +1092,20 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         }
         if ((sd.album_desc || '') !== (albumRow?.description || '')) patch.description = sd.album_desc || null
         if (Object.keys(patch).length) await adminApi.update('albums', albumId, patch)
+        if (artistIdsChanged) await syncAlbumContributors(albumId, newArtistIds)
       }
 
-      // 插入歌曲（lyricist/composer 统一存 ID 逗号分隔）
-      const idsOf = (arr: any[]) => (arr || []).map(a => a.id).filter(Boolean).join(',')
+      // 插入歌曲（贡献关系只写 song_contributors 中间表，不再写旧列）
+      const songId = 's' + Date.now() + Math.floor(Math.random() * 1000)
+      refs.song_id = songId
+      const singerIds = (sd.artists || []).map((a: any) => a.id).filter(Boolean)
+      const lyricistIds = (sd.lyricist_arr || []).map((a: any) => a.id).filter(Boolean)
+      const composerIds = (sd.composer_arr || []).map((a: any) => a.id).filter(Boolean)
+      const arrangerIds = (sd.arranger_arr || []).map((a: any) => a.id).filter(Boolean)
       await adminApi.insert('songs', {
-        id: 's' + Date.now() + Math.floor(Math.random() * 1000),
+        id: songId,
         title: sd.title,
-        artist_ids: (sd.artists || []).map((a: any) => a.id).filter(Boolean),
         album_id: albumId,
-        lyricist: idsOf(sd.lyricist_arr) || sd.lyricist || '',
-        composer: idsOf(sd.composer_arr) || sd.composer || '',
-        arranger: idsOf(sd.arranger_arr) || sd.arranger || '',
         duration: sd.duration || '',
         track: sd.track ? (parseInt(String(sd.track), 10) || null) : null,
         lrc_text: sd.lrc_text,
@@ -1030,7 +1115,19 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         contributor_id: contributorId,
         genres: sd.genres || [],
       })
+      // 贡献关系唯一数据源：中间表（失败不静默——歌已插入但无关系行会导致前台不显示歌手）
+      try {
+        await syncSongContributors(songId, {
+          singer: singerIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,
+        })
+      } catch (e: any) {
+        console.warn('[发布]中间表同步失败:', e?.message)
+        throw new Error(`歌曲已插入但贡献关系写入失败（${e?.message}），请撤回后重试`)
+      }
     }
+
+    // 8. 记录发布产物（删除已通过投稿时级联回收用；失败不阻塞主流程）
+    adminApi.update('submissions', sub.id, { published_refs: refs }).catch(e => console.warn('记录发布产物失败:', e?.message))
 
     if (!silent) {
       const actionText = isProfile
@@ -1078,14 +1175,145 @@ async function reject(sub: ReviewItem | null) {
 async function batchDelete() {
   if (!selected.value.length) return
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 条投稿记录？`, '批量删除', { type: 'warning' })
-    await adminApi.removeBatch('submissions', selected.value.map(s => s.id))
-    ElMessage.success('批量删除完成')
+    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 条投稿记录？（仅删记录，不清理已发布的歌曲/专辑等数据）`, '删除投稿', { type: 'warning' })
+  } catch { return }
+  try {
+    await adminApi.removeBatch('submissions', selected.value.map(r => r.id))
+    ElMessage.success(`已删除 ${selected.value.length} 条投稿记录`)
     clearSelection()
     await load()
   } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error('删除失败：' + e.message)
+    ElMessage.error('删除失败：' + e.message)
   }
+}
+
+/** 已通过 / 已拒绝 tab 行级撤回：单曲撤回该条；批次行撤回整批（批内同状态全部回到待审核）。
+ *  拒绝的没有发布产物，直接状态回退；通过走产物回收链 */
+function recallRow(entry: any) {
+  const rows = entry.kind === 'batch' && entry.rows ? entry.rows : [entry.row]
+  const approved = rows.filter((r: any) => r.status === 'approved')
+  const rejected = rows.filter((r: any) => r.status === 'rejected')
+  if (rejected.length) recallRejected(rejected)
+  if (approved.length) recallSubmissions(approved)
+}
+
+/** 拒绝撤回：无发布产物，直接回待审核 */
+async function recallRejected(rows: any[]) {
+  try {
+    await ElMessageBox.confirm(`确定撤回 ${rows.length} 条已拒绝的投稿回到待审核？`, '撤回投稿', { type: 'warning' })
+  } catch { return }
+  const failed: string[] = []
+  for (const row of rows) {
+    try {
+      await adminApi.update('submissions', row.id, {
+        status: 'pending',
+        reject_reason: null,
+        rejected_at: null,
+      })
+    } catch (e: any) {
+      failed.push(`「${row.song_data?.title || row.user_name}」：${e?.message || e}`)
+    }
+  }
+  if (failed.length) ElMessageBox.alert(`已撤回 ${rows.length - failed.length} 条；${failed.length} 条失败：\n${failed.join('\n')}`, '撤回结果', { type: 'warning', customStyle: { whiteSpace: 'pre-line' } as any })
+  else ElMessage.success(`已撤回 ${rows.length} 条，回到待审核`)
+  clearSelection()
+  await load()
+}
+
+/**
+ * 撤回投稿（回到待审核，测试 / 误发布用）：
+ * - 先按 published_refs 回收发布产物——删歌曲 → 删本次新建的专辑（若无其他歌引用）→
+ *   删本次新建的艺术家（若无其他歌/专辑引用）→ 删本次新建的贡献者（若无其他歌引用）；
+ *   沿用的库内实体不删，只回收「本次发布新建的」。不清理的话再次通过会重复建歌
+ * - 投稿状态回 pending，清空 approved_at / published_refs
+ */
+async function recallSubmissions(rows: any[]) {
+  if (!rows.length) {
+    ElMessage.warning('没有可撤回的已通过投稿')
+    return
+  }
+  const hint = rows.some(r => r.published_refs)
+    ? `将先回收其发布产物（歌曲/本次新建的专辑/艺术家/贡献者，被其他内容引用的保留），再回到待审核`
+    : `将回到待审核`
+  try {
+    await ElMessageBox.confirm(`确定撤回 ${rows.length} 条已通过的投稿？${hint}`, '撤回投稿', { type: 'warning' })
+  } catch { return }
+
+  // 1) 回收发布产物
+  const failed: string[] = []
+  /** 回收牵涉的艺术家（用于删后重算 types）与已删除的艺术家（跳过重算） */
+  const affectedArtists = new Set<string>()
+  const deletedArtists = new Set<string>()
+
+  for (const row of rows) {
+    const refs = row.published_refs || {}
+    try {
+      // 删歌曲：牵涉艺术家从中间表一次查全（含专辑艺术家）；关系行随 FK CASCADE 自动清除
+      if (refs.song_id) {
+        for (const r of await adminApi.getAll('song_contributors', { select: 'artist_id', eq: { song_id: refs.song_id } })) {
+          affectedArtists.add(r.artist_id)
+        }
+        const song = (await adminApi.getAll('songs', { select: 'album_id', eq: { id: refs.song_id } }))[0]
+        if (song?.album_id) {
+          for (const r of await adminApi.getAll('album_contributors', { select: 'artist_id', eq: { album_id: song.album_id } })) {
+            affectedArtists.add(r.artist_id)
+          }
+        }
+        await adminApi.remove('songs', refs.song_id)
+      }
+      // 删本次新建的专辑：库内无其他歌引用才删
+      if (refs.album_id) {
+        const stillUsed = await adminApi.getAll('songs', { select: 'id', eq: { album_id: refs.album_id } })
+        if (!stillUsed.length) {
+          await adminApi.remove('albums', refs.album_id)
+          albums.value = albums.value.filter(a => a.id !== refs.album_id)
+        }
+      }
+      // 删本次新建的艺术家：中间表无引用才删（FK RESTRICT 兜底，误删会被数据库拦截）
+      for (const aid of refs.artist_ids || []) {
+        affectedArtists.add(aid)
+        const usedBySong = await adminApi.getAll('song_contributors', { select: 'song_id', eq: { artist_id: aid } })
+        const usedByAlbum = await adminApi.getAll('album_contributors', { select: 'album_id', eq: { artist_id: aid } })
+        if (!usedBySong.length && !usedByAlbum.length) {
+          await adminApi.remove('artists', aid)
+          deletedArtists.add(aid)
+        }
+      }
+      // 删本次新建的贡献者：无其他歌引用才删
+      if (refs.contributor_id) {
+        const stillUsed = await adminApi.getAll('songs', { select: 'id', eq: { contributor_id: refs.contributor_id } })
+        if (!stillUsed.length) await adminApi.remove('contributors', refs.contributor_id)
+      }
+    } catch (e: any) {
+      failed.push(`「${row.song_data?.title || row.user_name}」产物回收失败：${e?.message || e}`)
+    }
+  }
+
+  // 2) 幸存艺术家重算 types：types 由歌曲/专辑关联派生，删歌后清掉失去作品支撑的类型
+  try {
+    await recomputeArtistTypes([...affectedArtists].filter(id => !deletedArtists.has(id)))
+  } catch (e: any) {
+    console.warn('重算艺术家类型失败:', e?.message)
+  }
+
+  // 3) 状态回待审核（回收失败的也回——refs 已失效，记录原因见弹窗）
+  const recallable = rows.filter(r => !failed.some(f => f.includes(r.song_data?.title || r.user_name)))
+  for (const row of recallable) {
+    try {
+      await adminApi.update('submissions', row.id, {
+        status: 'pending',
+        approved_at: null,
+        published_refs: null,
+      })
+    } catch (e: any) {
+      failed.push(`「${row.song_data?.title || row.user_name}」状态回退失败：${e?.message || e}`)
+    }
+  }
+
+  if (failed.length) ElMessageBox.alert(`已撤回 ${recallable.length} 条；${failed.length} 条失败（详见列表）：\n${failed.join('\n')}`, '撤回结果', { type: 'warning', customStyle: { whiteSpace: 'pre-line' } as any })
+  else ElMessage.success(`已撤回 ${recallable.length} 条，回到待审核`)
+  clearSelection()
+  await load()
 }
 
 /** 批量拒绝（列表多选）：一个原因应用到所有选中投稿，逐条更新 + 发邮件 */
@@ -1107,6 +1335,8 @@ async function batchReject() {
   } catch { return }
   let ok = 0
   const failed: string[] = []
+  /** 按提交人聚合邮件（一封合并邮件代替逐首单发） */
+  const mailGroups = new Map<string, { to: string; user_name: string; items: { title: string; result: 'reject'; reason?: string }[] }>()
   for (const row of rows) {
     try {
       await adminApi.update('submissions', row.id, {
@@ -1114,17 +1344,23 @@ async function batchReject() {
         reject_reason: reason,
         rejected_at: new Date().toISOString(),
       })
-      adminApi.callMailServer('/api/mailer', {
-        action: 'reject',
-        to: parseEmail(row),
-        user_name: row.user_name,
-        song_title: row.song_data?.title,
-        reject_reason: reason,
-      }).catch(e => console.warn('拒绝邮件跳过:', e?.message))
+      const to = parseEmail(row)
+      const key = `${row.user_name}||${to || ''}`
+      if (!mailGroups.has(key)) mailGroups.set(key, { to, user_name: row.user_name, items: [] })
+      mailGroups.get(key)!.items.push({ title: row.song_data?.title || '资料更新', result: 'reject', reason })
       ok++
     } catch (e: any) {
       failed.push(`「${row.song_data?.title || row.user_name}」`)
     }
+  }
+  for (const g of mailGroups.values()) {
+    if (!g.to) continue
+    adminApi.callMailServer('/api/mailer', {
+      action: 'batch',
+      to: g.to,
+      user_name: g.user_name,
+      items: g.items,
+    }).catch(e => console.warn('批量拒绝邮件跳过:', e?.message))
   }
   if (failed.length) ElMessageBox.alert(`成功拒绝 ${ok} 条，失败 ${failed.length} 条：${failed.join('、')}`, '批量拒绝结果', { type: 'warning' })
   else ElMessage.success(`已拒绝 ${ok} 条投稿`)
@@ -1206,6 +1442,70 @@ function setDecision(idx: number, d: 'approve' | 'reject') {
   if (d === 'approve') r.rejectReason = ''
 }
 
+/** 行间艺术家 ID 同步：任一行已确定的 ID（手填 / 发布时新建）→ 回填其他行的同名字段，
+ *  避免同一艺术家每行都要补一遍 ID（行状态徽标随之从「待补」变「就绪」） */
+function syncBatchArtistRefs() {
+  const known = new Map<string, string>()
+  for (const r of batchRows.value) {
+    for (const f of ARTIST_FIELDS) {
+      for (const item of r.sd[f.key] || []) {
+        if (item?.id) known.set(item.name.toLowerCase(), item.id)
+      }
+    }
+  }
+  for (const r of batchRows.value) {
+    for (const f of ARTIST_FIELDS) {
+      for (const item of r.sd[f.key] || []) {
+        if (!item || item.id) continue
+        const id = known.get(item.name.toLowerCase())
+        if (id) {
+          item.id = id
+          item._new = false
+        }
+      }
+    }
+  }
+}
+
+/** 行数据完整性检查：新建艺术家缺 ID / 同名歧义 → 阻碍提交的问题列表（与 collectNewArtists 的待建判定一致） */
+function rowIssues(sd: any): string[] {
+  const issues: string[] = []
+  for (const f of ARTIST_FIELDS) {
+    for (const item of sd[f.key] || []) {
+      if (!item || (!item._new && item.id)) continue
+      if (String(item.id || '').trim()) continue
+      const hits = artists.value.filter(a => a.name.toLowerCase() === item.name.toLowerCase())
+      if (hits.length >= 2) issues.push(`${f.label}「${item.name}」同名歧义（库内 ${hits.length} 位，需人工选择）`)
+      else issues.push(`${f.label}「${item.name}」待填 ID`)
+    }
+  }
+  return issues
+}
+
+/** 待补行的第一个缺 ID 字段（点「待补 ID」徽标直达该字段编辑弹窗） */
+function firstIssueField(sd: any): string {
+  for (const f of ARTIST_FIELDS) {
+    for (const item of sd[f.key] || []) {
+      if (!item || (!item._new && item.id)) continue
+      if (!String(item.id || '').trim()) return f.key
+    }
+  }
+  return 'artists'
+}
+
+/** 底部提交按钮统计：就绪（可提交）/ 待补（缺 ID）/ 拒绝 */
+const batchStats = computed(() => {
+  let ready = 0
+  let blocked = 0
+  let rejected = 0
+  for (const r of batchRows.value) {
+    if (r.decision === 'reject') rejected++
+    else if (rowIssues(r.sd).length) blocked++
+    else ready++
+  }
+  return { ready, blocked, rejected }
+})
+
 /** 行级决定：标记为拒绝，弹原因框（取消则不改变标记） */
 async function markReject(idx: number) {
   const r = batchRows.value[idx]
@@ -1235,6 +1535,19 @@ async function publishBatch() {
   const noReason = batchRows.value.filter(r => r.decision === 'reject' && !r.rejectReason)
   if (noReason.length) {
     ElMessage.warning(`有 ${noReason.length} 行标记为拒绝但未填原因，请点击其「拒绝」补填`)
+    return
+  }
+  // 预检前先做行间 ID 同步（其他行已确定的同名人 ID 自动补过来）
+  syncBatchArtistRefs()
+  // 预检：通过行有缺 ID / 同名歧义 → 阻止提交并逐行列明（不再静默跳过，全程可感知）
+  const blockedRows = batchRows.value.filter(r => r.decision !== 'reject' && rowIssues(r.sd).length)
+  if (blockedRows.length) {
+    ElMessageBox.alert(
+      `以下 ${blockedRows.length} 行数据不完整，补全（点行内「待补 ID」徽标）或标为拒绝后才能提交：\n`
+      + blockedRows.map(r => `·「${r.sd.title || r.row.user_name}」：${rowIssues(r.sd).join('；')}`).join('\n'),
+      '无法提交',
+      { type: 'warning', customStyle: { whiteSpace: 'pre-line' } as any },
+    )
     return
   }
   batchPublishing.value = true
@@ -1314,51 +1627,30 @@ async function publishBatch() {
   await load()
 }
 
-/** 批量审核弹窗内：拒绝勾选的行（一个原因），拒绝后从批量表移出；若表已空则关弹窗刷新 */
+/** 批量审核弹窗内：把勾选的行统一标记为拒绝（一个原因），不实际落库——之后统一走「按标记提交」按批发邮件 */
 async function rejectBatchRows() {
   const rows = [...batchSelected.value]
   if (!rows.length) return
   let reason: string
   try {
-    const { value } = await ElMessageBox.prompt(`将拒绝勾选的 ${rows.length} 条投稿，请输入拒绝原因（对所有条目相同）`, '批量拒绝', {
-      confirmButtonText: '确认拒绝',
+    const { value } = await ElMessageBox.prompt(`将勾选的 ${rows.length} 行标记为拒绝，请输入拒绝原因（对所有条目相同；点「按标记提交」才实际生效）`, '标记为拒绝', {
+      confirmButtonText: '确认',
       cancelButtonText: '取消',
       inputPattern: /.+/,
       inputErrorMessage: '拒绝原因不能为空',
     })
     reason = value
   } catch { return }
-  const failedIds = new Set<string>()
-  let ok = 0
-  const failed: string[] = []
-  for (const { row } of rows) {
-    try {
-      await adminApi.update('submissions', row.id, {
-        status: 'rejected',
-        reject_reason: reason,
-        rejected_at: new Date().toISOString(),
-      })
-      adminApi.callMailServer('/api/mailer', {
-        action: 'reject',
-        to: parseEmail(row),
-        user_name: row.user_name,
-        song_title: row.song_data?.title,
-        reject_reason: reason,
-      }).catch(e => console.warn('拒绝邮件跳过:', e?.message))
-      ok++
-    } catch (e: any) {
-      failedIds.add(row.id)
-      failed.push(`「${row.song_data?.title || row.user_name}」`)
+  const ids = new Set(rows.map(r => r.row.id))
+  let marked = 0
+  for (const r of batchRows.value) {
+    if (ids.has(r.row.id)) {
+      r.decision = 'reject'
+      r.rejectReason = reason
+      marked++
     }
   }
-  // 从批量表移出已拒绝的行（失败的保留继续处理）
-  batchRows.value = batchRows.value.filter(r => failedIds.has(r.row.id) || !rows.some(x => x.row.id === r.row.id))
-  if (failed.length) ElMessageBox.alert(`成功拒绝 ${ok} 条，失败 ${failed.length} 条：${failed.join('、')}`, '批量拒绝结果', { type: 'warning' })
-  else ElMessage.success(`已拒绝 ${ok} 条投稿`)
-  if (!batchRows.value.length) {
-    showBatchReview.value = false
-    await load()
-  }
+  ElMessage.success(`已将 ${marked} 行标记为拒绝（统一原因），请点击「按标记提交」生效`)
 }
 
 // ---------- 填充/编辑弹窗（列头 ⚡ = 全部行；单元格点击 = 仅该行，预填当前值） ----------
@@ -1444,6 +1736,8 @@ function applyFill() {
     }
   }
   showFill.value = false
+  // 单行补了艺术家 ID → 同步到其他行的同名字段（省得每行补一遍）
+  if (isArtistCol || key === 'album') syncBatchArtistRefs()
   const scopeText = isFillAll.value
     ? (batchSelected.value.length ? `勾选的 ${batchSelected.value.length} 行` : `全部 ${batchRows.value.length} 行`)
     : '该行'

@@ -118,6 +118,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import { recomputeArtistTypes } from '@/lib/artistTypes'
+import { syncAlbumContributors } from '@/lib/contribRelations'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Album, Artist } from '@/lib/types'
@@ -159,12 +161,20 @@ const pagedList = computed(() => filteredList.value.slice((page.value - 1) * pag
 async function load() {
   loading.value = true
   try {
-    const [al, a, songs] = await Promise.all([
+    const [al, a, songs, ac] = await Promise.all([
       adminApi.getAll<Album>('albums', { order: 'name' }),
       adminApi.getAll<Artist>('artists', { order: 'name' }),
       adminApi.getAll<any>('songs', { select: 'album_id' }),
+      adminApi.getAll<any>('album_contributors'),
     ])
-    albums.value = al
+    // 中间表 → 专辑行装饰 artist_ids（下游沿用旧字段名）
+    const acMap = new Map<string, string[]>()
+    for (const r of ac) {
+      const list = acMap.get(r.album_id) || []
+      list.push(r.artist_id)
+      acMap.set(r.album_id, list)
+    }
+    albums.value = al.map(row => ({ ...row, artist_ids: acMap.get(row.id) || [] }))
     artists.value = a
     songAlbums.value = songs.map(s => s.album_id).filter(Boolean)
   } catch (e: any) {
@@ -243,20 +253,26 @@ async function save() {
         ids.push(created!.id)
       }
     }
-    // 2. 保存专辑
+    // 2. 保存专辑（专辑艺术家只写 album_contributors 中间表，不再写旧列）
     const payload = {
       name: form.name.trim(),
-      artist_ids: ids,
       year: form.year.trim() ? parseInt(form.year.trim()) : null,
       cover: form.cover.trim() || '',
       initial: form.initial.trim().toUpperCase() || null,
       description: form.description.trim() || null,
     }
     if (editing.value) {
+      // 专辑艺术家变化牵涉新旧两组 → 重算 types
+      const affected = [...new Set([...(editing.value.artist_ids || []), ...ids])]
       await adminApi.update('albums', editing.value.id, payload)
+      await syncAlbumContributors(editing.value.id, ids)
+      await recomputeArtistTypes(affected)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('albums', { id: 'al' + Date.now(), ...payload })
+      const albumId = 'al' + Date.now()
+      await adminApi.insert('albums', { id: albumId, ...payload })
+      await syncAlbumContributors(albumId, ids)
+      await recomputeArtistTypes(ids)
       ElMessage.success('新增专辑成功')
     }
     showDialog.value = false
@@ -272,6 +288,8 @@ async function removeOne(row: Album) {
   try {
     await ElMessageBox.confirm(`确定删除专辑「${row.name}」？专辑下的歌曲不会被删除，但会解除关联。`, '危险操作', { type: 'warning' })
     await adminApi.remove('albums', row.id)
+    // 专辑艺术家的 singer 支撑可能消失 → 重算
+    await recomputeArtistTypes(row.artist_ids || [])
     ElMessage.success('已删除')
     await load()
   } catch (e: any) {
@@ -283,7 +301,9 @@ async function batchRemove() {
   if (!selected.value.length) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 张专辑？专辑下的歌曲会解除关联但不删除。`, '批量删除', { type: 'warning' })
+    const affected = [...new Set(selected.value.flatMap(a => a.artist_ids || []))]
     await adminApi.removeBatch('albums', selected.value.map(a => a.id))
+    await recomputeArtistTypes(affected)
     ElMessage.success('批量删除完成')
     clearSelection()
     await load()

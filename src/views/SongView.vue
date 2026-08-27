@@ -55,15 +55,15 @@
         <div class="grid grid-cols-2 gap-4 text-center" :class="contributor ? 'md:grid-cols-5' : 'md:grid-cols-4'">
           <div>
             <div class="text-xs text-gray-400 mb-1">作词</div>
-            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField(song.lyricist)" /></div>
+            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField('lyricist')" /></div>
           </div>
           <div>
             <div class="text-xs text-gray-400 mb-1">作曲</div>
-            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField(song.composer)" /></div>
+            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField('composer')" /></div>
           </div>
           <div>
             <div class="text-xs text-gray-400 mb-1">编曲</div>
-            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField(song.arranger)" /></div>
+            <div class="font-medium text-gray-700"><CreditLinks :list="resolveField('arranger')" /></div>
           </div>
           <div>
             <div class="text-xs text-gray-400 mb-1">时长</div>
@@ -251,7 +251,7 @@ const HIDDEN_PLACEHOLDER_IMG = 'https://i0.hdslb.com/bfs/openplatform/6e065deeee
 
 /** 页面组合数据（一次 SSG 预取全部，避免多 key 时序问题） */
 interface SongPageData {
-  song: SongWithNames & { artists: Artist[]; credit_artists: Artist[] }
+  song: SongWithNames & { artists: Artist[]; credit_artists: Artist[]; credits: { role: string; artist_ids: string[] }[] }
   contributor: Contributor | null
   /** 同歌手其他歌曲（按专辑分组） */
   related: { album: string; songs: Song[] }[]
@@ -302,10 +302,26 @@ useHead({
 
 // ============ 隐藏歌词解锁 ============
 const unlocked = ref(false)
+// 通行证语义：全局口令验证一次 = 会话通行证，对「无独立口令」的隐藏歌处处生效；
+// 设了独立口令的歌不认通行证，只能用自己的 key（逐首验）。
+// verify RPC 返回 'global' | 'song' | ''（未命中）
+const GLOBAL_PASS_KEY = 'unlock_hidden:__global__'
+const unlockKey = `unlock_hidden:${songId}`
 // onMounted 后再读 sessionStorage，保证水合结果与 SSG HTML 一致（SSG 恒为占位页）
 onMounted(() => {
-  unlocked.value = sessionStorage.getItem('unlock_hidden') === 'true'
+  if (sessionStorage.getItem(unlockKey)) unlocked.value = true
+  evaluateGlobalPass()
 })
+/** 全局通行证：该歌没设独立口令才放行（独立口令歌必须逐首验）；数据异步到达后再评估一次 */
+async function evaluateGlobalPass() {
+  if (unlocked.value || !song.value?.is_hidden) return
+  if (!sessionStorage.getItem(GLOBAL_PASS_KEY)) return
+  try {
+    const { data: ownCode } = await api.supabase.rpc('song_has_own_code', { p_song_id: songId })
+    if (!ownCode) unlocked.value = true
+  } catch { /* 探测失败按有独立口令处理，安全侧 */ }
+}
+watch(() => song.value?.is_hidden, () => evaluateGlobalPass())
 const isHidden = computed(() => !!song.value?.is_hidden && !unlocked.value)
 
 /** 会话内已解锁但歌词仍为空（SSG/SPA 数据已清空且非本次解锁触发）：重拉一次完整歌词 */
@@ -326,15 +342,25 @@ async function unlock() {
   try {
     // 口令校验走数据库 RPC（security definer）：settings 受 RLS 保护，前端读不到 hidden_unlock_code；
     // 全局口令与歌曲独立口令均在库端比对，口令明文不下发客户端
-    const { data: ok } = await api.supabase.rpc('verify_hidden_unlock_code', {
+    const { data: hit } = await api.supabase.rpc('verify_hidden_unlock_code', {
       p_song_id: songId,
       p_code: input,
     })
-    if (ok) {
-      sessionStorage.setItem('unlock_hidden', 'true')
+    if (hit === 'global') {
+      // 全局口令：记通行证 + 本歌 key（无独立口令的隐藏歌此后会话内直开）
+      sessionStorage.setItem(GLOBAL_PASS_KEY, 'true')
+      sessionStorage.setItem(unlockKey, 'true')
       unlocked.value = true
       hiddenRefetched = true // 本函数自行重拉，避免触发上方 watch 重复请求
       // 重新拉取完整歌词（SSG 数据里已清空）
+      const full = await api.getSong(songId)
+      if (page.value) page.value = { ...page.value, song: full }
+      ElMessage.success('解锁成功！')
+    } else if (hit === 'song') {
+      // 独立口令：只记本歌 key（不产生通行证）
+      sessionStorage.setItem(unlockKey, 'true')
+      unlocked.value = true
+      hiddenRefetched = true
       const full = await api.getSong(songId)
       if (page.value) page.value = { ...page.value, song: full }
       ElMessage.success('解锁成功！')
@@ -349,14 +375,15 @@ async function unlock() {
 // ============ 展示 computed ============
 const cover = computed(() => song.value?.cover || song.value?.album_cover || song.value?.artists[0]?.avatar || LOGO_URL)
 
-/** 作词/作曲/编曲：逗号分隔的艺术家 id → 链接数组（查找范围含 credit 字段专属艺术家，如编曲人不在 artist_ids 中） */
-function resolveField(ids: string | null | undefined): { id: string; name: string }[] {
-  if (!ids) return []
+/** 作词/作曲/编曲：按角色从中间表 credits 取 id 列表 → 链接数组（查找范围含 credit 字段专属艺术家，如编曲人不在 artist_ids 中） */
+const ROLE_FIELD: Record<string, string> = { lyricist: 'lyricist', composer: 'composer', arranger: 'arranger' }
+function resolveField(field: string | null | undefined): { id: string; name: string }[] {
+  if (!field) return []
+  const role = ROLE_FIELD[field]
+  if (!role) return []
   const pool = [...(song.value?.artists || []), ...(song.value?.credit_artists || [])]
+  const ids = song.value?.credits?.find(c => c.role === role)?.artist_ids || []
   return ids
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
     .map(aid => {
       const found = pool.find(a => a.id === aid)
       return found ? { id: found.id, name: found.name } : { id: '', name: aid }

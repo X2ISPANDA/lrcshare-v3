@@ -25,7 +25,6 @@
                 <span v-if="article.author === '站长'" class="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-1">站长</span>
               </span>
               <span>📅 {{ formatDate(article.created_at) }}</span>
-              <span>👁 {{ article.views || 0 }} 浏览</span>
               <span class="text-pink-500 font-medium ml-auto hover:underline">查看更多 →</span>
             </div>
           </div>

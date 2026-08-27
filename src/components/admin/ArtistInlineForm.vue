@@ -32,32 +32,15 @@
           </el-col>
         </el-row>
       </template>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="类型">
-            <el-select v-model="form.types" multiple placeholder="选择类型" class="w-full">
-              <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="区分信息">
-            <el-input v-model="form.disambiguation" placeholder="区分同名，如：北京民谣歌手" />
-          </el-form-item>
-        </el-col>
-      </el-row>
-      <el-row :gutter="12">
-        <el-col :span="12">
-          <el-form-item label="头像 URL">
-            <el-input v-model="form.avatar" placeholder="留空用默认头像" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="别名">
-            <el-select v-model="form.aliases" multiple filterable allow-create default-first-option placeholder="输入别名回车添加" class="w-full" />
-          </el-form-item>
-        </el-col>
-      </el-row>
+      <el-form-item label="区分信息">
+        <el-input v-model="form.disambiguation" placeholder="区分同名，如：北京民谣歌手" />
+      </el-form-item>
+      <el-form-item label="头像 URL">
+        <el-input v-model="form.avatar" placeholder="留空用默认头像" />
+      </el-form-item>
+      <el-form-item label="别名">
+        <el-select v-model="form.aliases" multiple filterable allow-create default-first-option placeholder="输入别名回车添加" class="w-full" />
+      </el-form-item>
       <el-form-item label="简介">
         <el-input v-model="form.bio" type="textarea" :rows="3" />
       </el-form-item>
@@ -92,13 +75,8 @@ import type { ArtistTag } from '@/lib/types'
  * 艺术家信息补全弹窗（ArtistTagInput admin 模式点击头像弹出）：
  * - 已有艺术家（有 id 且非 _new）：保存时当场 update 写库
  * - 待创建（无 id 或 _new）：手填 ID + 资料，随审核通过/歌曲保存时统一创建
+ * 类型（types）不在此编辑：由歌曲/专辑关联自动派生（发布补全、删除重算）
  */
-const TYPE_OPTIONS = [
-  { label: '歌手', value: 'singer' },
-  { label: '作词人', value: 'lyricist' },
-  { label: '作曲人', value: 'composer' },
-  { label: '编曲人', value: 'arranger' },
-]
 const URL_PLATFORMS = ['netease', 'qqmusic', 'weibo', 'bilibili', 'instagram', 'spotify', 'youtube', 'x', 'facebook', 'douyin', 'xiaohongshu', 'beatstars', 'official']
 
 const props = defineProps<{ tag: ArtistTag }>()
@@ -111,7 +89,6 @@ const saving = ref(false)
 const form = reactive({
   newId: (props.tag.id && props.tag._new ? props.tag.id : '') as string,
   is_show: props.tag.is_show !== false,
-  types: [...(props.tag.types || [])],
   disambiguation: props.tag.disambiguation || '',
   avatar: props.tag.avatar || '',
   aliases: [...(props.tag.aliases || [])],
@@ -128,9 +105,8 @@ async function save() {
   saving.value = true
   try {
     const urls = Object.fromEntries(form.urlRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()]))
-    // 值写回 tag（引用），随 v-model 数据流带到提交链路
+    // 值写回 tag（引用），随 v-model 数据流带到提交链路（types 保持原值，由歌曲关联派生）
     Object.assign(props.tag, {
-      types: form.types,
       disambiguation: form.disambiguation.trim(),
       avatar: form.avatar.trim() || null,
       aliases: form.aliases,
@@ -146,9 +122,8 @@ async function save() {
       emit('close')
       return
     }
-    // 已有艺术家：当场写库（不动 name/sort/is_show/背景图等其余字段）
+    // 已有艺术家：当场写库（不动 name/types/sort/is_show/背景图等其余字段，types 由歌曲关联派生）
     await adminApi.update('artists', props.tag.id!, {
-      types: form.types,
       disambiguation: form.disambiguation.trim() || null,
       avatar: form.avatar.trim() || null,
       aliases: form.aliases,

@@ -11,7 +11,6 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
@@ -20,9 +19,4 @@ import type { Article } from '@/lib/types'
 useHead({ title: '关于 LrcShare' })
 
 const { data: article, loading } = useSSGData<Article>('about', () => api.getArticleBySlug('about'))
-
-// 浏览量计数仅客户端执行（SSG 构建时不可自增）
-onMounted(() => {
-  if (article.value) api.incrementArticleView(article.value.id)
-})
 </script>

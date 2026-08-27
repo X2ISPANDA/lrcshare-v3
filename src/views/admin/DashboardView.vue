@@ -33,7 +33,7 @@
           <template #default="{ row }">{{ row.song_data?.title || '—' }}</template>
         </el-table-column>
         <el-table-column label="歌手" width="140">
-          <template #default="{ row }">{{ row.song_data?.artist || '—' }}</template>
+          <template #default="{ row }">{{ artistNamesOf(row.song_data) || '—' }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
@@ -49,7 +49,7 @@
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <div class="font-medium text-gray-800 truncate">{{ row.song_data?.title || '—' }}</div>
-              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.user_name }}<template v-if="row.song_data?.artist"> · {{ row.song_data?.artist }}</template></div>
+              <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.user_name }}<template v-if="artistNamesOf(row.song_data)"> · {{ artistNamesOf(row.song_data) }}</template></div>
               <div class="text-xs text-gray-400 mt-0.5">{{ formatTime(row.created_at) }}</div>
             </div>
             <el-tag :type="statusTagType(row.status)" size="small" class="shrink-0">{{ statusText(row.status) }}</el-tag>
@@ -115,6 +115,9 @@ onMounted(() => {
 })
 
 const statusTagType = (s: string): any => ({ pending: 'warning', approved: 'success', rejected: 'danger' }[s] || 'info')
+/** 歌手名拼接（song_data.artists 数组，唯一格式；v2 裸键 artist 已在 phase2-B ⑨ 规范化清除） */
+const artistNamesOf = (sd: any) =>
+  (Array.isArray(sd?.artists) ? sd.artists : []).map((a: any) => a?.name).filter(Boolean).join('、')
 const statusText = (s: string) => ({ pending: '待审核', approved: '已通过', rejected: '已拒绝' }[s] || s)
 const formatTime = (t: string) => (t ? new Date(t).toLocaleString('zh-CN') : '')
 </script>

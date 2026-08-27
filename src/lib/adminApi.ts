@@ -47,9 +47,28 @@ export const adminApi = {
     if (error) throw error
   },
 
+  /** 按列条件删除（中间表关系同步用） */
+  async removeWhere(table: string, column: string, value: unknown): Promise<void> {
+    const { error } = await supabase.from(table).delete().eq(column, value)
+    if (error) throw error
+  },
+
+  /** 批量插入：单请求，替代逐行 insert */
+  async insertBatch<T = any>(table: string, records: Partial<T>[]): Promise<void> {
+    if (!records.length) return
+    const { error } = await supabase.from(table).insert(records as any)
+    if (error) throw error
+  },
+
   /** settings 表按 key upsert */
   async upsertSetting(key: string, value: string): Promise<void> {
     const { error } = await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+    if (error) throw error
+  },
+
+  /** 通用 upsert（song_secrets 等按业务键冲突的表用） */
+  async upsert<T = any>(table: string, record: Partial<T>, onConflict: string): Promise<void> {
+    const { error } = await supabase.from(table).upsert(record as any, { onConflict })
     if (error) throw error
   },
 
