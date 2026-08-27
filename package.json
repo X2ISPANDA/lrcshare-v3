@@ -17,6 +17,7 @@
     "@supabase/supabase-js": "^2.112.3",
     "@vueuse/core": "^14.4.0",
     "element-plus": "2.13.7",
+    "fflate": "^0.8.3",
     "marked": "^18.0.9",
     "nodemailer": "^7.0.13",
     "pinia": "^4.0.3",

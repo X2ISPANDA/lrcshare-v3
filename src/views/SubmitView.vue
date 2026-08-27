@@ -160,7 +160,24 @@
 
         <!-- ===== 歌曲信息 ===== -->
         <div class="border-b pb-6">
-          <h2 class="text-lg font-semibold text-gray-700 mb-4">🎵 歌曲信息</h2>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-700">🎵 歌曲信息</h2>
+            <el-radio-group v-model="mode" size="small">
+              <el-radio-button value="single">单曲投稿</el-radio-button>
+              <el-radio-button value="batch">批量投稿（LRC 文件）</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <!-- 批量模式：预设公共字段 → 上传 LRC/ZIP → 列表确认 → 逐首提交 -->
+          <BatchSubmitPanel
+            v-if="mode === 'batch'"
+            :artists="allArtists"
+            :albums="allAlbums"
+            :on-submit="submitBatchOne"
+            @done="onBatchDone"
+          />
+
+          <template v-else>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">歌曲名 <span class="text-red-500">*</span></label>
@@ -268,8 +285,11 @@
               <div class="text-xs text-gray-400 mt-1">编曲（Beat/Instrumental 制作）请填在这里，不要填到作曲</div>
             </div>
           </div>
+          </template>
         </div>
 
+        <!-- 视频链接 / 歌词内容 / 单曲提交按钮：仅单曲模式显示 -->
+        <template v-if="mode === 'single'">
         <!-- 视频链接 -->
         <div class="border-b pb-6">
           <h2 class="text-lg font-semibold text-gray-700 mb-4">🎬 视频链接 <span class="text-xs text-gray-400 font-normal">（选填）</span></h2>
@@ -307,6 +327,7 @@
           >{{ submitting ? '提交中...' : '提交审核' }}</button>
           <RouterLink to="/" class="text-gray-500 hover:text-gray-700">返回首页</RouterLink>
         </div>
+        </template>
       </div>
 
       <!-- 提交成功 -->
@@ -334,6 +355,7 @@ import { api } from '@/lib/api'
 import { contactLabel } from '@/lib/constants'
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import BatchSubmitPanel from '@/components/submit/BatchSubmitPanel.vue'
 import type { AlbumWithArtists } from '@/lib/types'
 
 useHead({ title: '投稿歌词 - LrcShare' })
@@ -462,6 +484,9 @@ function collectContactsObj(): Record<string, string> {
 }
 
 // ============ 歌曲信息 ============
+/** 投稿模式：单曲（默认）/ 批量（LRC 文件，公共字段预设 + 列表确认） */
+const mode = ref<'single' | 'batch'>('single')
+
 const song = reactive({
   title: '',
   artists: [] as { id: string | null; name: string }[],
@@ -674,6 +699,65 @@ function notifyAdminNewSubmission(userName: string, songTitle: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'notify', user_name: userName, song_title: songTitle }),
   }).catch(() => {}) // 静默失败：通知是附带能力，不阻塞投稿流程
+}
+
+// ============ 批量投稿（BatchSubmitPanel 桥接：用户信息校验 + 单首提交） ============
+const VALIDATION_ABORT = '__VALIDATION_ABORT__'
+
+/** 校验「你的信息」区（昵称/邮箱）；不通过抛 VALIDATION_ABORT 供面板中止整批 */
+function validateUserInfoForBatch() {
+  const name = (userForm.name || '').trim()
+  const email = (userForm.email || '').trim()
+  if (!name) {
+    ElMessage.warning('请先在「你的信息」中填写昵称')
+    throw new Error(VALIDATION_ABORT)
+  }
+  if (!selectedContributor.value && !email) {
+    ElMessage.warning('请先在「你的信息」中填写邮箱')
+    throw new Error(VALIDATION_ABORT)
+  }
+  if (email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      ElMessage.warning('请填写正确的邮箱地址')
+      throw new Error(VALIDATION_ABORT)
+    }
+  }
+  if (selectedContributor.value && userForm.request_clear && userForm.request_update) {
+    ElMessage.warning('更新信息和清空信息不能同时勾选')
+    throw new Error(VALIDATION_ABORT)
+  }
+}
+
+/** 面板逐首调用：校验用户信息（每首提交前都校验，改了也能拦住）+ 组装 payload + 提交 + 通知站长 */
+async function submitBatchOne(songData: any) {
+  validateUserInfoForBatch()
+  const name = (userForm.name || '').trim()
+  const email = (userForm.email || '').trim()
+  const contactObj: Record<string, string> = {}
+  if (email) contactObj['email'] = email
+  if (!(selectedContributor.value && !userForm.request_update)) {
+    Object.assign(contactObj, collectContactsObj())
+  }
+  await api.submitSubmissionV2({
+    submitter_name: name,
+    contact_value: contactObj,
+    submitter_public_contact: !!userForm.public_contact,
+    contributor_id: selectedContributor.value ? selectedContributor.value.id : null,
+    submitter_request_update: !!(selectedContributor.value && userForm.request_update),
+    submitter_request_clear: !!(selectedContributor.value && userForm.request_clear),
+    submitter_bio: selectedContributor.value && !userForm.request_update ? null : userForm.bio || null,
+    song_data: songData,
+  })
+  notifyAdminNewSubmission(name, songData.title)
+}
+
+/** 面板全部提交完成：切成功页（复用单曲成功提示） */
+function onBatchDone(count: number) {
+  submitted.value = true
+  submittedType.value = 'song'
+  ElMessage.success(`批量投稿完成，共 ${count} 首已进入审核队列`)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 </script>
 

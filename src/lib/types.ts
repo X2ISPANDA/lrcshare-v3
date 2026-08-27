@@ -86,6 +86,23 @@ export interface ArtistWithCount extends Artist {
   song_count?: number
 }
 
+/** 艺术家标签（ArtistTagInput 的 v-model 元素）：{id, name} 基础上可携带补全信息；
+ *  id 为 null 表示待创建（信息随提交入库），有 id 时补全信息可当场写库 */
+export interface ArtistTag {
+  id: string | null
+  name: string
+  avatar?: string | null
+  types?: string[] | null
+  disambiguation?: string | null
+  aliases?: string[] | null
+  bio?: string | null
+  urls?: Record<string, string> | null
+  /** 待创建艺术家是否前台展示（审核/录歌新建链路使用） */
+  is_show?: boolean
+  /** 投稿待创建标记（审核链路使用） */
+  _new?: boolean
+}
+
 /** 带艺术家名等展示字段的歌曲（API 层组装） */
 export interface SongWithNames extends Song {
   artist_name: string

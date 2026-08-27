@@ -53,6 +53,8 @@
         <RouterView />
       </el-main>
     </el-container>
+    <!-- 全局图片预览（Teleport 到 body；后台管理页的封面/头像放大查看） -->
+    <ImgPreview />
   </el-container>
 </template>
 
@@ -62,6 +64,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { useAdminAuth } from '@/composables/useAdminAuth'
 import { LOGO_URL } from '@/lib/constants'
+import ImgPreview from '@/components/layout/ImgPreview.vue'
 
 const route = useRoute()
 const router = useRouter()

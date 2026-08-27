@@ -101,7 +101,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="歌手" required>
-              <ArtistTagInput v-model="form.artists" :artists="artists" filter-type="singer" />
+              <ArtistTagInput v-model="form.artists" :artists="artists" filter-type="singer" admin @artist-saved="onArtistSaved" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -143,7 +143,7 @@
           <el-col :span="16">
             <el-form-item label="专辑艺术家">
               <div class="w-full">
-                <ArtistTagInput v-model="form.albumArtists" :artists="artists" tone="gray" :disabled="!!form.albumId && !albumUnlocked" />
+                <ArtistTagInput v-model="form.albumArtists" :artists="artists" tone="gray" admin :disabled="!!form.albumId && !albumUnlocked" @artist-saved="onArtistSaved" />
                 <div class="text-xs text-gray-400 mt-1">如唱片公司、音乐平台等；选择已有专辑时自动填充</div>
               </div>
             </el-form-item>
@@ -157,13 +157,13 @@
 
         <el-row :gutter="8">
           <el-col :span="8">
-            <el-form-item label="作词"><ArtistTagInput v-model="form.lyricists" :artists="artists" filter-type="lyricist" /></el-form-item>
+            <el-form-item label="作词"><ArtistTagInput v-model="form.lyricists" :artists="artists" filter-type="lyricist" admin @artist-saved="onArtistSaved" /></el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="作曲"><ArtistTagInput v-model="form.composers" :artists="artists" filter-type="composer" /></el-form-item>
+            <el-form-item label="作曲"><ArtistTagInput v-model="form.composers" :artists="artists" filter-type="composer" admin @artist-saved="onArtistSaved" /></el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="编曲"><ArtistTagInput v-model="form.arrangers" :artists="artists" filter-type="arranger" /></el-form-item>
+            <el-form-item label="编曲"><ArtistTagInput v-model="form.arrangers" :artists="artists" filter-type="arranger" admin @artist-saved="onArtistSaved" /></el-form-item>
           </el-col>
         </el-row>
 
@@ -243,7 +243,7 @@ import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
-import type { Artist, Contributor } from '@/lib/types'
+import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
 /** 歌曲管理：列表 + 新增/编辑（专辑锁定、艺术家自动补建、双歌词 tab、隐藏口令） */
 
@@ -333,14 +333,14 @@ const form = reactive({
   aliases: [] as string[],
   duration: '',
   track: 0,
-  artists: [] as { id: string | null; name: string }[],
+  artists: [] as ArtistTag[],
   albumId: '' as string | null,
   albumName: '',
-  albumArtists: [] as { id: string | null; name: string }[],
+  albumArtists: [] as ArtistTag[],
   year: '',
-  lyricists: [] as { id: string | null; name: string }[],
-  composers: [] as { id: string | null; name: string }[],
-  arrangers: [] as { id: string | null; name: string }[],
+  lyricists: [] as ArtistTag[],
+  composers: [] as ArtistTag[],
+  arrangers: [] as ArtistTag[],
   contributor_id: '' as string | null,
   genres: [] as string[],
   video_url: '',
@@ -440,11 +440,11 @@ function insertTip(type: string) {
 }
 
 // ============ 保存 ============
-/** 解析 {id,name}[]：无 id 自动创建艺术家（types 补充），返回 ID 列表 */
-async function resolveArtists(tags: { id: string | null; name: string }[], type: string): Promise<string[]> {
+/** 解析 ArtistTag[]：_new/无 id 的为待创建（手填 ID，与投稿审核同体系），返回 ID 列表 */
+async function resolveArtists(tags: ArtistTag[], type: string): Promise<string[]> {
   const ids: string[] = []
   for (const t of tags) {
-    if (t.id) {
+    if (t.id && !t._new) {
       const exist = artistMap.value.get(t.id)
       if (exist && type !== 'album' && !(exist.types || []).includes(type) && type !== 'singer') {
         const types = [...(exist.types || []), type]
@@ -454,23 +454,55 @@ async function resolveArtists(tags: { id: string | null; name: string }[], type:
       ids.push(t.id)
     } else {
       const created = await adminApi.insert('artists', {
-        id: 'a' + Date.now() + Math.floor(Math.random() * 1000),
+        id: t.id, // 内联表单手填的 ID（保存前已校验非空）
         name: t.name,
-        types: type === 'album' ? [] : [type],
-        is_show: true,
+        // 内联表单补全过的 types 优先；专辑艺术家（唱片公司等）默认无类型
+        types: t.types?.length ? t.types : (type === 'album' ? [] : [type]),
+        is_show: t.is_show !== false,
         sort: 0,
-        bio: '', avatar: '', aliases: [], disambiguation: '',
+        bio: t.bio || '',
+        avatar: t.avatar || '',
+        aliases: t.aliases || [],
+        disambiguation: t.disambiguation || '',
+        urls: t.urls || {},
       })
       artists.value.push(created as Artist)
-      ids.push(created!.id)
+      // 手填 ID 在创建成功后生效（insert 返回为准，兜底用 t.id——校验已保证非空）
+      ids.push(created?.id || String(t.id))
+      t._new = false // 已创建，防止后续保存重复插入
     }
   }
   return ids
 }
 
+/** 待创建艺术家（_new 或无 id）未填 ID 的清单，save 前校验用 */
+function missingNewIds(): string[] {
+  const all = [...form.artists, ...form.albumArtists, ...form.lyricists, ...form.composers, ...form.arrangers]
+  return all.filter(t => !t.id || t._new).filter(t => !t.id || !String(t.id).trim()).map(t => t.name)
+}
+
+/** 内联表单保存老艺术家（已写库）→ 同步本地艺术家池，避免下次展开/搜索仍显示旧数据 */
+function onArtistSaved(tag: ArtistTag) {
+  const a = artists.value.find(x => x.id === tag.id)
+  if (a) {
+    a.avatar = tag.avatar || null
+    a.types = tag.types || []
+    a.disambiguation = tag.disambiguation || null
+    a.aliases = tag.aliases || []
+    a.bio = tag.bio || ''
+    a.urls = tag.urls || {}
+  }
+}
+
 async function save() {
   if (!form.title.trim() || !form.artists.length || !form.albumName.trim() || !form.lrc_text.trim()) {
     ElMessage.warning('请填写必填字段：歌曲名、歌手、专辑、LRC 歌词')
+    return
+  }
+  // 新建艺术家必须手填 ID（与投稿审核同约束），点击头像即可填写
+  const missing = missingNewIds()
+  if (missing.length) {
+    ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.join('、')}），请点击其头像补全`)
     return
   }
   saving.value = true

@@ -41,9 +41,13 @@
 }
 
 /* ElMessageBox 在 el-dialog 之上打开时（注音/链接/注释输入、拒绝原因等），
-   Element Plus 动态 z-index 偶发低于 dialog 导致被遮住，全局强制抬高 */
+   Element Plus 动态 z-index 偶发低于 dialog 导致被遮住，全局强制抬高。
+   ElMessage 同病：审核弹窗内再开头像弹窗时，消息条动态 z-index 可能低于 dialog，一并抬高（略高于 message-box） */
 .el-overlay.is-message-box {
   z-index: 3000 !important;
+}
+.el-message {
+  z-index: 3001 !important;
 }
 
 /* 移动端：弹窗宽度压过所有内联 px 定宽（各管理页 dialog 写死 420~880px），
