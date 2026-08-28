@@ -20,7 +20,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-
+import { langColor } from '@/lib/constants'
 /**
  * 富文本内容渲染 + 译文语种自动切换（前台歌曲页、后台歌曲/文章编辑预览共用）
  * 扫描内容里的 data-lang（新格式）/ 旧类名（t-yue、cyan 等）自动生成语种切换按钮
@@ -32,17 +32,6 @@ const props = defineProps<{
   contentClass?: string
 }>()
 
-/** 语种配色：预设语种固定色，自定义语种按名称 hash 从色板稳定取色（与后台工具栏同算法，按钮色点=译文颜色） */
-const PRESET_LANG_COLORS: Record<string, string> = {
-  '粤语': '#1bcdfc', '英语': '#3b82f6', '日语': '#ec4899', '韩语': '#a855f7',
-}
-const LANG_PALETTE = ['#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#84cc16', '#f97316', '#14b8a6', '#e11d48', '#6366f1']
-function langColor(name: string): string {
-  if (PRESET_LANG_COLORS[name]) return PRESET_LANG_COLORS[name]
-  let sum = 0
-  for (const ch of name) sum += ch.codePointAt(0) ?? 0
-  return LANG_PALETTE[sum % LANG_PALETTE.length]
-}
 /** 旧类名数据（t-yue / cyan 等）到语种名的映射（老站迁移数据兼容） */
 const OLD_CLASS_LANG: Record<string, string> = {
   't-yue': '粤语', 'cyan': '粤语', 't-en': '英语', 't-ja': '日语', 't-ko': '韩语', 't-misc': '其它',

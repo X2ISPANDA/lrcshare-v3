@@ -248,12 +248,10 @@ import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
+import { GENRE_OPTIONS, TIP_ICONS } from '@/lib/constants'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
 /** 歌曲管理：列表 + 新增/编辑（专辑锁定、艺术家自动补建、双歌词 tab、隐藏口令） */
-
-const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
-const TIP_ICONS: Record<string, string> = { bell: '🔔', info: 'ℹ️', success: '✅', warning: '⚠️', danger: '❌', tip: '💡', note: '📝', important: '❗' }
 
 const route = useRoute()
 const songs = ref<any[]>([])

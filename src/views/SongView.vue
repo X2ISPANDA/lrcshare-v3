@@ -236,7 +236,8 @@ import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
-import { LOGO_URL } from '@/lib/constants'
+import { LOGO_URL, TIP_ICONS } from '@/lib/constants'
+import { copyText } from '@/lib/clipboard'
 import RewardModal from '@/components/common/RewardModal.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import CreditLinks from '@/components/song/CreditLinks.vue'
@@ -388,11 +389,6 @@ function resolveField(field: string | null | undefined): { id: string; name: str
       const found = pool.find(a => a.id === aid)
       return found ? { id: found.id, name: found.name } : { id: '', name: aid }
     })
-}
-
-const TIP_ICONS: Record<string, string> = {
-  bell: '🔔', info: 'ℹ️', success: '✅', warning: '⚠️',
-  danger: '❌', tip: '💡', note: '📝', important: '❗',
 }
 
 /** 简介：Markdown + Hexo {% tip %} 标签（迁移自 v2 preprocessMarkdown） */
@@ -561,21 +557,6 @@ const lyricsCardRef = ref<HTMLElement | null>(null)
 const lyricsVisible = useElementVisibility(lyricsCardRef)
 const { y: scrollY } = useWindowScroll()
 const showCopyFab = computed(() => lyricsVisible.value && scrollY.value > 300)
-
-async function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text)
-  } else {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.left = '-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-  }
-}
 
 function copyLrc() {
   if (!song.value?.lrc_text) return

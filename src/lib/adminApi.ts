@@ -11,6 +11,8 @@ export interface GetAllOpts {
   order?: string
   ascending?: boolean
   eq?: Record<string, unknown>
+  /** 批量判定用：column → 取值列表（单请求替代循环逐个 eq 查询） */
+  in?: Record<string, unknown[]>
 }
 
 export const adminApi = {
@@ -18,6 +20,7 @@ export const adminApi = {
     let q = supabase.from(table).select(opts.select || '*')
     if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false })
     if (opts.eq) for (const [k, v] of Object.entries(opts.eq)) q = q.eq(k, v)
+    if (opts.in) for (const [k, v] of Object.entries(opts.in)) q = q.in(k, v)
     const { data, error } = await q
     if (error) throw error
     return (data || []) as T[]
@@ -60,15 +63,16 @@ export const adminApi = {
     if (error) throw error
   },
 
-  /** settings 表按 key upsert */
-  async upsertSetting(key: string, value: string): Promise<void> {
-    const { error } = await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
-    if (error) throw error
-  },
-
   /** 通用 upsert（song_secrets 等按业务键冲突的表用） */
   async upsert<T = any>(table: string, record: Partial<T>, onConflict: string): Promise<void> {
     const { error } = await supabase.from(table).upsert(record as any, { onConflict })
+    if (error) throw error
+  },
+
+  /** 批量 upsert：单请求（settings 等多行一次保存用） */
+  async upsertBatch<T = any>(table: string, records: Partial<T>[], onConflict: string): Promise<void> {
+    if (!records.length) return
+    const { error } = await supabase.from(table).upsert(records as any, { onConflict })
     if (error) throw error
   },
 

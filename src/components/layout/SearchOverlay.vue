@@ -162,12 +162,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { highlightHtml, lrcSnippet } from '@/lib/highlight'
+import { LOGO_URL as DEFAULT_AVATAR } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
 import type { Album, Artist, SongWithNames } from '@/lib/types'
 
 const ui = useUiStore()
-
-const DEFAULT_AVATAR = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
 const inputRef = ref<HTMLInputElement>()
 const keyword = ref('')

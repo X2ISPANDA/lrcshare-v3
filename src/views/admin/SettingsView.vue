@@ -93,9 +93,8 @@ onMounted(load)
 async function save() {
   saving.value = true
   try {
-    for (const k of SETTING_KEYS) {
-      await adminApi.upsertSetting(k, settings.value[k])
-    }
+    // 单请求批量 upsert，替代逐 key 串行 6 次请求
+    await adminApi.upsertBatch('settings', SETTING_KEYS.map(k => ({ key: k, value: settings.value[k] })), 'key')
     ElMessage.success('设置已保存')
   } catch (e: any) {
     ElMessage.error('保存失败：' + e.message)

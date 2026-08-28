@@ -1,7 +1,7 @@
 # SQL 方案：search_songs 增加艺术家匹配（v3）
 
 日期：2026-08-25
-状态：待确认
+状态：**已废弃**——本文为 phase2 前的历史版本，线上权威实现是 phase3 的 6f 版（见 [phase3-song-secrets.md](phase3-song-secrets.md)）。仅作方案沿革记录，请勿按本文重跑 SQL。
 
 ## 问题
 

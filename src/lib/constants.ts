@@ -85,3 +85,31 @@ export function contactLabel(key: string): string {
 export function artistTypeIcons(types: string[] | null | undefined): string {
   return (types || ['singer']).map(t => ARTIST_TYPE_ICONS[t] || '').join(' ')
 }
+
+/** 风格选项（后台歌曲表单与投稿审核共用） */
+export const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
+
+/** Hexo {% tip %} 标签类型 → 图标（前台渲染与后台编辑工具栏共用） */
+export const TIP_ICONS: Record<string, string> = {
+  bell: '🔔', info: 'ℹ️', success: '✅', warning: '⚠️',
+  danger: '❌', tip: '💡', note: '📝', important: '❗',
+}
+
+/** 投稿校验中止哨兵：用户信息区校验失败时抛出，批量提交据此整批中止（SubmitView ↔ BatchSubmitPanel 共享） */
+export const VALIDATION_ABORT = '__VALIDATION_ABORT__'
+
+/** 译文语种预设配色（前台渲染与后台工具栏共用，保证同一语种前后台颜色一致） */
+export const PRESET_LANG_COLORS: Record<string, string> = {
+  '粤语': '#1bcdfc', '英语': '#3b82f6', '日语': '#ec4899', '韩语': '#a855f7',
+}
+
+/** 自定义语种配色板：按语种名 hash 稳定取色 */
+export const LANG_PALETTE = ['#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#84cc16', '#f97316', '#14b8a6', '#e11d48', '#6366f1']
+
+/** 语种 → 颜色：预设优先，自定义语种按名字 hash 从配色板稳定取色 */
+export function langColor(name: string): string {
+  if (PRESET_LANG_COLORS[name]) return PRESET_LANG_COLORS[name]
+  let sum = 0
+  for (const ch of name) sum += ch.codePointAt(0) ?? 0
+  return LANG_PALETTE[sum % LANG_PALETTE.length]
+}

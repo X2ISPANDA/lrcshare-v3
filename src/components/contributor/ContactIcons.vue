@@ -55,6 +55,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import AppIcon from '@/components/common/AppIcon.vue'
 import { contactLabel } from '@/lib/constants'
+import { copyText } from '@/lib/clipboard'
 import type { Contributor } from '@/lib/types'
 
 const props = defineProps<{ contributor: Contributor; variant?: 'light' | 'white' }>()
@@ -102,21 +103,6 @@ function openCopy(link: { key: string; label: string; value: string }) {
     ? { key: link.key, label: link.label, value: link.value, hint: '可复制地址或直接写邮件', mailto: `mailto:${link.value.trim()}` }
     : { key: link.key, label: link.label, value: link.value, hint: `复制${link.label}号后前往对应平台添加` }
   copied.value = false
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    return true
-  }
 }
 
 async function doCopy() {

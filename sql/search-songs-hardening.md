@@ -1,7 +1,7 @@
 # SQL 方案：search_songs RPC 加固 v2（动态列生成，替代手写清单）
 
 日期：2026-08-25
-状态：已确认（v2），待执行
+状态：**已废弃**——unlock_code 已随 [phase3-song-secrets.md](phase3-song-secrets.md) 拆表删除，占位列补丁连根作废；搜索 RPC 权威版本为 phase3 6f。仅作方案沿革记录，请勿按本文重跑 SQL。
 
 ## v1 → v2
 

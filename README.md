@@ -79,7 +79,7 @@ npm run docs:dev       # API 文档站（可选）
 - **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
 - **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
-- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、unlock_code 权限回收、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md` 等），执行记录见各文件头部说明
+- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃
 
 ## 目录结构
 
@@ -104,6 +104,16 @@ npm run docs:dev       # API 文档站（可选）
 ## 更新日志
 
 ### 2026-08-28
+
+- 搜索排序重构为终版权重阶梯：整串连续命中绝对优先，歌名/别名完全相等 > 艺术家完全相等 > 整词/子串分档计分，关键词去重防重复计分，`%`/`_` 按普通字符处理（通配符安全）
+- 搜索召回层两段式改造：`songs.search_text` 冗余列（歌名 + 别名 + 歌曲级/专辑级艺术家及别名，触发器自动同步）+ pg_trgm GIN 索引召回，排序语义不变，结果与改造前逐字节一致，为上万级曲库储备
+- API 歌词署名行加 `[419:19.999]` 时间戳：超出常规时长的伪时间轴使 Lyrico 等客户端可正常写入署名标签
+- 安全修复：投稿/审核通知邮件的 HTML 注入与信头注入、404 页 Host 反射型注入
+- 修复 `/v1/albums` 列表接口艺术家恒为空
+- 发布链补偿回滚增强：按产物分流——无产物回待审核可重试，已建部分产物留在已通过列表可撤回级联回收，不再产生孤儿歌曲
+- 后台新建艺术家 ID 冲突预检：占用即友好提示，不再抛原生主键冲突
+- 修复赞助者头像保存无效；常量与工具函数全库提纯（LOGO_URL / 二维码 / 语种色板 / 剪贴板等收敛至 `lib/constants.ts`、`lib/clipboard.ts`）；审核撤回改批量预读取消除 N+1 查询、站点设置保存合并为单请求
+- API 文档 v1.2.0：新增搜索排序机制详解与署名时间戳说明
 
 - 开放 API 搜索补专辑艺术家匹配：keyword 与结构化查询均覆盖专辑艺术家（TPE2，含别名）——音乐文件演唱者与组合名分置 TPE1/TPE2 时均可搜到
 - keyword 搜索改宽松语义（网易/QQ 式）：至少命中一个关键词即返回，命中越多排越前；告别单个关键词无关联数据时整首 0 结果

@@ -1,5 +1,7 @@
 # 修复 get_top_artists 作品数重复计数
 
+> ⚠️ **已废弃**——本文版本读旧列（四路 UNION ALL 切串），已被 [phase2-song-contributors.md](phase2-song-contributors.md) 的中间表单次 JOIN 版本取代。仅作沿革记录，请勿按本文重跑 SQL。
+
 ## 问题
 
 首页「艺术家」卡片的作品数（`song_count`）把一位艺术家在一首歌里的多个身份（演唱+作词+作曲+编曲）重复累加——一首歌被计成 2-4 个作品。

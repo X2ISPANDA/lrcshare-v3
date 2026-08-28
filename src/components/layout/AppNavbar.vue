@@ -96,11 +96,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
+import { LOGO_URL } from '@/lib/constants'
 
 const ui = useUiStore()
 const menuOpen = ref(false)
-
-const LOGO_URL = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
 /** 导航项：to 为路由地址；action=search 时打开全局搜索；href 为外部链接 */
 interface NavItem {

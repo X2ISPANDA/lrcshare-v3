@@ -200,6 +200,7 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { unzipSync } from 'fflate'
 import ArtistTagInput from './ArtistTagInput.vue'
+import { VALIDATION_ABORT } from '@/lib/constants'
 import type { Artist, AlbumWithArtists } from '@/lib/types'
 
 const props = defineProps<{
@@ -209,9 +210,6 @@ const props = defineProps<{
   onSubmit: (songData: any, batchId: string, batchSize: number) => Promise<void>
 }>()
 const emit = defineEmits<{ done: [count: number, summary: { album: string; batchId: string }] }>()
-
-/** 校验中止标记：父组件校验用户信息失败时 throw，面板识别后停止循环不再弹网络错误 */
-const VALIDATION_ABORT = '__VALIDATION_ABORT__'
 
 // ---------- 公共字段 ----------
 const common = reactive({

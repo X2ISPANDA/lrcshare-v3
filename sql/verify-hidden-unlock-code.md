@@ -1,7 +1,7 @@
 # SQL 方案：隐藏歌词口令校验 RPC
 
 日期：2026-08-25
-状态：已执行，v2 修正（p_song_id 类型 uuid → text）
+状态：**已废弃**——函数已随 [phase3-song-secrets.md](phase3-song-secrets.md) 改读 `song_secrets` 表（SECURITY DEFINER 保留），权威版本见 phase3。仅作沿革记录，请勿按本文重跑 SQL。
 
 ## 背景
 

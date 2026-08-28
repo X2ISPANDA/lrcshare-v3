@@ -355,7 +355,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
-import { contactLabel } from '@/lib/constants'
+import { contactLabel, LOGO_URL as DEFAULT_LOGO, VALIDATION_ABORT } from '@/lib/constants'
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import BatchSubmitPanel from '@/components/submit/BatchSubmitPanel.vue'
@@ -363,7 +363,6 @@ import type { AlbumWithArtists } from '@/lib/types'
 
 useHead({ title: '投稿歌词 - LrcShare' })
 
-const DEFAULT_LOGO = 'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 const CONTACT_TYPES = ['qq', 'wechat', 'bilibili', 'github', 'blog', 'douyin', 'weibo', 'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile']
 
 // ============ 全量数据（客户端加载，供 tag 过滤/专辑联想/贡献者搜索） ============
@@ -714,7 +713,6 @@ function notifyAdminNewSubmission(userName: string, songTitle: string) {
 }
 
 // ============ 批量投稿（BatchSubmitPanel 桥接：用户信息校验 + 单首提交） ============
-const VALIDATION_ABORT = '__VALIDATION_ABORT__'
 
 /** 校验「你的信息」区（昵称/邮箱）；不通过抛 VALIDATION_ABORT 供面板中止整批 */
 function validateUserInfoForBatch() {

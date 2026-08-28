@@ -4,6 +4,8 @@
 状态：SQL 已执行并验证通过（①~⑦ 全过）；Worker/插件/文档代码已改，待 Worker 部署 + API 回归 + 插件重打包
 前置：[search-songs-artist-match.md](search-songs-artist-match.md) v3 已执行（keyword 已支持艺术家名/别名匹配）
 
+> ⚠️ **部分废弃**：本文的 SQL 主体（`search_songs_structured` 函数体）已被 phase3 的 6f 版重写覆盖（见 [phase3-song-secrets.md](phase3-song-secrets.md)）；**API 层 `title`/`artist` 参数设计仍然有效**。SQL 部分请勿按本文重跑。
+
 ## 背景
 
 现行 `/v1/search` 只有 `keyword` 单参数（整串模糊）。API 调用者（Lyrico、MusicTag 等打标工具）手里**本来就有结构化的 title/artist 字段**（来自文件 tag），却被 API 逼着拼成一坨字符串，再让服务端猜怎么切——搜「17 Avril Lavigne」返回歌名叫《Avril Lavigne》的翻唱（MusicBrainz 场景实锤）、搜「Right now YoungQueenz」整串匹配不到返回 0 条（LrcShare 场景实锤）。

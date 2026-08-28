@@ -512,14 +512,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/lib/adminApi'
 import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
-import { contactLabel } from '@/lib/constants'
+import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Artist } from '@/lib/types'
 
 /** 投稿审核：列表 + 审核弹窗（edited_data 可编辑、新建艺术家点头像弹窗补全、通过时事务链发布） */
-const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
 const ARTIST_FIELDS = [
   { key: 'artists', label: '歌手', type: 'singer' },
   { key: 'album_artists', label: '专辑艺术家', type: 'singer' },
@@ -585,17 +584,37 @@ interface ListEntry {
 }
 
 const displayList = computed<ListEntry[]>(() => {
-  if (tab.value !== 'pending') {
-    // 已通过/已拒绝同样按批折叠；批内数据取全状态（同批的通过/拒绝分散在两个 tab，
-    // 撤回整批 / 勾选删除都以批为单位一次性处理，不用切 tab 分两次）
-    const seen = new Set<string>()
-    const out: ListEntry[] = []
-    for (const row of listSource.value) {
-      const bid = row.batch_id
-      if (bid && !seen.has(bid)) {
-        seen.add(bid)
-        const all = submissions.value.filter((r: any) => r.batch_id === bid)
-        const sd = all[0].song_data || {}
+  const pendingTab = tab.value === 'pending'
+  // 已通过/已拒绝的批次行取全状态（同批的通过/拒绝分散在两个 tab，
+  // 撤回整批 / 勾选删除都以批为单位一次性处理，不用切 tab 分两次）；待审核只取本 tab 行
+  const groupSrc = pendingTab ? listSource.value : submissions.value
+  // 预分组：batch_id → 行数组（一趟 O(n)，避免循环内反复 filter 的 O(n·m)）
+  const byBatch = new Map<string, any[]>()
+  for (const row of groupSrc) {
+    if (row.batch_id) {
+      const list = byBatch.get(row.batch_id)
+      if (list) list.push(row)
+      else byBatch.set(row.batch_id, [row])
+    }
+  }
+  const seen = new Set<string>()
+  const out: ListEntry[] = []
+  for (const row of listSource.value) {
+    const bid = row.batch_id
+    if (bid && !seen.has(bid)) {
+      seen.add(bid)
+      const all = byBatch.get(bid) || [row]
+      const sd = all[0].song_data || {}
+      if (pendingTab) {
+        out.push({
+          kind: 'batch',
+          row: all[0],
+          rows: all,
+          batchId: bid,
+          label: `${sd.album ? `《${sd.album}》` : ''}等 ${all.length} 首歌曲`,
+          artist: artistNamesOf(sd),
+        })
+      } else {
         const okN = all.filter(r => r.status === 'approved').length
         const rjN = all.filter(r => r.status === 'rejected').length
         const parts: string[] = []
@@ -609,30 +628,7 @@ const displayList = computed<ListEntry[]>(() => {
           label: `${sd.album ? `《${sd.album}》` : ''}等 ${all.length} 首${parts.length ? `（${parts.join(' / ')}）` : ''}`,
           artist: artistNamesOf(sd),
         })
-      } else if (!bid) {
-        out.push({ kind: 'single', row, label: row.song_data?.type === 'profile' ? '资料更新' : (row.song_data?.title || '—') })
       }
-    }
-    return out
-  }
-  const seen = new Set<string>()
-  const out: ListEntry[] = []
-  for (const row of listSource.value) {
-    const bid = row.batch_id
-    if (bid && !seen.has(bid)) {
-      seen.add(bid)
-      const rows = listSource.value.filter((r: any) => r.batch_id === bid)
-      const first = rows[0]
-      const sd = first.song_data || {}
-      const album = sd.album || ''
-      out.push({
-        kind: 'batch',
-        row: first,
-        rows,
-        batchId: bid,
-        label: `${album ? `《${album}》` : ''}等 ${rows.length} 首歌曲`,
-        artist: artistNamesOf(sd),
-      })
     } else if (!bid) {
       out.push({ kind: 'single', row, label: row.song_data?.type === 'profile' ? '资料更新' : (row.song_data?.title || '—') })
     }
@@ -965,12 +961,12 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     }
   }
 
+  /** 本次发布新建的实体（删除已通过投稿时按引用检查级联回收）；声明在 try 外，供 catch 补偿回滚读取 */
+  const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string } = { artist_ids: [] }
+
   try {
     // 2. 更新投稿状态
     await adminApi.update('submissions', sub.id, { status: 'approved', approved_at: new Date().toISOString() })
-
-    /** 本次发布新建的实体（删除已通过投稿时按引用检查级联回收） */
-    const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string } = { artist_ids: [] }
 
     // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
     if (!skipMail) {
@@ -1149,13 +1145,21 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     }
     return 'ok'
   } catch (e: any) {
-    // 补偿回滚：第一步已把状态置为 approved，发布中途失败会残留「已通过但产物残缺」的假象——
-    // 拉回 pending（并清 refs，半途产物不完整，不配记录）让投稿回到待审核列表可重试。
+    // 补偿回滚：refs 有实际产物（新建艺术家/贡献者/专辑/歌曲任一）→ 不能清 refs、
+    // 也不能拉回 pending（pending tab 无撤回按钮，重审会重复建歌）；
+    // 留在已通过 tab + 保留 refs，让「撤回」走级联回收后可重审。无任何产物才拉回 pending。
     // 回滚用 fire-and-forget：回滚自身失败不能掩盖原始错误
-    adminApi.update('submissions', sub.id, { status: 'pending', approved_at: null, published_refs: null })
+    const hasPartial = refs.artist_ids.length > 0 || !!refs.album_id || !!refs.song_id || !!refs.contributor_id
+    const rollback: Record<string, any> = hasPartial
+      ? { published_refs: refs }
+      : { status: 'pending', approved_at: null, published_refs: null }
+    adminApi.update('submissions', sub.id, rollback)
       .catch(e2 => console.warn('[补偿回滚失败]', sub.song_data?.title, e2?.message))
-    if (!silent) ElMessage.error('发布失败，已回滚到待审核：' + e.message)
-    else console.warn('[批量发布失败-已回滚]', sub.song_data?.title, e?.message)
+    // song_id 在 insert 前就赋值，「refs 含 song_id」≠「歌已建成」——
+    // 撤回链删不存在的行是 no-op，无需区分
+    const tip = hasPartial ? '（已建部分产物，请在已通过列表撤回本条回收后重试）' : '（已回滚到待审核）'
+    if (!silent) ElMessage.error('发布失败' + tip + '：' + e.message)
+    else console.warn('[批量发布失败]', sub.song_data?.title, tip, e?.message)
     return 'error'
   }
 }
@@ -1256,65 +1260,129 @@ async function recallSubmissions(rows: any[]) {
     await ElMessageBox.confirm(`确定撤回 ${rows.length} 条已通过的投稿？${hint}`, '撤回投稿', { type: 'warning' })
   } catch { return }
 
-  // 1) 回收发布产物
+  // ===== 预读取阶段：引用判定数据批量拉取（约 7 个并行查询替代每行 5-6 个串行查询） =====
+  const allRefs = rows.map(r => r.published_refs || {})
+  const songIds = [...new Set(allRefs.map(f => f.song_id).filter(Boolean))] as string[]
+  const directAlbumIds = [...new Set(allRefs.map(f => f.album_id).filter(Boolean))] as string[]
+  const contributorIds = [...new Set(allRefs.map(f => f.contributor_id).filter(Boolean))] as string[]
+  /** 艺术家删除候选 = 各行显式记录的新建艺术家（关系行里的库内艺术家不在删除范围） */
+  const artistDeleteIds = [...new Set(allRefs.flatMap(f => f.artist_ids || []))] as string[]
+
+  let contribRows: any[], songRows: any[], songsOfDirectAlbums: any[], albumContribDirect: any[], songsOfContributors: any[], usageSongRows: any[], usageArtistAlbumRows: any[]
+  try {
+    ;[contribRows, songRows, songsOfDirectAlbums, albumContribDirect, songsOfContributors, usageSongRows, usageArtistAlbumRows] = await Promise.all([
+    // 删歌牵涉的艺术家（幸存者重算 types 用）
+    songIds.length ? adminApi.getAll('song_contributors', { select: 'song_id,artist_id', in: { song_id: songIds } }) : Promise.resolve([]),
+    // 本次删的歌挂的专辑（refs 未直接记 album_id 时经此反查）
+    songIds.length ? adminApi.getAll('songs', { select: 'id,album_id', in: { id: songIds } }) : Promise.resolve([]),
+    // 直引专辑的残余歌曲引用（判定专辑可删）
+    directAlbumIds.length ? adminApi.getAll('songs', { select: 'id,album_id', in: { album_id: directAlbumIds } }) : Promise.resolve([]),
+    // 直引专辑的艺术家（重算 types 用）
+    directAlbumIds.length ? adminApi.getAll('album_contributors', { select: 'album_id,artist_id', in: { album_id: directAlbumIds } }) : Promise.resolve([]),
+    // 贡献者的残余歌曲引用
+    contributorIds.length ? adminApi.getAll('songs', { select: 'id,contributor_id', in: { contributor_id: contributorIds } }) : Promise.resolve([]),
+    // 艺术家删除候选的全部歌曲关系行（判定可删：排除本次删歌后无引用）
+    artistDeleteIds.length ? adminApi.getAll('song_contributors', { select: 'song_id,artist_id', in: { artist_id: artistDeleteIds } }) : Promise.resolve([]),
+    // 艺术家删除候选的全部专辑关系行
+    artistDeleteIds.length ? adminApi.getAll('album_contributors', { select: 'album_id,artist_id', in: { artist_id: artistDeleteIds } }) : Promise.resolve([]),
+    ])
+  } catch (e: any) {
+    ElMessage.error('撤回失败，预读取引用数据出错：' + (e?.message || e))
+    return
+  }
+
+  // 第二轮：歌曲挂载的额外专辑（refs 未直接记录的）
+  const songAlbumIds = songRows.map((s: any) => s.album_id).filter(Boolean) as string[]
+  const extraAlbumIds = [...new Set(songAlbumIds.filter(id => !directAlbumIds.includes(id)))]
+  const [songsOfExtraAlbums, albumContribExtra] = extraAlbumIds.length
+    ? await Promise.all([
+        adminApi.getAll('songs', { select: 'id,album_id', in: { album_id: extraAlbumIds } }),
+        adminApi.getAll('album_contributors', { select: 'album_id,artist_id', in: { album_id: extraAlbumIds } }),
+      ])
+    : [[], []]
+
+  const allSongsByAlbum = [...songsOfDirectAlbums, ...songsOfExtraAlbums] as any[]
+  const affectedArtists = new Set<string>([
+    ...contribRows.map((r: any) => r.artist_id),
+    ...[...albumContribDirect, ...albumContribExtra].map((r: any) => r.artist_id),
+    ...artistDeleteIds,
+  ])
+
+  // ===== 内存判定：确认本次要删的专辑 / 各艺术家与贡献者是否仍被引用 =====
+  const albumOfSong = new Map<string, string>(songRows.map((s: any) => [s.id, s.album_id].filter(Boolean) as [string, string]))
+  /** 行关联的专辑：refs 直接记录的，或经本次歌曲反查的 */
+  const rowAlbumId = (f: any) => f.album_id || albumOfSong.get(f.song_id)
+  const delSongIds = new Set(songIds)
+  const delAlbumIds = new Set<string>()
+  for (const aid of [...new Set([...directAlbumIds, ...songAlbumIds])]) {
+    const stillUsed = allSongsByAlbum.some((s: any) => s.album_id === aid && !delSongIds.has(s.id))
+    if (!stillUsed) delAlbumIds.add(aid)
+  }
+  const artistStillUsed = (aid: string) =>
+    usageSongRows.some((r: any) => r.artist_id === aid && !delSongIds.has(r.song_id)) ||
+    usageArtistAlbumRows.some((r: any) => r.artist_id === aid && !delAlbumIds.has(r.album_id))
+  const contributorStillUsed = (cid: string) =>
+    songsOfContributors.some((s: any) => s.contributor_id === cid && !delSongIds.has(s.id))
+
+  // ===== 删除阶段：分相执行（歌 → 专辑 → 艺术家 → 贡献者），只做删除不再查库。
+  // 分相的原因：跨行共享实体必须等全部歌曲删完再判删，否则 FK RESTRICT 会拦住先行删除的行
   const failed: string[] = []
-  /** 回收牵涉的艺术家（用于删后重算 types）与已删除的艺术家（跳过重算） */
-  const affectedArtists = new Set<string>()
+  const rowFailed = new Set<number>()
+  const titleOf = (r: any) => r.song_data?.title || r.user_name
   const deletedArtists = new Set<string>()
 
-  for (const row of rows) {
-    const refs = row.published_refs || {}
+  // 1) 歌曲（逐行定位失败行）；关系行随 FK CASCADE 自动清除
+  for (let i = 0; i < rows.length; i++) {
+    const refs = allRefs[i]
+    if (!refs.song_id) continue
     try {
-      // 删歌曲：牵涉艺术家从中间表一次查全（含专辑艺术家）；关系行随 FK CASCADE 自动清除
-      if (refs.song_id) {
-        for (const r of await adminApi.getAll('song_contributors', { select: 'artist_id', eq: { song_id: refs.song_id } })) {
-          affectedArtists.add(r.artist_id)
-        }
-        const song = (await adminApi.getAll('songs', { select: 'album_id', eq: { id: refs.song_id } }))[0]
-        if (song?.album_id) {
-          for (const r of await adminApi.getAll('album_contributors', { select: 'artist_id', eq: { album_id: song.album_id } })) {
-            affectedArtists.add(r.artist_id)
-          }
-        }
-        await adminApi.remove('songs', refs.song_id)
-      }
-      // 删本次新建的专辑：库内无其他歌引用才删
-      if (refs.album_id) {
-        const stillUsed = await adminApi.getAll('songs', { select: 'id', eq: { album_id: refs.album_id } })
-        if (!stillUsed.length) {
-          await adminApi.remove('albums', refs.album_id)
-          albums.value = albums.value.filter(a => a.id !== refs.album_id)
-        }
-      }
-      // 删本次新建的艺术家：中间表无引用才删（FK RESTRICT 兜底，误删会被数据库拦截）
-      for (const aid of refs.artist_ids || []) {
-        affectedArtists.add(aid)
-        const usedBySong = await adminApi.getAll('song_contributors', { select: 'song_id', eq: { artist_id: aid } })
-        const usedByAlbum = await adminApi.getAll('album_contributors', { select: 'album_id', eq: { artist_id: aid } })
-        if (!usedBySong.length && !usedByAlbum.length) {
-          await adminApi.remove('artists', aid)
-          deletedArtists.add(aid)
-        }
-      }
-      // 删本次新建的贡献者：无其他歌引用才删
-      if (refs.contributor_id) {
-        const stillUsed = await adminApi.getAll('songs', { select: 'id', eq: { contributor_id: refs.contributor_id } })
-        if (!stillUsed.length) await adminApi.remove('contributors', refs.contributor_id)
-      }
+      await adminApi.remove('songs', refs.song_id)
     } catch (e: any) {
-      failed.push(`「${row.song_data?.title || row.user_name}」产物回收失败：${e?.message || e}`)
+      rowFailed.add(i)
+      failed.push(`「${titleOf(rows[i])}」歌曲回收失败：${e?.message || e}`)
+    }
+  }
+  // 2) 专辑（本次新建且无残余引用的）；失败归因到引用它的行
+  for (const aid of delAlbumIds) {
+    try {
+      await adminApi.remove('albums', aid)
+      albums.value = albums.value.filter(a => a.id !== aid)
+    } catch (e: any) {
+      allRefs.forEach((f, i) => { if (rowAlbumId(f) === aid) rowFailed.add(i) })
+      failed.push(`专辑 ${aid} 回收失败：${e?.message || e}`)
+    }
+  }
+  // 3) 新建艺术家（FK RESTRICT 兜底：判定漏了引用数据库直接拦）
+  for (const aid of artistDeleteIds) {
+    if (deletedArtists.has(aid) || artistStillUsed(aid)) continue
+    try {
+      await adminApi.remove('artists', aid)
+      deletedArtists.add(aid)
+    } catch (e: any) {
+      allRefs.forEach((f, i) => { if ((f.artist_ids || []).includes(aid)) rowFailed.add(i) })
+      failed.push(`艺术家 ${aid} 回收失败：${e?.message || e}`)
+    }
+  }
+  // 4) 新建贡献者
+  for (const cid of contributorIds) {
+    if (contributorStillUsed(cid)) continue
+    try {
+      await adminApi.remove('contributors', cid)
+    } catch (e: any) {
+      allRefs.forEach((f, i) => { if (f.contributor_id === cid) rowFailed.add(i) })
+      failed.push(`贡献者 ${cid} 回收失败：${e?.message || e}`)
     }
   }
 
-  // 2) 幸存艺术家重算 types：types 由歌曲/专辑关联派生，删歌后清掉失去作品支撑的类型
+  // 幸存艺术家重算 types：types 由歌曲/专辑关联派生，删歌后清掉失去作品支撑的类型
   try {
     await recomputeArtistTypes([...affectedArtists].filter(id => !deletedArtists.has(id)))
   } catch (e: any) {
     console.warn('重算艺术家类型失败:', e?.message)
   }
 
-  // 3) 状态回待审核（回收失败的也回——refs 已失效，记录原因见弹窗）
-  const recallable = rows.filter(r => !failed.some(f => f.includes(r.song_data?.title || r.user_name)))
+  // 5) 状态回待审核（回收失败的行不回——refs 仍有效，留在已通过列表可重试撤回）
+  const recallable = rows.filter((_, i) => !rowFailed.has(i))
   for (const row of recallable) {
     try {
       await adminApi.update('submissions', row.id, {

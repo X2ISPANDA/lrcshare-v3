@@ -1,5 +1,7 @@
 # recompute_artist_types：艺术家类型派生重算 RPC
 
+> ⚠️ **已废弃**——本文版本从旧列（`artist_ids` 数组 / 逗号串）解析，已被 [phase2-song-contributors.md](phase2-song-contributors.md) 的中间表 JOIN 版本取代。仅作沿革记录，请勿按本文重跑 SQL。
+
 ## 背景
 
 `artists.types` 不再人工维护，改为从歌曲/专辑关联派生：

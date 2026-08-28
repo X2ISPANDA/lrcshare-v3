@@ -1,7 +1,7 @@
 # SQL 方案：unlock_code 列级收权 v3（动态列授权，修复 v2 grant 未生效）
 
 日期：2026-08-25
-状态：已确认（v3），待执行
+状态：**已废弃**——unlock_code 已随 [phase3-song-secrets.md](phase3-song-secrets.md) 拆表删除，songs 无此列，列级授权不再需要。本文的 pg_attribute 动态授权技巧曾复用于 phase1 的 songs 列级 SELECT 授予。仅作沿革记录，请勿按本文重跑 SQL。
 
 ## 版本沿革
 

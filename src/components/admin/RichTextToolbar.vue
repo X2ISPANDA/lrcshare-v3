@@ -31,6 +31,7 @@ import { computed, defineComponent, h, nextTick, ref } from 'vue'
 // 项目用 unplugin-vue-components 按需注入组件+样式，手动 import 会绕过样式注入导致渲染成裸 HTML
 // ElRadio/ElRadioGroup/ElInput 在 h() 里渲染（非模板），必须手动 import 并补样式（css.mjs）
 import { ElInput, ElMessage, ElMessageBox, ElRadio, ElRadioGroup } from 'element-plus'
+import { langColor, PRESET_LANG_COLORS } from '@/lib/constants'
 import 'element-plus/es/components/radio/style/css'
 import 'element-plus/es/components/radio-group/style/css'
 import 'element-plus/es/components/input/style/css'
@@ -95,22 +96,9 @@ function wrapSelection(prefix: string, suffix: string) {
   apply(s.start, s.end, prefix, s.sel, suffix)
 }
 
-/** 译文语种预设（快捷选择；语种名任意自定义，如法语/俄语/西班牙语） */
-const PRESET_LANGS = [
-  { name: '粤语', color: '#1bcdfc' },
-  { name: '英语', color: '#3b82f6' },
-  { name: '日语', color: '#ec4899' },
-  { name: '韩语', color: '#a855f7' },
-]
-/** 自定义语种配色板：按语种名 hash 稳定取色（前台 SongView 同算法，保证按钮色点与译文颜色一致） */
-const LANG_PALETTE = ['#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#84cc16', '#f97316', '#14b8a6', '#e11d48', '#6366f1']
-function langColor(name: string): string {
-  const preset = PRESET_LANGS.find(p => p.name === name)
-  if (preset) return preset.color
-  let sum = 0
-  for (const ch of name) sum += ch.codePointAt(0) ?? 0
-  return LANG_PALETTE[sum % LANG_PALETTE.length]
-}
+/** 译文语种预设（快捷选择；语种名任意自定义，如法语/俄语/西班牙语）。
+ *  配色收敛在 lib/constants（与前台渲染同源，保证按钮色点=译文颜色） */
+const PRESET_LANGS = Object.entries(PRESET_LANG_COLORS).map(([name, color]) => ({ name, color }))
 
 // ============ 语种快速复用 ============
 /** 最近用过的语种（localStorage 持久化，跨歌曲/文章、跨会话）：点工具栏胶囊直接标注，免弹窗 */
