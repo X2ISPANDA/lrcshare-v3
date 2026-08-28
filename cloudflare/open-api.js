@@ -542,9 +542,9 @@ function mapSongDetailBase(row, artistNames, albumArtistNames, contributorName) 
     disc: row.disc ?? null,
     genres: row.genres || [],
     comment: credit,
-    // 署名带 99:99.999 超界时间戳：LRC 规范外的时间点，播放器永不渲染滚动，
+    // 署名带 419:19.999 超界时间戳：LRC 规范外的时间点，播放器永不渲染滚动，
     // 但第三方工具（如 Lyrico 写 tag）解析时能把它当作普通 LRC 行收录
-    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n[99:99.999]${credit}` : null,
+    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n[419:19.999]${credit}` : null,
   }
 }
 
