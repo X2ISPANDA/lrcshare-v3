@@ -510,6 +510,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { adminApi } from '@/lib/adminApi'
+import { supabase } from '@/lib/supabase'
 import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
@@ -908,6 +909,52 @@ function parseEmail(row: any): string {
   }
 }
 
+/**
+ * 批量解析投稿邮箱：投稿记录 contact_value 优先；为空时回退查贡献者资料。
+ * （老贡献者投稿不强制填邮箱，但其资料库里有 → 审核结果邮件不该因此蒸发。）
+ * 一次 in 查询批量取回，避免逐行 N+1。
+ */
+async function emailMapOf(rows: any[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const needLookup: any[] = []
+  for (const row of rows) {
+    const email = parseEmail(row)
+    if (email) map.set(row.id, email)
+    else if (row.contributor_id) needLookup.push(row)
+    else map.set(row.id, '')
+  }
+  if (needLookup.length) {
+    try {
+      const ids = [...new Set(needLookup.map(r => r.contributor_id))]
+      const { data } = await supabase.from('contributors').select('id,contact_value').in('id', ids)
+      const cvById = new Map<string, any>((data || []).map((c: any) => [c.id, c.contact_value]))
+      for (const row of needLookup) {
+        try {
+          const cv = cvById.get(row.contributor_id)
+          const obj = typeof cv === 'string' ? JSON.parse(cv || '{}') : (cv || {})
+          map.set(row.id, obj['email'] || obj['邮箱'] || '')
+        } catch { map.set(row.id, '') }
+      }
+    } catch { /* 回退查询失败：保持无邮箱，由 notifyByEmail 提示 */ }
+  }
+  return map
+}
+const emailOf = (row: any) => emailMapOf([row]).then(m => m.get(row.id) || '')
+
+/** 发审核通知邮件：skipped/失败必须双通道可感知（ElMessage + console），禁止静默蒸发 */
+async function notifyByEmail(payload: Record<string, any>, label: string, who: string) {
+  try {
+    const r = await adminApi.callMailServer('/api/mailer', payload)
+    if (r?.skipped) {
+      console.warn(`[邮件未发送] ${label} → ${who}:`, r.reason)
+      ElMessage.warning(`${label}邮件未发送给 ${who}：${r.reason || '原因未知'}`)
+    }
+  } catch (e: any) {
+    console.warn(`[邮件发送失败] ${label} → ${who}:`, e?.message)
+    ElMessage.warning(`${label}邮件发送失败（${who}）：${e?.message || '网络错误'}`)
+  }
+}
+
 /** 内联表单保存老艺术家（已写库）→ 同步本地艺术家池 */
 function onArtistSaved(tag: any) {
   const a = artists.value.find(x => x.id === tag.id)
@@ -970,12 +1017,8 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
 
     // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
     if (!skipMail) {
-      adminApi.callMailServer('/api/mailer', {
-        action: 'approve',
-        to: parseEmail(sub),
-        user_name: sub.user_name,
-        song_title: isProfile ? '资料更新' : sd.title,
-      }).catch(e => console.warn('通过邮件跳过:', e?.message))
+      const to = await emailOf(sub)
+      notifyByEmail({ action: 'approve', to, user_name: sub.user_name, song_title: isProfile ? '资料更新' : sd.title }, '通过', sub.user_name)
     }
 
     // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上（资料更新类跳过）
@@ -1178,13 +1221,8 @@ async function reject(sub: ReviewItem | null) {
       reject_reason: value,
       rejected_at: new Date().toISOString(),
     })
-    adminApi.callMailServer('/api/mailer', {
-      action: 'reject',
-      to: parseEmail(sub),
-      user_name: sub.user_name,
-      song_title: sub.song_data?.title,
-      reject_reason: value,
-    }).catch(e => console.warn('拒绝邮件跳过:', e?.message))
+    const to = await emailOf(sub)
+    notifyByEmail({ action: 'reject', to, user_name: sub.user_name, song_title: sub.song_data?.title, reject_reason: value }, '拒绝', sub.user_name)
     ElMessage.success('已拒绝')
     showReview.value = false
     await load()
@@ -1420,6 +1458,8 @@ async function batchReject() {
   } catch { return }
   let ok = 0
   const failed: string[] = []
+  /** 邮箱一次性解析（投稿记录优先，回退贡献者资料），避免逐行查询 */
+  const emailMap = await emailMapOf(rows)
   /** 按提交人聚合邮件（一封合并邮件代替逐首单发） */
   const mailGroups = new Map<string, { to: string; user_name: string; items: { title: string; result: 'reject'; reason?: string }[] }>()
   for (const row of rows) {
@@ -1429,7 +1469,7 @@ async function batchReject() {
         reject_reason: reason,
         rejected_at: new Date().toISOString(),
       })
-      const to = parseEmail(row)
+      const to = emailMap.get(row.id) || ''
       const key = `${row.user_name}||${to || ''}`
       if (!mailGroups.has(key)) mailGroups.set(key, { to, user_name: row.user_name, items: [] })
       mailGroups.get(key)!.items.push({ title: row.song_data?.title || '资料更新', result: 'reject', reason })
@@ -1440,12 +1480,12 @@ async function batchReject() {
   }
   for (const g of mailGroups.values()) {
     if (!g.to) continue
-    adminApi.callMailServer('/api/mailer', {
-      action: 'batch',
-      to: g.to,
-      user_name: g.user_name,
-      items: g.items,
-    }).catch(e => console.warn('批量拒绝邮件跳过:', e?.message))
+    notifyByEmail({ action: 'batch', to: g.to, user_name: g.user_name, items: g.items }, '批量拒绝', g.user_name)
+  }
+  const noMail = [...mailGroups.values()].filter(g => !g.to).map(g => g.user_name)
+  if (noMail.length) {
+    console.warn('[邮件未通知] 未留邮箱且资料无邮箱:', noMail.join('、'))
+    ElMessage.warning(`未通知邮件（未留邮箱）：${noMail.join('、')}`)
   }
   if (failed.length) ElMessageBox.alert(`成功拒绝 ${ok} 条，失败 ${failed.length} 条：${failed.join('、')}`, '批量拒绝结果', { type: 'warning' })
   else ElMessage.success(`已拒绝 ${ok} 条投稿`)
@@ -1637,12 +1677,14 @@ async function publishBatch() {
   let rejected = 0
   const skipped: string[] = []
   const failed: string[] = []
+  /** 邮箱一次性解析（投稿记录优先，回退贡献者资料），避免逐行查询 */
+  const emailMap = await emailMapOf(batchRows.value.map(b => b.row))
   /** 按提交人聚合的邮件结果（一封合并邮件覆盖该提交人本次被处理的所有投稿） */
   const mailGroups = new Map<string, { to: string; user_name: string; items: { title: string; result: 'approve' | 'reject'; reason?: string }[] }>()
-  const mailKeyOf = (row: any) => `${row.user_name}||${parseEmail(row) || ''}`
+  const mailKeyOf = (row: any) => `${row.user_name}||${emailMap.get(row.id) || ''}`
   const addMailItem = (row: any, title: string, result: 'approve' | 'reject', reason?: string) => {
     const key = mailKeyOf(row)
-    if (!mailGroups.has(key)) mailGroups.set(key, { to: parseEmail(row), user_name: row.user_name, items: [] })
+    if (!mailGroups.has(key)) mailGroups.set(key, { to: emailMap.get(row.id) || '', user_name: row.user_name, items: [] })
     mailGroups.get(key)!.items.push({ title, result, reason })
   }
   // 1) 拒绝行：直接落库（邮件合并到批尾发）
@@ -1685,15 +1727,15 @@ async function publishBatch() {
     else if (res === 'missing') skipped.push(`「${title}」新建艺术家未填 ID`)
     else failed.push(`「${title}」`)
   }
-  // 3) 邮件：按提交人合并成一封（未留邮箱的组自动跳过）
+  // 3) 邮件：按提交人合并成一封（未留邮箱的组汇总提示，不再静默）
   for (const g of mailGroups.values()) {
     if (!g.to) continue
-    adminApi.callMailServer('/api/mailer', {
-      action: 'batch',
-      to: g.to,
-      user_name: g.user_name,
-      items: g.items,
-    }).catch(e => console.warn('批量结果邮件跳过:', e?.message))
+    notifyByEmail({ action: 'batch', to: g.to, user_name: g.user_name, items: g.items }, '批量结果', g.user_name)
+  }
+  const noMail = [...mailGroups.values()].filter(g => !g.to).map(g => g.user_name)
+  if (noMail.length) {
+    console.warn('[邮件未通知] 未留邮箱且资料无邮箱:', noMail.join('、'))
+    ElMessage.warning(`未通知邮件（未留邮箱）：${noMail.join('、')}`)
   }
   batchPublishing.value = false
 

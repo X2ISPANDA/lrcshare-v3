@@ -61,7 +61,7 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
   const safeReason = escapeHtml(reject_reason || '')
 
   const config = type === 'approve'
-    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: safeTitle ? `歌曲《${safeTitle}》已正式发布到 ${link} 网站` : `您的歌词作品已正式发布到 ${link} 网站` }
+    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: safeTitle ? `歌曲《${safeTitle}》已通过审核` : `您的歌词作品已通过审核` }
     : type === 'notify'
     ? { color: '#3b82f6', bgColor: '#dbeafe', title: '新投稿提醒', emoji: '📩', mainText: `收到来自 ${safeName}的新投稿`, detail: safeTitle ? `歌曲《${safeTitle}》已提交，等待管理员前往后台审核` : '新投稿已提交，等待管理员前往后台审核' }
     : { color: '#ef4444', bgColor: '#fee2e2', title: '审核未通过', emoji: '😢', mainText: safeTitle ? `很遗憾，您投稿的歌曲《${safeTitle}》未通过审核` : '很遗憾，您的投稿未通过审核', detail: safeReason ? `拒绝原因：${safeReason}` : '请参考拒绝原因修改后重新提交' }
@@ -91,6 +91,7 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
     </div>
     <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:30px;">
       <p style="margin:0 0 10px;font-size:14px;color:#6b7280;line-height:1.6;">${type === 'approve' ? `感谢您为 ${link} 做出的贡献！您的歌词作品将陪伴更多音乐爱好者。` : type === 'notify' ? `请前往 ${link} 管理后台及时审核处理。` : `感谢您对 ${link} 的关注与支持！期待您的下次投稿。`}</p>
+      ${type === 'approve' ? `<p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">备注：审核通过后 API 即时生效；网站页面不即时更新，将随网站自动部署一起上线，敬请留意。</p>` : ''}
     </div>
     <div style="text-align:center;padding-top:20px;border-top:1px solid #e5e7eb;">
       <p style="margin:0 0 8px;">${badge}</p>
@@ -133,10 +134,10 @@ function generateBatchEmailHTML({ user_name, items, admin_email }) {
   }).join('')
 
   const summary = allApproved
-    ? `您本次投稿的 ${total} 首歌曲已全部正式发布到 ${link} 网站`
+    ? `您本次投稿的 ${total} 首歌曲已全部通过审核`
     : allRejected
     ? (rejected[0]?.reason ? `拒绝原因：${escapeHtml(rejected[0].reason)}` : '请参考拒绝原因修改后重新提交')
-    : `以下为逐首审核结果（通过的歌曲已发布到 ${link}，未通过的请参考原因修改后重新提交）`
+    : `以下为逐首审核结果（未通过的请参考原因修改后重新提交）`
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Microsoft YaHei',Arial,sans-serif;">
@@ -163,7 +164,8 @@ function generateBatchEmailHTML({ user_name, items, admin_email }) {
       <ul style="margin:10px 0 0;padding-left:24px;">${itemRows}</ul>
     </div>
     <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:30px;">
-      <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.6;">感谢您对 ${link} 的关注与支持！期待您的下次投稿。</p>
+      <p style="margin:0 0 10px;font-size:14px;color:#6b7280;line-height:1.6;">感谢您对 ${link} 的关注与支持！期待您的下次投稿。</p>
+      ${approved.length ? `<p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">备注：审核通过后 API 即时生效；网站页面不即时更新，将随网站自动部署一起上线，敬请留意。</p>` : ''}
     </div>
     <div style="text-align:center;padding-top:20px;border-top:1px solid #e5e7eb;">
       <p style="margin:0 0 8px;">${badge}</p>
