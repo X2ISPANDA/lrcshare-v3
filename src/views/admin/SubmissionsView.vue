@@ -951,6 +951,18 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       if (!silent) ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.map(e => e.item.name).join('、')}），请点击其头像补全`)
       return 'missing'
     }
+    // ID 冲突预检：撞库内已有艺术家（且非本行同名绑定场景）提前拦下，避免 insert 时抛 PK 冲突
+    const dup: string[] = []
+    for (const e of newList) {
+      const id = String(e.item.id).trim()
+      const exists = artists.value.find(a => a.id === id)
+      // 本地池没有该 id → 是真新建，安全；有 → 若名字相同视为行内同名绑定（不该出现在 _new 清单，防御性放行），名字不同才是真冲突
+      if (exists && exists.name !== e.item.name) dup.push(`${id}（${exists.name}）`)
+    }
+    if (dup.length) {
+      if (!silent) ElMessage.error(`新建艺术家 ID 与库内已有艺术家冲突：${dup.join('、')}，请点击其头像更换 ID`)
+      return 'missing'
+    }
   }
 
   try {
@@ -1137,8 +1149,13 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     }
     return 'ok'
   } catch (e: any) {
-    if (!silent) ElMessage.error('操作失败：' + e.message)
-    else console.warn('[批量发布失败]', sub.song_data?.title, e?.message)
+    // 补偿回滚：第一步已把状态置为 approved，发布中途失败会残留「已通过但产物残缺」的假象——
+    // 拉回 pending（并清 refs，半途产物不完整，不配记录）让投稿回到待审核列表可重试。
+    // 回滚用 fire-and-forget：回滚自身失败不能掩盖原始错误
+    adminApi.update('submissions', sub.id, { status: 'pending', approved_at: null, published_refs: null })
+      .catch(e2 => console.warn('[补偿回滚失败]', sub.song_data?.title, e2?.message))
+    if (!silent) ElMessage.error('发布失败，已回滚到待审核：' + e.message)
+    else console.warn('[批量发布失败-已回滚]', sub.song_data?.title, e?.message)
     return 'error'
   }
 }
@@ -1510,9 +1527,6 @@ const batchStats = computed(() => {
 async function markReject(idx: number) {
   const r = batchRows.value[idx]
   if (!r) return
-  if (r.decision === 'reject' && r.rejectReason) {
-    // 已是拒绝态：再次点击允许修改原因
-  }
   let reason: string
   try {
     const { value } = await ElMessageBox.prompt(`拒绝「${r.sd.title || r.row.user_name}」，请输入拒绝原因`, '标记为拒绝', {

@@ -81,6 +81,10 @@ function jsonError(status, message) {
   })
 }
 
+/** HTML 转义（Host 等请求可控值进 HTML 前必须过这道） */
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
 /** 未知子域（经 *.lrcshare.com 通配符路由进来的请求）返回的 HTML 404 页 */
 function html404(host) {
   const html = `<!DOCTYPE html>
@@ -103,7 +107,7 @@ function html404(host) {
   <div class="card">
     <div class="code">404</div>
     <h1>子站不存在</h1>
-    <p>${host} 不是 LrcShare 的有效地址</p>
+    <p>${escapeHtml(host)} 不是 LrcShare 的有效地址</p>
     <a href="https://${SITE_DOMAIN}/">返回主站</a>
   </div>
 </body>
@@ -554,7 +558,7 @@ async function handleAlbums(env, url) {
   const { limit, offset } = parsePage(url)
   const result = await pgList(env, 'albums', { select: ALBUM_SELECT, order: 'name.asc' }, { limit, offset })
   if (!result) return jsonError(502, 'upstream error')
-  const artistNames = await getArtistNameMap(env, result.data.flatMap(a => a.artist_ids || []))
+  const artistNames = await getArtistNameMap(env, result.data.flatMap(a => albumArtistIdsOf(a)))
   const items = result.data.map(a => mapAlbum(a, artistNames))
   return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
 }

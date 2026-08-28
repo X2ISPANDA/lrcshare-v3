@@ -212,6 +212,7 @@ async function save() {
       descr: form.descr || null,
       title: form.title.trim() || null,
       url: form.url.trim() || null,
+      avatar: form.avatar.trim() || null,
     }
     if (editing.value) {
       await adminApi.update('sponsors', editing.value.id, payload)

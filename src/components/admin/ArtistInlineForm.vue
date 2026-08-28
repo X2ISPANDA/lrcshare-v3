@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { adminApi } from '@/lib/adminApi'
+import { supabase } from '@/lib/supabase'
 import { contactLabel } from '@/lib/constants'
 import type { ArtistTag } from '@/lib/types'
 
@@ -101,6 +102,16 @@ async function save() {
   if (isNew.value && !form.newId.trim()) {
     ElMessage.warning('新建艺术家需填写 ID（如 art_xxx）')
     return
+  }
+  // ID 冲突预检：撞已有艺术家直接提示，避免保存歌曲时才抛 PK 冲突原生错误
+  if (isNew.value && form.newId.trim()) {
+    try {
+      const { data } = await supabase.from('artists').select('id,name').eq('id', form.newId.trim()).maybeSingle()
+      if (data) {
+        ElMessage.warning(`ID「${form.newId.trim()}」已被艺术家「${data.name}」占用，请换一个`)
+        return
+      }
+    } catch { /* 预检失败不阻塞，创建时数据库兜底 */ }
   }
   saving.value = true
   try {

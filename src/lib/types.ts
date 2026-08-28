@@ -230,20 +230,9 @@ export interface Sponsor {
   title: string | null
   /** 广告链接 */
   url: string | null
+  /** 头像 URL */
+  avatar?: string | null
   created_at?: string
-}
-
-/** 评论（Twikoo 之前的自研评论表，Phase 3 确认是否仍有使用） */
-export interface Comment {
-  id: string
-  song_id: string
-  author: string
-  email?: string
-  content: string
-  parent_id: string | null
-  root_id: string | null
-  is_deleted: boolean
-  created_at: string
 }
 
 /** 站点设置（key-value） */

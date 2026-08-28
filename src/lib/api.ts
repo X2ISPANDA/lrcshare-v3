@@ -4,7 +4,6 @@ import type {
   AlbumWithArtists,
   Artist,
   Article,
-  Comment,
   Contributor,
   Friend,
   FriendCategory,
@@ -553,15 +552,5 @@ export const api = {
       map[r.key] = r.value
     })
     return map
-  },
-}
-
-/**
- * 旧版自研评论 API（comments 表）。
- * 评论已切换 Twikoo，仅当 Phase 3 确认仍有页面依赖时再启用。
- */
-export const legacyCommentsApi = {
-  async getComments(_songId: string): Promise<Comment[]> {
-    return []
   },
 }

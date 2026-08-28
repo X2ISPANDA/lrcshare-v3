@@ -55,11 +55,16 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
   const link = `<a href="${SITE_URL}" style="color:#ec4899;text-decoration:underline;">LrcShare</a>`
   const badge = `<a href="${SITE_URL}" style="display:inline-block;padding:4px 16px;background:linear-gradient(135deg,#ec4899 0%,#a855f7 100%);color:#fff;font-weight:900;text-decoration:none;border-radius:8px;letter-spacing:2px;font-size:18px;box-shadow:0 2px 8px rgba(236,72,153,0.3);">LrcShare</a>`
 
+  // 用户可控字段（投稿者昵称/歌名/拒绝原因）统一转义，防 HTML 注入
+  const safeName = escapeHtml(user_name || '匿名用户')
+  const safeTitle = escapeHtml(song_title || '')
+  const safeReason = escapeHtml(reject_reason || '')
+
   const config = type === 'approve'
-    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: song_title ? `歌曲《${song_title}》已正式发布到 ${link} 网站` : `您的歌词作品已正式发布到 ${link} 网站` }
+    ? { color: '#10b981', bgColor: '#d1fae5', title: '审核通过', emoji: '🎉', mainText: '恭喜！您的投稿已通过审核', detail: safeTitle ? `歌曲《${safeTitle}》已正式发布到 ${link} 网站` : `您的歌词作品已正式发布到 ${link} 网站` }
     : type === 'notify'
-    ? { color: '#3b82f6', bgColor: '#dbeafe', title: '新投稿提醒', emoji: '📩', mainText: `收到来自 ${user_name || '匿名用户'} 的新投稿`, detail: song_title ? `歌曲《${song_title}》已提交，等待管理员前往后台审核` : '新投稿已提交，等待管理员前往后台审核' }
-    : { color: '#ef4444', bgColor: '#fee2e2', title: '审核未通过', emoji: '😢', mainText: song_title ? `很遗憾，您投稿的歌曲《${song_title}》未通过审核` : '很遗憾，您的投稿未通过审核', detail: reject_reason ? `拒绝原因：${reject_reason}` : '请参考拒绝原因修改后重新提交' }
+    ? { color: '#3b82f6', bgColor: '#dbeafe', title: '新投稿提醒', emoji: '📩', mainText: `收到来自 ${safeName}的新投稿`, detail: safeTitle ? `歌曲《${safeTitle}》已提交，等待管理员前往后台审核` : '新投稿已提交，等待管理员前往后台审核' }
+    : { color: '#ef4444', bgColor: '#fee2e2', title: '审核未通过', emoji: '😢', mainText: safeTitle ? `很遗憾，您投稿的歌曲《${safeTitle}》未通过审核` : '很遗憾，您的投稿未通过审核', detail: safeReason ? `拒绝原因：${safeReason}` : '请参考拒绝原因修改后重新提交' }
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Microsoft YaHei',Arial,sans-serif;">
@@ -78,7 +83,7 @@ function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_e
       <h2 style="margin:0;color:${config.color};font-size:24px;font-weight:bold;">${config.title}</h2>
     </div>
     <div style="margin-bottom:30px;">
-      <p style="margin:0 0 15px;font-size:16px;color:#374151;">亲爱的 <span style="font-weight:bold;color:#1f2937;">${type === 'notify' ? '管理员' : user_name}</span>：</p>
+      <p style="margin:0 0 15px;font-size:16px;color:#374151;">亲爱的 <span style="font-weight:bold;color:#1f2937;">${type === 'notify' ? '管理员' : safeName}</span>：</p>
       <p style="margin:0 0 15px;font-size:16px;color:#374151;line-height:1.8;">${config.mainText}。</p>
       <div style="background:${config.bgColor};border-left:4px solid ${config.color};padding:15px 20px;border-radius:0 8px 8px 0;margin:20px 0;">
         <p style="margin:0;font-size:14px;color:${config.color};line-height:1.6;">${config.detail}</p>
@@ -191,6 +196,9 @@ export default async (req) => {
   if (req.method !== 'POST') return json(405, { success: false, error: 'Method not allowed' })
   try {
     const { action, to, user_name, song_title, reject_reason, items } = await req.json()
+    // 邮件主题同样拼用户可控字段，换行符可拆信头——统一剥离控制字符
+    const cleanSubjectText = s => String(s || '').replace(/[\r\n\t]/g, ' ')
+    const subjTitle = cleanSubjectText(song_title)
 
     const smtp = await loadSmtp()
     if (!smtp) return json(200, { success: true, skipped: true, reason: 'SMTP 未配置' })
@@ -209,13 +217,13 @@ export default async (req) => {
     } else if (action === 'notify') {
       // 新投稿通知：收件人固定为 settings 的 admin_email（防滥用：不接受外部 to 参数）
       if (!smtp.admin_email) return json(200, { success: true, skipped: true, reason: '未配置 admin_email' })
-      mail = { to: smtp.admin_email, subject: song_title ? `【LrcShare】新投稿：《${song_title}》待审核` : '【LrcShare】收到新投稿', html: generateEmailHTML({ type: 'notify', user_name, song_title, admin_email: smtp.admin_email }) }
+      mail = { to: smtp.admin_email, subject: subjTitle ? `【LrcShare】新投稿：《${subjTitle}》待审核` : '【LrcShare】收到新投稿', html: generateEmailHTML({ type: 'notify', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'approve') {
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
-      mail = { to, subject: song_title ? `【LrcShare】恭喜！《${song_title}》审核通过` : '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
+      mail = { to, subject: subjTitle ? `【LrcShare】恭喜！《${subjTitle}》审核通过` : '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'reject') {
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
-      mail = { to, subject: song_title ? `【LrcShare】很遗憾，《${song_title}》审核未通过` : '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
+      mail = { to, subject: subjTitle ? `【LrcShare】很遗憾，《${subjTitle}》审核未通过` : '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
     } else if (action === 'batch') {
       // 批次合并通知：一次批量投稿的逐首结果合成一封邮件（items: [{ title, result, reason? }]）
       if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
