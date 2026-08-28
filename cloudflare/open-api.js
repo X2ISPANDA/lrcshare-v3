@@ -277,6 +277,39 @@ async function assembleSummaries(env, rows, albumFallback) {
   return rows.map(r => mapSongSummary(r, artistNames, albumArtistNames, albumFallback))
 }
 
+/** 搜索结果装配：裸 RPC 查歌曲行（select 不带嵌套资源，函数内部排序保真），
+ *  再批量补 song_contributors / albums 关联数据。
+ *  背景：PostgREST 对 RPC 的 select 带嵌套资源 + limit 时会生成无 ORDER BY 的
+ *  LEFT JOIN 外层查询，join 会打乱函数输出顺序（hash join 按 join 键聚簇，
+ *  limit=10 时整页结果曾变为同一专辑的歌曲）。裸查 + 表级补查彻底规避
+ *  （表级 select 嵌套是普通表查询，不受此影响）。 */
+async function enrichSongRows(env, rows) {
+  if (!rows || rows.length === 0) return []
+  const songIds = [...new Set(rows.map(r => r.id).filter(Boolean))]
+  const albumIds = [...new Set(rows.map(r => r.album_id).filter(Boolean))]
+  const inList = ids => `in.(${ids.map(id => `"${id}"`).join(',')})`
+  const [contribRes, albumRes] = await Promise.all([
+    songIds.length
+      ? pgList(env, 'song_contributors', { select: 'song_id,role,artist_id', song_id: inList(songIds) }, { limit: 1000, offset: 0 })
+      : { data: [] },
+    albumIds.length
+      ? pgList(env, 'albums', { select: ALBUM_SELECT, id: inList(albumIds) }, { limit: 1000, offset: 0 })
+      : { data: [] },
+  ])
+  if (!contribRes || !albumRes) return null
+  const contribsBySong = new Map()
+  for (const c of contribRes.data || []) {
+    if (!contribsBySong.has(c.song_id)) contribsBySong.set(c.song_id, [])
+    contribsBySong.get(c.song_id).push({ role: c.role, artist_id: c.artist_id })
+  }
+  const albumById = new Map((albumRes.data || []).map(a => [a.id, a]))
+  for (const r of rows) {
+    r.song_contributors = contribsBySong.get(r.id) || []
+    r.albums = albumById.get(r.album_id) || null
+  }
+  return rows
+}
+
 /** 组装对外 album 对象 */
 function mapAlbum(row, artistNames) {
   return {
@@ -337,10 +370,14 @@ async function handleSearch(env, url) {
   if (!keyword) return jsonError(400, 'missing required parameter: keyword (or title/artist)')
 
   if (type === 'song') {
-    // 复用库端 search_songs RPC（title + aliases 数组模糊匹配）
-    const result = await pgRpc(env, 'search_songs', { p_q: keyword, select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) })
+    // 复用库端 search_songs RPC（title + aliases 数组模糊匹配）。
+    // select 必须裸列（无嵌套资源）：函数内部排序才不被 PostgREST 的
+    // join 外层查询打乱；关联数据由 enrichSongRows 批量补齐
+    const result = await pgRpc(env, 'search_songs', { p_q: keyword, select: 'id,title,album_id,genres', limit: String(limit), offset: String(offset) })
     if (!result) return jsonError(502, 'upstream error')
-    const items = await assembleSummaries(env, result.data || [])
+    const rows = await enrichSongRows(env, result.data || [])
+    if (!rows) return jsonError(502, 'upstream error')
+    const items = await assembleSummaries(env, rows)
     return jsonOk({ keyword, type, total: result.total, items }, TTL_LIST)
   }
 
@@ -385,12 +422,15 @@ async function handleSearch(env, url) {
 // ---------- 结构化搜索（title/artist → 库端 RPC） ----------
 
 async function handleSongSearchStructured(env, title, artist, limit, offset) {
-  const params = { select: SONG_SUMMARY_SELECT, limit: String(limit), offset: String(offset) }
+  // select 必须裸列（无嵌套资源）：同 keyword 搜索，保函数输出序，关联由 enrichSongRows 补齐
+  const params = { select: 'id,title,album_id,genres', limit: String(limit), offset: String(offset) }
   if (title) params.p_title = title
   if (artist) params.p_artist = artist
   const result = await pgRpc(env, 'search_songs_structured', params)
   if (!result) return jsonError(502, 'upstream error')
-  const items = await assembleSummaries(env, result.data || [])
+  const rows = await enrichSongRows(env, result.data || [])
+  if (!rows) return jsonError(502, 'upstream error')
+  const items = await assembleSummaries(env, rows)
   return jsonOk({ title, artist, type: 'song', total: result.total, items }, TTL_LIST)
 }
 
@@ -502,7 +542,9 @@ function mapSongDetailBase(row, artistNames, albumArtistNames, contributorName) 
     disc: row.disc ?? null,
     genres: row.genres || [],
     comment: credit,
-    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n${credit}` : null,
+    // 署名带 99:99.999 超界时间戳：LRC 规范外的时间点，播放器永不渲染滚动，
+    // 但第三方工具（如 Lyrico 写 tag）解析时能把它当作普通 LRC 行收录
+    lrc: row.lrc_text ? `${row.lrc_text.replace(/\s+$/, '')}\n[99:99.999]${credit}` : null,
   }
 }
 

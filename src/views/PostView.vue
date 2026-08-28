@@ -24,7 +24,7 @@
               <span v-if="article.author === '站长'" class="text-[10px] bg-pink-100 text-pink-600 px-1.5 py-0.5 rounded ml-1">站长</span>
             </span>
             <span>📅 {{ formatDate(article.created_at) }}</span>
-            <span>👁 <span id="busuanzi_value_page_pv"></span> 次浏览</span>
+            <span v-if="pagePv">👁 {{ pagePv }} 次浏览</span>
           </div>
         </div>
 
@@ -43,6 +43,7 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
+import { useBusuanzi } from '@/composables/useBusuanzi'
 import { useUiStore } from '@/stores/ui'
 import type { Article, Contributor } from '@/lib/types'
 
@@ -53,6 +54,8 @@ const ui = useUiStore()
 const { data: article, loading } = useSSGData<Article>(`post:${slug}`, () =>
   api.getArticleBySlug(slug),
 )
+// 本页浏览量：与 footer 共享同一份不蒜子状态（路由切换由 footer 统一刷新）
+const { pagePv } = useBusuanzi()
 // 站长真实名称（author === '站长' 时替换显示）
 const { data: contributors } = useSSGData<Contributor[]>('post:owner', () => api.getContributors())
 

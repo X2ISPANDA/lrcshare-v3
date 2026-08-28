@@ -4,11 +4,15 @@
       <p class="mb-4">&copy; 2023-2026 LrcShare. 全球最小滚动歌词分享网站</p>
       <p class="mb-4 text-xs text-gray-500">本网站中所使用的歌词，其著作权属于原著作权人，仅以交流学习为目的引用。</p>
       <p class="mb-2 text-sm text-gray-400">
-        <span v-show="pvReady">👁 总访问量 <span id="busuanzi_value_site_pv"></span> 次</span>
-        <span class="mx-2">·</span>
-        <span v-show="pvReady">👥 访客 <span id="busuanzi_value_site_uv"></span> 人</span>
-        <span class="mx-2">·</span>
-        <span v-show="pvReady">📄 本页 <span id="busuanzi_value_page_pv"></span> 次</span>
+        <template v-if="sitePv">
+          <span>👁 总访问量 {{ sitePv }} 次</span>
+          <span class="mx-2">·</span>
+          <span>👥 访客 {{ siteUv }} 人</span>
+          <span class="mx-2">·</span>
+          <span>📄 本页 {{ pagePv }} 次</span>
+          <span class="mx-2">·</span>
+        </template>
+        <span>🚀 本站已运行 {{ days }} 天</span>
       </p>
       <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-gray-400 text-sm">
         <RouterLink to="/posts" class="hover:text-white">逼逼</RouterLink>
@@ -20,23 +24,26 @@
         <RouterLink to="/admin" class="hover:text-white">管理后台</RouterLink>
       </div>
     </div>
+    <!-- 不蒜子回填目标（隐藏，全站唯一一处；数值经 useBusuanzi 轮询进响应式状态） -->
+    <span class="hidden" id="busuanzi_value_site_pv"></span>
+    <span class="hidden" id="busuanzi_value_site_uv"></span>
+    <span class="hidden" id="busuanzi_value_page_pv"></span>
   </footer>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { useBusuanzi } from '@/composables/useBusuanzi'
 
-const pvReady = ref(false)
+const { sitePv, siteUv, pagePv, refresh } = useBusuanzi()
 
-onMounted(() => {
-  // 不蒜子统计：客户端动态加载（SSG 时不执行，避免水合不一致）
-  const s = document.createElement('script')
-  s.async = true
-  s.src = '//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js'
-  s.onload = () => {
-    // 等 busuanzi 回填数值后再显示，避免闪烁 undefined
-    setTimeout(() => (pvReady.value = true), 600)
-  }
-  document.body.appendChild(s)
-})
+// 建站：2023-03-01 00:00 北京时间
+const SITE_LAUNCH = Date.parse('2023-03-01T00:00:00+08:00')
+const days = computed(() => Math.max(0, Math.floor((Date.now() - SITE_LAUNCH) / 86400000)))
+
+const route = useRoute()
+onMounted(() => refresh())
+// SPA 路由切换重新拉取：不蒜子按加载时 URL 计数，须重注入脚本才刷新本页数据
+watch(() => route.path, () => refresh())
 </script>
