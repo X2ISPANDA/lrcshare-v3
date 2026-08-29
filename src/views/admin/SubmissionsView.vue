@@ -308,10 +308,12 @@
 
     <!-- 批量审核弹窗：Excel 式表格（行=投稿、列=字段），列头⚡统一填充（勾选行则仅填充勾选行），单元格直接改，底部一键全部发布 -->
     <el-dialog v-model="showBatchReview" title="批量审核" width="min(1500px, 94vw)" :close-on-click-modal="false" append-to-body>
-      <div class="text-xs text-gray-400 mb-3">
+      <div class="text-xs text-gray-400 mb-3 hidden md:block">
         行首勾选后，列头「⚡」只应用到勾选的行（不勾 = 全部行）；歌手/作词/作曲/编曲/专辑单元格可点击编辑该行；▶ 展开歌词。
-        行状态「就绪」= 数据完整可提交；「待补 ID」= 有新建艺术家未填 ID（悬停看明细，点击徽标直达补全）；存在待补行时无法提交。
+        行状态「就绪」= 数据完整可提交；「待补 ID」= 有新建艺术家未填 ID（悬停看明细，点击徽标直达补全）；存在待补行时无法提交。移动端自动切卡片视图，能力一致。
       </div>
+      <!-- 桌面：Excel 式表格（<768px 由下方卡片形态接管，同一份 batchRows 与编辑弹窗） -->
+      <div class="hidden md:block">
       <el-table :data="batchRows" size="small" border max-height="60vh" row-key="row.id" @selection-change="batchSelected = $event">
         <el-table-column type="selection" width="40" fixed="left" />
         <el-table-column type="expand">
@@ -434,12 +436,139 @@
         </el-table-column>
         <el-table-column label="操作" width="65" align="center">
           <template #default="{ $index }">
-            <el-button link type="info" size="small" @click="batchRows.splice($index, 1)">移出</el-button>
+            <el-button link type="info" size="small" @click="removeBatchRow($index)">移出</el-button>
           </template>
         </el-table-column>
       </el-table>
+      </div>
+
+      <!-- 移动端(<768px)：折叠卡片——收起时一行一歌纵览全批，点开编辑；数据/勾选/编辑弹窗与桌面表格完全同源 -->
+      <div class="md:hidden">
+        <!-- 顶部工具条（吸附）：全选 / 勾选标拒 -->
+        <div class="sticky top-0 z-10 -mx-1 px-1 pt-1 pb-2 bg-white flex items-center gap-2 border-b border-gray-100">
+          <el-checkbox :model-value="allChecked" :indeterminate="!!batchSelected.length && !allChecked" @change="toggleAll">全选</el-checkbox>
+          <span class="text-xs text-gray-400">已选 {{ batchSelected.length }}/{{ batchRows.length }}</span>
+          <div class="flex-1"></div>
+          <el-button size="small" type="danger" plain :disabled="!batchSelected.length" @click="rejectBatchRows">勾选标拒</el-button>
+        </div>
+
+        <div class="space-y-2 pt-2">
+          <div v-for="(r, i) in batchRows" :key="r.row.id" class="rounded-lg border border-gray-200 bg-white">
+            <!-- 折叠头：勾选 + 序号歌名 + 状态标签，点击展开/收起 -->
+            <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none" @click="expandedId = expandedId === r.row.id ? null : r.row.id">
+              <el-checkbox :model-value="cardChecked(r)" @click.stop @change="toggleBatchSel(r)" />
+              <span class="flex-1 min-w-0 truncate text-sm" :class="r.decision === 'reject' ? 'text-gray-400 line-through' : 'text-gray-800 font-medium'">{{ i + 1 }}. {{ r.sd.title || '（未命名）' }}</span>
+              <el-tag v-if="r.decision === 'reject'" type="danger" size="small" class="shrink-0">拒</el-tag>
+              <el-tag v-else-if="rowIssues(r.sd).length" type="warning" size="small" class="shrink-0">待补</el-tag>
+              <el-tag v-else type="success" size="small" class="shrink-0">就绪</el-tag>
+              <span class="text-gray-300 text-xs shrink-0">{{ expandedId === r.row.id ? '▲' : '▼' }}</span>
+            </div>
+
+            <!-- 展开编辑区：字段行 = 标签 + 点按编辑（本行）+ ⚡（填充到勾选行/全部行） -->
+            <div v-if="expandedId === r.row.id" class="px-3 pb-2.5 pt-2 border-t border-gray-50 space-y-2">
+              <div class="text-xs text-gray-400">提交人：{{ r.row.user_name }}</div>
+              <div class="space-y-1.5 text-xs">
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">歌名</span>
+                  <el-input v-model="r.sd.title" size="small" class="flex-1" />
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">歌手</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" :class="r.sd.artists.some((a: any) => !a.id) ? 'text-amber-600' : ''" @click="openFill('artists', i)">
+                    <span class="inline-flex items-center gap-0.5 mr-0.5 shrink-0">
+                      <template v-for="a in r.sd.artists" :key="a.name">
+                        <img v-if="artistAvatar(a.id)" :src="artistAvatar(a.id)" class="w-4 h-4 rounded-full object-cover" :title="a.name" />
+                        <span v-else class="w-4 h-4 rounded-full bg-pink-300 text-white text-[8px] leading-none flex items-center justify-center" :title="a.name">{{ a.name?.charAt(0) }}</span>
+                      </template>
+                    </span>
+                    <span class="truncate">{{ r.sd.artists.map((a: any) => a.name).join('、') || '+ 设置' }}</span>
+                    <el-tag v-if="r.sd.artists.some((a: any) => !a.id)" size="small" type="warning" class="ml-1 shrink-0">新建</el-tag>
+                  </el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('artists')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">作词</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" @click="openFill('lyricist_arr', i)"><span class="truncate">{{ r.sd.lyricist_arr.map((a: any) => a.name).join('、') || '+ 设置' }}</span><el-tag v-if="r.sd.lyricist_arr.some((a: any) => !a.id)" size="small" type="warning" class="ml-1 shrink-0">新建</el-tag></el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('lyricist_arr')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">作曲</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" @click="openFill('composer_arr', i)"><span class="truncate">{{ r.sd.composer_arr.map((a: any) => a.name).join('、') || '+ 设置' }}</span><el-tag v-if="r.sd.composer_arr.some((a: any) => !a.id)" size="small" type="warning" class="ml-1 shrink-0">新建</el-tag></el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('composer_arr')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">编曲</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" @click="openFill('arranger_arr', i)"><span class="truncate">{{ r.sd.arranger_arr.map((a: any) => a.name).join('、') || '+ 设置' }}</span><el-tag v-if="r.sd.arranger_arr.some((a: any) => !a.id)" size="small" type="warning" class="ml-1 shrink-0">新建</el-tag></el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('arranger_arr')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">专辑</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" @click="openFill('album', i)">
+                    <span class="inline-flex items-center gap-0.5 mr-0.5 shrink-0">
+                      <img v-if="albumCoverOf(r.sd)" :src="albumCoverOf(r.sd)" class="w-4 h-4 rounded object-cover" :title="r.sd.album" />
+                    </span>
+                    <span class="truncate">{{ r.sd.album || '+ 设置' }}</span>
+                    <el-tag v-if="r.sd.album && r.sd.album_id" size="small" type="success" class="ml-1 shrink-0">已关联</el-tag>
+                    <el-tag v-else-if="r.sd.album" size="small" type="warning" class="ml-1 shrink-0">新建</el-tag>
+                  </el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('album')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">曲目</span>
+                  <div class="flex flex-1 gap-2">
+                    <el-input v-model="r.sd.track" size="small" placeholder="曲目号" class="!w-16" />
+                    <el-input v-model="r.sd.duration" size="small" placeholder="时长 03:30" class="flex-1" />
+                  </div>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="曲目号填充到勾选行（未勾选 = 全部行）" @click="openFill('track')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">封面</span>
+                  <div class="flex flex-1 items-center gap-1.5 min-w-0">
+                    <img v-if="r.sd.cover" :src="r.sd.cover" class="w-8 h-8 rounded object-cover cursor-pointer border border-gray-200 shrink-0" @click="ui.openPreview([r.sd.cover])" />
+                    <el-input v-model="r.sd.cover" size="small" placeholder="单曲封面 URL，不填用专辑封面" />
+                  </div>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="封面填充到勾选行（未勾选 = 全部行）" @click="openFill('cover')">⚡</el-button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="w-8 shrink-0 text-gray-400">风格</span>
+                  <el-button link size="small" class="!ml-0 flex-1 min-w-0 justify-start" @click="openFill('genres', i)"><span class="truncate">{{ r.sd.genres.join('、') || '+ 设置' }}</span></el-button>
+                  <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="填充到勾选行（未勾选 = 全部行）" @click="openFill('genres')">⚡</el-button>
+                </div>
+              </div>
+
+              <!-- 行状态操作：与桌面表格「行状态 / 操作」列同逻辑 -->
+              <div class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray-100">
+                <template v-if="r.decision === 'reject'">
+                  <div class="min-w-0">
+                    <el-tag type="danger" size="small">已标拒绝</el-tag>
+                    <el-button link size="small" class="ml-1" @click="setDecision(i, 'approve')">恢复</el-button>
+                    <div class="text-[11px] text-red-400 truncate" :title="r.rejectReason">原因：{{ r.rejectReason || '未填' }}</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div>
+                    <el-tooltip v-if="rowIssues(r.sd).length" :content="rowIssues(r.sd).join('；')" placement="top">
+                      <el-tag type="warning" size="small" class="cursor-pointer" @click="openFill(firstIssueField(r.sd), i)">待补 ID</el-tag>
+                    </el-tooltip>
+                    <el-tag v-else type="success" size="small">就绪</el-tag>
+                    <el-button link size="small" type="danger" class="ml-1" @click="markReject(i)">拒绝</el-button>
+                  </div>
+                </template>
+                <div class="flex items-center shrink-0">
+                  <el-button link size="small" @click="lyricOpenId = lyricOpenId === r.row.id ? null : r.row.id">{{ lyricOpenId === r.row.id ? '收起歌词' : '歌词' }}</el-button>
+                  <el-button link type="info" size="small" @click="removeBatchRow(i)">移出</el-button>
+                </div>
+              </div>
+              <el-input v-if="lyricOpenId === r.row.id" v-model="r.sd.lrc_text" type="textarea" :autosize="{ minRows: 6, maxRows: 16 }" class="font-mono" />
+            </div>
+          </div>
+          <div v-if="!batchRows.length" class="py-8 text-center text-gray-400 text-sm">暂无待审行</div>
+        </div>
+      </div>
+
       <template #footer>
-        <div class="flex justify-between w-full">
+        <!-- 桌面：勾选拒绝在左，取消/提交在右 -->
+        <div class="hidden md:flex justify-between w-full">
           <el-button type="danger" plain :disabled="!batchSelected.length" @click="rejectBatchRows">勾选行标为拒绝（{{ batchSelected.length }}）</el-button>
           <div>
             <el-button @click="showBatchReview = false">取消</el-button>
@@ -447,6 +576,13 @@
               ✅ 按标记提交（就绪 {{ batchStats.ready }} / 待补 {{ batchStats.blocked }} / 拒绝 {{ batchStats.rejected }}）
             </el-button>
           </div>
+        </div>
+        <!-- 移动端：勾选拒绝已在列表顶部工具条，底栏只留取消 + 提交（双按钮等宽防溢出） -->
+        <div class="flex md:hidden w-full gap-2">
+          <el-button class="flex-1" @click="showBatchReview = false">取消</el-button>
+          <el-button type="success" class="flex-1" :loading="batchPublishing" @click="publishBatch">
+            ✅ 提交（就绪{{ batchStats.ready }}/待补{{ batchStats.blocked }}/拒{{ batchStats.rejected }}）
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -1501,6 +1637,36 @@ const batchPublishing = ref(false)
 const batchRows = ref<{ row: any; sd: any; decision: 'approve' | 'reject'; rejectReason?: string }[]>([])
 /** 批量表内勾选的行（列头 ⚡ 仅应用到勾选行；空 = 全部行） */
 const batchSelected = ref<{ row: any; sd: any; decision: 'approve' | 'reject'; rejectReason?: string }[]>([])
+
+/** 移动端卡片勾选：与桌面表格勾选共用 batchSelected（列头 ⚡ / 勾选拒绝的语义不变） */
+function cardChecked(r: { row: any }): boolean {
+  return batchSelected.value.some(s => s.row.id === r.row.id)
+}
+function toggleBatchSel(r: { row: any; sd: any; decision: 'approve' | 'reject'; rejectReason?: string }) {
+  const i = batchSelected.value.findIndex(s => s.row.id === r.row.id)
+  if (i >= 0) batchSelected.value.splice(i, 1)
+  else batchSelected.value.push(r)
+}
+
+/** 移动端：当前展开歌词的卡片（单开，避免多张长歌词堆叠） */
+const lyricOpenId = ref<string | null>(null)
+
+/** 移动端：当前展开编辑的卡片（单开；收起即一行一歌，可纵览全批） */
+const expandedId = ref<string | null>(null)
+/** 移动端工具条全选：与桌面勾选共用 batchSelected */
+const allChecked = computed(() => batchRows.value.length > 0 && batchSelected.value.length === batchRows.value.length)
+function toggleAll(v: any) {
+  batchSelected.value = v ? [...batchRows.value] : []
+}
+
+/** 移出一行（桌面/移动共用）：同步移出勾选，避免遗留选中行污染「勾选拒绝」计数与 ⚡ 填充范围 */
+function removeBatchRow(idx: number) {
+  const [r] = batchRows.value.splice(idx, 1)
+  if (r) {
+    const si = batchSelected.value.indexOf(r)
+    if (si >= 0) batchSelected.value.splice(si, 1)
+  }
+}
 
 const FILL_LABELS: Record<string, string> = {
   artists: '歌手', lyricist_arr: '作词', composer_arr: '作曲', arranger_arr: '编曲',

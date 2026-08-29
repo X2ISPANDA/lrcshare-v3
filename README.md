@@ -20,7 +20,7 @@
 歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 投稿审核 / 站点设置管理，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
 
 - **艺术家即建即补**：录歌 / 审核中输入新艺术家回车即建，点头像弹窗补全 ID、资料；库内艺术家同样点头像就地更新（含社交链接）
-- **批量审核**：批量投稿按批折叠为一行、一键审核整批；Excel 式表格逐列统一填充（可指定仅勾选行）、单元格逐行微调、展开行核对歌词、行级通过/拒绝混合决定、单曲封面独立设置、一键全部发布 / 批量拒绝（含原因通知）；专辑信息（专辑艺术家 / 封面 / 年份 / 简介）统一在专辑弹窗中编辑，已关联专辑差异写回、新专辑随发布创建
+- **批量审核**：批量投稿按批折叠为一行、一键审核整批；Excel 式表格逐列统一填充（可指定仅勾选行）、单元格逐行微调、展开行核对歌词、行级通过/拒绝混合决定、单曲封面独立设置、一键全部发布 / 批量拒绝（含原因通知）；专辑信息（专辑艺术家 / 封面 / 年份 / 简介）统一在专辑弹窗中编辑，已关联专辑差异写回、新专辑随发布创建；移动端自动切折叠卡片形态——一行一歌纵览全批、点开编辑，顶部吸附工具条（全选 / 勾选标拒），每个字段支持「应用到勾选行 / 全部行」
 
 ### 开放 API（api.lrcshare.com）
 
@@ -35,18 +35,21 @@
 
 - 新投稿即时通知站长
 - 审核结果（通过 / 拒绝及原因）邮件通知投稿人
+- 发送状态可感知：未配置 / 未留邮箱 / 失败均有明确提示，发信失败时常见 SMTP 错误（收件地址不存在 / 认证失败 / 被拒收等）翻译为中文结论并保留原始错误，无需再查错误码
 - 通过 Netlify Functions（`netlify/functions/mailer.mjs`）实现，`SUPABASE_SERVICE_ROLE_KEY` 仅存于云端环境变量
 
 ## 技术栈
 
-- **框架**：Vue 3 + TypeScript + Vue Router + Pinia
-- **构建**：Vite + vite-ssg（全站预渲染，五百余页面点开即达）
-- **UI**：Element Plus + Tailwind CSS 4 + unplugin-icons
-- **数据**：Supabase
-- **开放 API**：Cloudflare Workers
-- **API 文档**：VitePress
-- **邮件**：Netlify Functions + Nodemailer
-- **其他**：marked（Markdown 渲染）、pinyin-pro（拼音分组）、fflate（批量投稿 ZIP 解压）、@vueuse/core
+| 分类 | 技术 / 版本 |
+| ---- | ----------- |
+| 框架 | Vue 3.5 · Vue Router 5.2 · Pinia 4.0 |
+| 语言 / 构建 | TypeScript 5.9 · Vite 8.2 · vite-ssg 28.3 |
+| UI / 样式 | Element Plus 2.13 · Tailwind CSS 4.3 · unplugin-icons |
+| 数据 | Supabase JS 2.11（Postgres + Auth + RLS） |
+| 开放 API | Cloudflare Workers |
+| 文档 | VitePress 1.6 |
+| 邮件 | Netlify Functions · Nodemailer 7 |
+| 其他 | marked 18（Markdown 渲染）· pinyin-pro 3.29（拼音分组）· fflate 0.8（ZIP 解压）· @vueuse/core 14 |
 
 ## 快速开始
 
@@ -102,6 +105,17 @@ npm run docs:dev       # API 文档站（可选）
 ```
 
 ## 更新日志
+
+### 2026-08-29
+
+- Footer 技术徽标行：shields.io 徽标致谢支撑本站的开源项目与服务（Vue / Element Plus / Tailwind CSS / Supabase / Cloudflare Workers / VitePress / Netlify / GitHub，点击直达官网），页脚整体收紧高度；歌词著作权声明字号提升不再「偷偷摸摸」
+- README 技术栈改版：新增版本表（技术 × 版本号），本站仓库开源 [X2ISPANDA/lrcshare-v3](https://github.com/X2ISPANDA/lrcshare-v3)
+
+- 批量审核移动端重构：表格在小屏自动切折叠卡片形态——收起时一行一歌纵览全批（勾选框 + 歌名 + 就绪/待补/拒状态标签），点开编辑（歌手头像、词曲编、专辑、封面、歌词逐项可改）；顶部吸附工具条提供全选 / 已选计数 / 勾选标拒，每个字段带「⚡ 应用到勾选行（未勾选 = 全部行）」；底栏重排防溢出，与桌面共用同一份行数据与编辑弹窗
+- 管理后台顶栏新增「回到主站」，无需手改链接或新开标签页
+- 邮件发信失败原因中文化：9 类常见 SMTP 错误（收件地址不存在 / 认证失败 / 被拒收 / 邮箱满 / 超时 / DNS 解析失败等）映射为中文结论，原文保留其后，未覆盖的错误码原样输出
+- 控制台横幅升级：熊猫图下方新增终端风徽标标签行——`⚡ Powered by X2ISPANDA · LrcShare Since 2023-03-01`、INFO（已打开控制台）、WATCHING（监控中）、WARNING（禁止爬虫声明）、北京时间、本站运行天数
+- 新增 `robots.txt` 反爬声明：Google / Bing / DuckDuckGo / Yandex / Apple / 百度 / 搜狗 / 神马 / 360 九家搜索引擎白名单放行（均禁 `/admin`），其余爬虫全站禁止；配合 Cloudflare WAF 限流构成两层防线
 
 ### 2026-08-28
 

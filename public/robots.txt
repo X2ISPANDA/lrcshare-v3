@@ -1,0 +1,24 @@
+# LrcShare 反爬声明
+# 主流搜索引擎放行（歌词页已做 SSG 预渲染供收录）；其余一切爬虫禁止抓取。
+# 注意：robots.txt 是君子协定，恶意爬虫会无视它；真正的防线是 Cloudflare WAF 限流（100 次/10 秒/IP）。
+
+# ── 搜索引擎白名单（放行全站，仅禁后台）──
+
+# 国外：Google / Bing / DuckDuckGo / Yandex / Apple
+User-agent: Googlebot
+User-agent: bingbot
+User-agent: DuckDuckBot
+User-agent: YandexBot
+User-agent: Applebot
+Disallow: /admin
+
+# 国内：百度 / 搜狗 / 神马 / 360
+User-agent: Baiduspider
+User-agent: Sogou spider
+User-agent: YisouSpider
+User-agent: HaoSouSpider
+Disallow: /admin
+
+# ── 其余一切爬虫：全站禁止 ──
+User-agent: *
+Disallow: /

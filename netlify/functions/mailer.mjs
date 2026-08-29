@@ -184,6 +184,27 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/**
+ * 常见 SMTP 发信失败翻译成中文结论（只收高频项，未命中保持原文），管理端一眼定位原因。
+ * 中文结论后保留原始错误——未覆盖的错误码仍可拿原文搜索排查，不吞信息不误导。
+ */
+function humanizeMailError(err) {
+  const raw = String(err?.message || err || '')
+  const rules = [
+    [/non-?existent|user not found|no such user|recipient.*not exist|unknown user|mailbox unavailable/i, '收件地址不存在（邮箱可能写错或已注销）'],
+    [/authentication|535|invalid login|auth fail|username and password/i, 'SMTP 认证失败（授权码错误或未开启 SMTP 服务）'],
+    [/554|spam|rejected|blocked|blacklist/i, '被对方拒收（内容疑似垃圾邮件或发信 IP 信誉差）'],
+    [/552|over quota|quota exceeded|insufficient system storage/i, '收件箱已满'],
+    [/553|relay.*denied|sender.*not verif/i, '发件人身份未验证或禁止外发'],
+    [/etimedout|timeout|esocket/i, 'SMTP 连接超时（端口不通或网络异常）'],
+    [/enotfound|eai_again|dns/i, 'SMTP 服务器域名解析失败（host 配置错误）'],
+    [/econnrefused|econnreset/i, 'SMTP 连接被拒绝/重置（host 或端口配置错误）'],
+    [/\b45[12]\b|try (again )?later|temporar/i, '对方服务临时故障，稍后重试即可'],
+  ]
+  const hit = rules.find(([re]) => re.test(raw))
+  return hit ? `${hit[1]}｜原始错误: ${raw}` : raw
+}
+
 // CORS：管理后台（v3.lrcshare.com）跨域调用，需允许并响应 OPTIONS 预检
 const CORS_HEADERS = {
   'Content-Type': 'application/json',
@@ -246,6 +267,6 @@ export default async (req) => {
     return json(200, { success: true })
   } catch (err) {
     console.error('mailer error:', err)
-    return json(500, { success: false, error: err.message || String(err) })
+    return json(500, { success: false, error: humanizeMailError(err) })
   }
 }

@@ -1,8 +1,8 @@
 <template>
-  <footer class="bg-gray-800 text-white py-12 mt-12">
+  <footer class="bg-gray-800 text-white py-6 mt-12">
     <div class="max-w-6xl mx-auto px-4 text-center">
-      <p class="mb-4">&copy; 2023-2026 LrcShare. 全球最小滚动歌词分享网站</p>
-      <p class="mb-4 text-xs text-gray-500">本网站中所使用的歌词，其著作权属于原著作权人，仅以交流学习为目的引用。</p>
+      <p class="mb-2">&copy; 2023-2026 LrcShare. 全球最小滚动歌词分享网站</p>
+      <p class="mb-2 text-sm text-gray-300">本网站中所使用的歌词，其著作权属于原著作权人，仅以交流学习为目的引用。</p>
       <p class="mb-2 text-sm text-gray-400">
         <template v-if="sitePv">
           <span>👁 总访问量 {{ sitePv }} 次</span>
@@ -22,6 +22,17 @@
         <RouterLink to="/support" class="hover:text-white">赞助</RouterLink>
         <a href="https://api.lrcshare.com/docs/" target="_blank" rel="noopener" class="hover:text-white">API</a>
         <RouterLink to="/admin" class="hover:text-white">管理后台</RouterLink>
+      </div>
+      <!-- 技术徽标（shields.io，仿 Hexo 页脚）：致谢支撑本站的开源项目与服务 -->
+      <div class="flex flex-wrap justify-center items-center gap-1.5 mt-3">
+        <a href="https://vuejs.org/" target="_blank" rel="noopener" title="Vue 3.5"><img src="https://img.shields.io/badge/Frame-Vue_3.5-42b883?logo=vuedotjs&logoColor=white" alt="Vue 3.5" loading="lazy" /></a>
+        <a href="https://element-plus.org/" target="_blank" rel="noopener" title="Element Plus 2.13"><img src="https://img.shields.io/badge/UI-Element_Plus_2.13-409eff?logo=element&logoColor=white" alt="Element Plus 2.13" loading="lazy" /></a>
+        <a href="https://tailwindcss.com/" target="_blank" rel="noopener" title="Tailwind CSS 4"><img src="https://img.shields.io/badge/Style-TailwindCSS_4-06b6d4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS 4" loading="lazy" /></a>
+        <a href="https://supabase.com/" target="_blank" rel="noopener" title="Supabase 2"><img src="https://img.shields.io/badge/Data-Supabase_2-3fcf8e?logo=supabase&logoColor=white" alt="Supabase 2" loading="lazy" /></a>
+        <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener" title="Cloudflare Workers"><img src="https://img.shields.io/badge/API-Cloudflare_Workers-f38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers" loading="lazy" /></a>
+        <a href="https://vitepress.dev/" target="_blank" rel="noopener" title="VitePress 1.6"><img src="https://img.shields.io/badge/Docs-VitePress_1.6-green?logo=vitepress&logoColor=white" alt="VitePress 1.6" loading="lazy" /></a>
+        <a href="https://www.netlify.com/" target="_blank" rel="noopener" title="Netlify"><img src="https://img.shields.io/badge/CDN-Netlify-00c7b7?logo=netlify&logoColor=white" alt="Netlify" loading="lazy" /></a>
+        <a href="https://github.com/X2ISPANDA/lrcshare-v3" target="_blank" rel="noopener" title="GitHub"><img src="https://img.shields.io/badge/Source-GitHub-181717?logo=github&logoColor=white" alt="GitHub" loading="lazy" /></a>
       </div>
     </div>
     <!-- 不蒜子回填目标（隐藏，全站唯一一处；数值经 useBusuanzi 轮询进响应式状态） -->

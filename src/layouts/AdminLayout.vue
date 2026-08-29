@@ -46,6 +46,7 @@
         </div>
         <div class="flex items-center gap-2 sm:gap-3 shrink-0">
           <span class="text-sm text-gray-400 hidden sm:inline">{{ user?.email }}</span>
+          <el-button text @click="router.push('/')">回到主站</el-button>
           <el-button text type="danger" @click="handleLogout">退出登录</el-button>
         </div>
       </el-header>

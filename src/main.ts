@@ -86,5 +86,16 @@ export const createApp = ViteSSG(App, { routes }, ({ app, router, initialState }
       'color:#888;font-style:italic',
       'color:#333',
     )
+
+    // 徽标标签行（仿终端风）：彩色徽标 + 正文（正文加深加粗，避免控制台浅灰看不清）
+    const tag = (label: string, text: string, color: string, textCss = 'color:#1f2937;font-weight:600') =>
+      console.log(`%c ${label} %c ${text}`, `background:${color};color:#fff;font-weight:bold;padding:2px 8px;border-radius:4px`, textCss)
+    tag('⚡ Powered by X2ISPANDA', 'LrcShare · Since 2023-03-01', '#f25d8e')
+    tag('ℹ️ INFO', '你已打开控制台', '#6b7280')
+    tag('👀 WATCHING', '你正处于监控中', '#e05a3a')
+    tag('⚠️ WARNING', '本站禁止爬虫抓取与批量采集，数据受保护', '#c2452d')
+    tag('⌚️ 北京时间', new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }), '#0078be')
+    const upDays = Math.floor((Date.now() - new Date('2023-03-01T00:00:00+08:00').getTime()) / 86400000)
+    tag('🚀 RUNTIME', `本站已运行 ${upDays} 天`, '#10b981')
   }
 })
