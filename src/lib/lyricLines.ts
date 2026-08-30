@@ -564,22 +564,42 @@ export async function loadLyricLines(songId: string): Promise<LyricLineRow[]> {
   return (data || []) as LyricLineRow[]
 }
 
-/** 全量替换一首歌的行表（先 DELETE 再 INSERT，幂等） */
-export async function saveLyricLines(songId: string, versions: LyricVersion[]): Promise<void> {
-  await supabase.from('song_lyric_lines').delete().eq('song_id', songId)
+/** 解析一首歌的默认行版本（lyric_versions 的 lrc/enhanced 用户版本；发布/编辑场景由触发器或 rebuild 保证存在） */
+export async function resolveDefaultLinesVersionId(songId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('lyric_versions')
+    .select('id')
+    .eq('song_id', songId)
+    .in('format', ['lrc', 'enhanced'])
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (error) throw error
+  if (!data?.length) throw new Error(`歌曲 ${songId} 无 lrc/enhanced 歌词版本（lrc_text 为空？）`)
+  return data[0].id
+}
+
+/** 全量替换一个歌词版本的行表（默认 = 该歌 lrc/enhanced 用户版本；先 DELETE 再 INSERT，幂等） */
+export async function saveLyricLines(songId: string, versions: LyricVersion[], versionId?: string): Promise<void> {
+  const vid = versionId || await resolveDefaultLinesVersionId(songId)
+  await supabase.from('song_lyric_lines').delete().eq('version_id', vid)
   const rows: any[] = []
   for (const v of versions) {
     const timed = v.rows.filter(r => r.time_ms != null)
     const meta = v.rows.filter(r => r.time_ms == null)
     const all = [...meta, ...timed]
     all.forEach((r, i) => {
-      rows.push({ song_id: songId, lang: v.lang, kind: v.kind, seq: i + 1, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
+      rows.push({ version_id: vid, song_id: songId, lang: v.lang, kind: v.kind, seq: i + 1, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
     })
   }
   if (rows.length) {
     const { error } = await supabase.from('song_lyric_lines').insert(rows)
     if (error) throw error
   }
+  // langs 摘要维护：行表变化后同步刷新该版本的语言摘要
+  const langs = [...new Set(versions.map(v => v.lang).filter(Boolean))]
+  const { error: langsErr } = await supabase.from('lyric_versions').update({ langs }).eq('id', vid)
+  if (langsErr) throw langsErr
 }
 
 /** 调用 SQL 拆行函数重拆一首歌（编辑 lrc_text 整体改动后用，SECURITY DEFINER 仅 authenticated） */

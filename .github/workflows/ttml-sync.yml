@@ -1,0 +1,46 @@
+# ttml-hub 歌词同步（phase5 阶段 E）
+#
+# 每 6 小时拉一次 ttml-hub manifest，revision 变化才全量 diff 同步入库。
+# 逻辑与 cloudflare/ttml-sync/worker.js 完全共用（sync 函数），Node 运行无 Cloudflare 子请求配额限制。
+#
+# 首次启用前需在仓库 Settings → Secrets and variables → Actions 添加：
+#   SUPABASE_URL               https://xxxx.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY  service role key
+#
+# 手动触发：Actions 页 → ttml-hub sync → Run workflow，可勾选 dry_run 观察匹配结果不写库。
+
+name: ttml-hub sync
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # 每 6 小时（ttml-hub 更新频率低，够用且省 Actions 时长）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'DRY_RUN（true=只写待匹配队列，不建歌不挂版本）'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: ttml-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 运行同步
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TTML_HUB_BASE: https://2755337087.github.io/ttml-hub/
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          SYNC_BUDGET: '5000'
+        run: node scripts/run-ttml-sync.mjs

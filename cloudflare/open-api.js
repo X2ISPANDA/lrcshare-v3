@@ -11,7 +11,8 @@
  * - 回源只用 anon key：数据库层 RLS + 列级收权是第二道防线
  * - 只暴露定义好的端点与字段，内部表结构不出门
  * - 隐藏歌曲（is_hidden）不过滤：网站隐藏逻辑仅作用于前台，API 全量开放
- * - 署名链路：song.comment 与 LRC 末尾统一追加「本歌词来自于:贡献者名@lrcshare.com」
+ * - 署名链路：song.comment 与 LRC 末尾统一追加「本歌词来自于:贡献者名@lrcshare.com」；
+ *   phase5 起署名按歌词版本（lyric_versions）各自携带，顶层 comment = 默认版本署名
  * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）；另有 zone 级 Cache Rule
  *   让 JSON 进 CDN 缓存（命中不进 Worker，不消耗请求额度）、WAF 速率限制拦单 IP 洪峰
  * - 目录快照 /v1/catalog：全库可搜索文本，供调用方本地负向预过滤（批量工具省无效请求）
@@ -500,15 +501,56 @@ async function handleSongs(env, url) {
   return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
 }
 
-// ---------- 歌词行表合成（phase4） ----------
+// ---------- 歌词行表合成（phase4）+ 歌词版本（phase5） ----------
 
-/** 读一首歌的歌词行表（所有版本，分页拉全） */
+/** 读一首歌的歌词行表（所有版本，分页拉全；version_id 用于按版本归属分组） */
 async function getLyricVersions(env, songId) {
   return pgListAll(env, 'song_lyric_lines', {
     song_id: `eq.${songId}`,
-    select: 'lang,kind,seq,time_ms,end_ms,text',
+    select: 'version_id,lang,kind,seq,time_ms,end_ms,text',
     order: 'seq.asc',
   })
+}
+
+/** 读一首歌的歌词版本元数据（RLS 只放行 published） */
+async function getSongLyricVersionMetas(env, songId) {
+  return pgListAll(env, 'lyric_versions', {
+    song_id: `eq.${songId}`,
+    select: 'id,format,source,external_id,ttml_text,langs,status,is_primary,contributor_id,source_credit,created_at',
+    order: 'created_at.asc',
+  })
+}
+
+/** 版本排序（tab 优先级，D2 决策）：管理员置顶 > 格式 TTML > 逐字 > 行级 > 投稿时间 */
+const VERSION_FORMAT_ORDER = { ttml: 0, enhanced: 1, lrc: 2 }
+function sortLyricVersions(list) {
+  return (list || []).slice().sort((a, b) => {
+    const p = (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0)
+    if (p) return p
+    const f = (VERSION_FORMAT_ORDER[a.format] ?? 9) - (VERSION_FORMAT_ORDER[b.format] ?? 9)
+    if (f) return f
+    return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+  })
+}
+
+/** 版本署名：用户版 = 贡献者名（无则站名）；ttml-hub 版 = TTML metadata 贡献者（无则来源标注） */
+function versionCreditOf(v, contributorNames) {
+  if (v.source === 'ttml-hub') return v.source_credit || '来自 TTML Hub'
+  const name = v.contributor_id ? contributorNames.get(v.contributor_id) : null
+  return name ? `本歌词来自于:${name}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
+}
+
+/** 行表按 version_id 分组 → Map<version_id, (lang,kind) versions[]> */
+function groupLinesByVersion(rows) {
+  const byId = new Map()
+  for (const r of rows) {
+    let list = byId.get(r.version_id)
+    if (!list) { list = []; byId.set(r.version_id, list) }
+    list.push(r)
+  }
+  const out = new Map()
+  for (const [vid, list] of byId) out.set(vid, groupVersions(list))
+  return out
 }
 
 /** 行表 → versions（每个 (lang,kind) 一个版本，rows 按 seq 排） */
@@ -740,10 +782,17 @@ async function handleSong(env, id, url) {
     arranger: byRole.arranger,
   }
   const artistIds = [...byRole.singer, ...creditIds.lyricist, ...creditIds.composer, ...creditIds.arranger]
+
+  // 歌词版本元数据（RLS 只放行 published）：顶层摘要 + 默认版本署名
+  const versionMetas = sortLyricVersions(await getSongLyricVersionMetas(env, id))
+  const contributorIds = [...new Set([
+    row.contributor_id,
+    ...versionMetas.map(v => v.contributor_id).filter(Boolean),
+  ].filter(Boolean))]
   const [artistNames, albumArtistNames, contributorNames] = await Promise.all([
     getArtistNameMap(env, artistIds),
     row.albums ? getArtistNameMap(env, albumArtistIdsOf(row.albums)) : Promise.resolve(new Map()),
-    row.contributor_id ? getContributorNameMap(env, [row.contributor_id]) : Promise.resolve(new Map()),
+    contributorIds.length ? getContributorNameMap(env, contributorIds) : Promise.resolve(new Map()),
   ])
   const idsToNames = ids => ids.map(x => artistNames.get(x)).filter(Boolean)
   const base = {
@@ -753,11 +802,48 @@ async function handleSong(env, id, url) {
     arranger: idsToNames(creditIds.arranger),
   }
 
-  // 带 lyric 参数：读行表合成（不带参数 = 存量 lrc_text 原样，零改动）
+  // 歌词版本数组（phase5）：摘要总是返回；带 lyric 参数时 TTML 附原文 / lrc·enhanced 附结构化行。
+  // 默认版本 = 排序首位（tab 优先级），顶层 comment 跟随默认版本署名
+  const linesByVersion = new Map()
   if (hasLyricParam) {
-    const rows = await getLyricVersions(env, id)
-    if (rows && rows.length > 0) {
-      const versions = groupVersions(rows)
+    const lineRows = await getLyricVersions(env, id)
+    for (const [vid, vs] of groupLinesByVersion(lineRows || [])) linesByVersion.set(vid, vs)
+  }
+  const versionCredits = new Map()
+  base.lyric_versions = versionMetas.map(v => {
+    const credit = versionCreditOf(v, contributorNames)
+    versionCredits.set(v.id, credit)
+    const out = {
+      id: v.id,
+      format: v.format,
+      source: v.source,
+      langs: v.langs || [],
+      is_primary: v.is_primary,
+      comment: credit,
+    }
+    if (v.source === 'ttml-hub') out.external_id = v.external_id
+    if (hasLyricParam) {
+      if (v.format === 'ttml') {
+        out.ttml_text = v.ttml_text || null
+      } else {
+        const vs = linesByVersion.get(v.id) || []
+        out.lines = {
+          primary_lang: derivePrimaryLang(vs),
+          versions: fillCommonRows(vs).map(x => ({ lang: x.lang, kind: x.kind, rows: x.rows })),
+        }
+      }
+    }
+    return out
+  })
+  if (versionMetas.length > 0) {
+    base.comment = versionCredits.get(versionMetas[0].id) || base.comment
+  }
+
+  // 带 lyric 参数：用默认 lrc/enhanced 版本的行合成（不带参数 = 存量 lrc_text 原样，零改动）
+  if (hasLyricParam) {
+    const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || {}).id
+    const versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
+    if (versions.length > 0) {
       const primaryLang = derivePrimaryLang(versions)
       const effLyricLang = lyricLang || primaryLang || ''
       const selected = selectVersions(versions, effLyricLang, translationLangs)

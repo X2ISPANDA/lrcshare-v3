@@ -150,8 +150,13 @@
 
         <!-- 歌词预览 -->
         <div v-if="!isProfileReview" class="bg-gray-50 rounded-lg p-3 mb-3">
-          <div class="text-sm font-medium text-gray-700 mb-2">📝 歌词预览（原文）</div>
-          <pre class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0">{{ review.song_data?.lrc_text }}</pre>
+          <div class="text-sm font-medium text-gray-700 mb-2">
+            歌词预览{{ review.song_data?.ttml_text ? '（降级 LRC）' : '（原文）' }}
+            <el-button v-if="review.song_data?.ttml_text" link size="small" class="ml-2" @click="ttmlPreview = !ttmlPreview">{{ ttmlPreview ? '查看 LRC' : '查看 TTML 源码' }}</el-button>
+          </div>
+          <pre v-if="!ttmlPreview" class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0">{{ review.song_data?.lrc_text }}</pre>
+          <pre v-else class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0 font-mono">{{ review.song_data?.ttml_text }}</pre>
+          <div v-if="review.song_data?.ttml_text" class="text-xs text-gray-400 mt-1">投稿为 TTML（含对唱/分屏/样式），发布时原文独立成版本落盘</div>
         </div>
 
         <!-- 审核修改表单 -->
@@ -327,7 +332,7 @@
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="px-6 py-3 space-y-3">
-              <div class="text-xs text-gray-400">歌词（LRC 全文，可直接修改）</div>
+              <div class="text-xs text-gray-400">歌词（LRC 全文，可直接修改）<el-tag v-if="row.sd.ttml_text" size="small" type="warning" class="ml-1">TTML</el-tag><span v-if="row.sd.ttml_text" class="ml-1">投稿含 TTML 原文，发布时独立成版本落盘</span></div>
               <el-input v-model="row.sd.lrc_text" type="textarea" :autosize="{ minRows: 8, maxRows: 24 }" class="font-mono" />
               <div class="text-xs text-gray-400">多语言版本（{{ row.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
               <LyricVersionsEditor v-model="row.sd.versions" />
@@ -570,6 +575,7 @@
                 </div>
               </div>
               <div v-if="lyricOpenId === r.row.id" class="space-y-2">
+                <div class="text-xs text-gray-400"><el-tag v-if="r.sd.ttml_text" size="small" type="warning">TTML</el-tag><span v-if="r.sd.ttml_text" class="ml-1">投稿含 TTML 原文，发布时独立成版本落盘</span></div>
                 <el-input v-model="r.sd.lrc_text" type="textarea" :autosize="{ minRows: 6, maxRows: 16 }" class="font-mono" />
                 <div class="text-xs text-gray-400">多语言版本（{{ r.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
                 <LyricVersionsEditor v-model="r.sd.versions" />
@@ -665,7 +671,7 @@ import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
-import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, saveLyricLines } from '@/lib/lyricLines'
+import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, detectLang, saveLyricLines } from '@/lib/lyricLines'
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
@@ -841,6 +847,8 @@ function clearSelection() {
 // ============ 审核弹窗 ============
 const showReview = ref(false)
 const review = ref<ReviewItem | null>(null)
+/** TTML 源码预览开关（仅含 ttml_text 的投稿显示切换按钮，每次打开弹窗重置为 LRC） */
+const ttmlPreview = ref(false)
 
 /** 资料更新类投稿（song_data.type === 'profile'）：弹窗不显示歌曲表单，通过时只更新贡献者 */
 const isProfileReview = computed(() => review.value?.song_data?.type === 'profile')
@@ -880,6 +888,7 @@ function openReview(row: any) {
     }
   }
   review.value = { ...row, edited_data: sd }
+  ttmlPreview.value = false
   filteredAlbums.value = albums.value
   showReview.value = true
 }
@@ -1360,6 +1369,29 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         } catch (e: any) {
           console.warn('[发布]多语言版本写行表失败:', e?.message)
           throw new Error(`歌曲已插入但多语言版本写入失败（${e?.message}），请撤回后重试`)
+        }
+      }
+      // TTML 原文版本：独立落盘 lyric_versions（对唱/分屏/样式零丢失；降级 LRC 已写 songs.lrc_text）。
+      // is_primary 不设（legacy 版本占位），tab 排序按格式优先级 TTML 自然置顶
+      if (sd.ttml_text?.trim()) {
+        try {
+          const ttmlRows = parseTtmlToRows(sd.ttml_text)
+          const langs = [...new Set(ttmlRows.map((r: any) => detectLang(r.text)).filter((l: string) => l && l !== 'unknown'))]
+          const { error: ttmlErr } = await supabase.from('lyric_versions').insert({
+            id: 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+            song_id: songId,
+            format: 'ttml',
+            source: 'user',
+            ttml_text: sd.ttml_text.trim(),
+            langs,
+            status: 'published',
+            is_primary: false,
+            contributor_id: contributorId,
+          })
+          if (ttmlErr) throw ttmlErr
+        } catch (e: any) {
+          console.warn('[发布]TTML 版本写入失败:', e?.message)
+          throw new Error(`歌曲已插入但 TTML 版本写入失败（${e?.message}），请撤回后重试`)
         }
       }
     }

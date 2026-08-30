@@ -1,5 +1,12 @@
 # 更新日志
 
+## v1.4.0 - 2026-08-30
+
+- **多歌词版本模型开放**：一首歌可挂多个歌词版本（不同格式 / 不同贡献者各自独立）。歌曲详情新增 `lyric_versions` 数组——每项含 `id` / `format` / `source` / `langs` / `is_primary` / `comment`（版本独立署名），按默认展示优先级排序（管理员置顶 > TTML > 逐字 > 行级），**首位即默认版本**，顶层 `comment` 跟随默认版本
+- 带歌词参数时各版本附完整内容：`lrc` / `enhanced` 版本附结构化行 `lines`；`ttml` 版本附 `ttml_text` 原文（保留对唱声部、左右显示、行样式，不走行表合成）；`ttml-hub` 来源版本额外带 `external_id`
+- `lyric_lines` 结构化行基于默认 lrc/enhanced 版本；TTML 版本不参与行合成，原文经 `lyric_versions[].ttml_text` 获取
+- 现有客户端零破坏：`lrc` / `comment` / `lyric_lines` 的既有语义不变，`lyric_versions` 为纯新增字段
+
 ## v1.3.0 - 2026-08-30
 
 - **多语言歌词开放**：歌曲详情新增歌词参数 `lyric_lang`（原文语言）/ `lyric_translation_lang`（译文语言，逗号分隔或 `all`）/ `lyric_format`（`line` / `enhanced` / `verbatim` / `ttml`）/ `lyric_lines=1`（结构化行）。歌词以版本为单位组织——`original` 原文 / `translation` 译文 / `romanization` 罗马音，详见[多语言歌词](/api/songs#multi-lang-lyrics)

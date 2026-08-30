@@ -153,6 +153,10 @@ export interface SongSubmissionData {
   year?: string
   duration?: string
   lrc_text: string
+  /** 多语言版本（审核端精确写行表；缺省发布时按 lrc_text 自动拆分） */
+  versions?: { lang: string; kind: string; lrc: string }[]
+  /** TTML 原文（含对唱/分屏/样式；发布时独立落盘 lyric_versions.ttml_text） */
+  ttml_text?: string
   video_url?: string
 }
 

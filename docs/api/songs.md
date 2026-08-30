@@ -69,7 +69,8 @@ GET /v1/song/:id
 | 字段 | 说明 |
 | --- | --- |
 | `lrc` | 完整时间轴的 LRC 歌词，**末尾自动追加一行来源署名**：`[99:99.999]本歌词来自于:贡献者@lrcshare.com`。时间戳 `99:99.999` 超出任何真实歌曲长度，播放器永不滚动渲染该行（视觉上等同于纯文本尾注），但它是合法 LRC 行，可被歌词工具按普通时间轴行解析收录；无 LRC 数据时为 `null` |
-| `comment` | 署名字符串（不带时间戳），可直接整串写入音乐文件的 comment 标签；无贡献者时为 `本歌词来自于:lrcshare.com` |
+| `comment` | 署名字符串（不带时间戳），可直接整串写入音乐文件的 comment 标签；跟随**默认歌词版本**的署名（见下方 `lyric_versions`）；无贡献者时为 `本歌词来自于:lrcshare.com` |
+| `lyric_versions` | 歌词版本数组（一首歌可有多个版本：不同格式、不同贡献者）。每项含 `id` / `format`（`lrc` / `enhanced` / `ttml`）/ `source`（`user` = 用户投稿，`ttml-hub` = TTML Hub 同步）/ `langs`（语言摘要）/ `is_primary`（默认版本标记）/ `comment`（该版本署名）。数组**按默认展示优先级排序**（管理员置顶 > TTML > 逐字 > 行级），**首位即默认版本**，顶层 `comment` 与其一致 |
 | `lyricist` / `composer` / `arranger` | 作词 / 作曲 / 编曲（名字数组，多人合作多项，写入标签时自行拼接） |
 | `genres` | 流派数组（多风格并存，写入标签时自行拼接） |
 
@@ -174,6 +175,16 @@ GET /v1/song/:id
 - `time_ms` 为行开始毫秒；`end_ms` 仅逐字行有值（末词结束时间），行级为 `null`
 - `text` 中的 `<毫秒>` 为**相对行首的词偏移**（逐字数据）；无词级数据时为纯文本
 - `time_ms` 为 `null` 的行是元数据行（`[ti:...]` 等），`text` 为完整原始行
+- `lyric_lines` 基于**默认 lrc/enhanced 版本**的行（TTML 版本不参与行合成，原文经 `lyric_versions[].ttml_text` 获取）
+
+### 歌词版本 {#lyric-versions}
+
+带 `lyric_lines=1`（或任一歌词参数）时，`lyric_versions` 各项附带完整内容：
+
+- `lrc` / `enhanced` 版本：附 `lines` 对象（结构同 `lyric_lines`，但以**该版本**的行计算 `primary_lang`）
+- `ttml` 版本：附 `ttml_text`（TTML XML 原文，含对唱声部、左右显示、行样式等完整信息；不走行表合成，`lyric_format` 参数对它无效）
+- `ttml-hub` 来源的版本额外带 `external_id`（TTML Hub 的稳定歌词 ID）
+- 各版本 `comment` 独立：用户版 = `本歌词来自于:贡献者名@lrcshare.com`；TTML Hub 版 = TTML 元数据中的贡献者信息，无则 `来自 TTML Hub`
 
 ## 示例
 

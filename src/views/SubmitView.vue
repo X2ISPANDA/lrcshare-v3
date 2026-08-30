@@ -361,6 +361,7 @@
               <p>· 逐字：每词前一个 <code class="font-mono">[时间]</code>，最后一个 <code class="font-mono">[时间]</code> 是这句结束　例 <code class="font-mono">[00:01.00]歌[00:01.50]词[00:01.90]</code></p>
               <p>· 加强逐字：行首 <code class="font-mono">[时间]</code>，之后每词 <code class="font-mono">&lt;时间&gt;</code>，行尾 <code class="font-mono">&lt;时间&gt;</code> 是结束　例 <code class="font-mono">[00:01.00]歌&lt;00:01.50&gt;词&lt;00:01.90&gt;</code></p>
               <p>· TTML：每句一个 <code class="font-mono">&lt;p begin="..."&gt;</code>　例 <code class="font-mono">&lt;p begin="00:00:01.000"&gt;歌词&lt;/p&gt;</code></p>
+              <p>· TTML 原文完整保留（对唱、左右分屏、样式均有效）；LRC / 逐字按行拆分入库</p>
             </div>
           </div>
           <textarea
@@ -700,10 +701,22 @@ async function handleSubmit() {
     Object.assign(contactObj, collectContactsObj())
   }
 
-  // 歌词：提交前未自动拆分则静默拆分一次（兜底）；已解析 → versions + 合成 lrc_text；否则原样（自动识别 TTML → 转 LRC）
-  if (!lyricParsed.value) parseLyrics(true)
-  let lrcText = song.lrcText.trim()
+  // 歌词：提交前未自动拆分则静默拆分一次（兜底）；已解析 → versions + 合成 lrc_text；否则原样
+  // TTML：原文先截留进 ttml_text（对唱/分屏/样式零丢失），降级 LRC 照常走 versions / lrc_text
+  // （注意 parseLyrics 会把 TTML 拆进多语言编辑器，故 TTML 判定必须基于原始输入、置于分支之前）
+  const rawLyrics = song.lrcText.trim()
+  let lrcText = rawLyrics
+  let ttmlText: string | undefined
   let versions: { lang: string; kind: string; lrc: string }[] | undefined
+  const isTtml = /^<\s*tt\b/i.test(rawLyrics) || /<p\s+begin=/i.test(rawLyrics)
+  if (isTtml) {
+    ttmlText = rawLyrics
+    if (ttmlText.length > 500 * 1024) {
+      ElMessage.warning('TTML 原文超过 500KB 限制，请精简样式后重试')
+      return
+    }
+  }
+  if (!lyricParsed.value) parseLyrics(true)
   if (lyricParsed.value && lyricVersions.value.length) {
     const vers = lyricVersions.value
       .filter(v => v.lrc.trim())
@@ -714,8 +727,8 @@ async function handleSubmit() {
     }
     versions = vers
     lrcText = composeMixedLrc(vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) })), 'line')
-  } else if (/^<\s*tt\b/i.test(lrcText) || /<p\s+begin=/i.test(lrcText)) {
-    const rows = parseTtmlToRows(song.lrcText)
+  } else if (isTtml) {
+    const rows = parseTtmlToRows(rawLyrics)
     if (!rows.length) {
       ElMessage.warning('TTML 解析失败，请检查格式（仅支持 clock-time 时间戳，如 00:01:02.500）')
       return
@@ -738,6 +751,7 @@ async function handleSubmit() {
     duration: song.duration.trim(),
     track: song.track.trim() || undefined,
     lrc_text: lrcText,
+    ttml_text: ttmlText,
     versions,
     video_url: song.videoUrl.trim(),
   }

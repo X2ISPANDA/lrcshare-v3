@@ -1,0 +1,28 @@
+name = "lrcshare-ttml-sync"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+# ttml-hub 静态站点根地址（含尾斜杠）
+TTML_HUB_BASE = "https://2755337087.github.io/ttml-hub/"
+# 首跑 dry-run：只产出待匹配队列不写库；人工过目后改 "false" 重新 deploy
+DRY_RUN = "true"
+
+[triggers]
+# 定时同步已迁移至 GitHub Actions（.github/workflows/ttml-sync.yml）——Node 运行无子请求配额限制。
+# 本 Worker 保留 /__sync 端点作为手动调试入口，不再挂 cron。
+
+[env.production]
+name = "lrcshare-ttml-sync"
+# Secrets（用 wrangler secret put 设置，勿写进本文件）：
+#   SUPABASE_URL              例 https://xxxx.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY service role key（绕过 RLS，泄露=库裸奔）
+[env.production.vars]
+TTML_HUB_BASE = "https://2755337087.github.io/ttml-hub/"
+DRY_RUN = "true"
+# 仅 /__sync 手动调试用；定时已迁移 GitHub Actions，此处预算无需调大
+SYNC_BUDGET = "30"
+
+# 定时已迁移 GitHub Actions，不再挂 cron（deploy 后控制台触发器会清空，属预期）
+[env.production.triggers]
+crons = []
