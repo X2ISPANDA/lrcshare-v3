@@ -36,7 +36,7 @@
 - [ ] 待确认队列显示 pending 条目（数量与 `SELECT count(*) FROM ttml_hub_pending WHERE resolution IS NULL` 一致）
 - [ ] 命中情况列正确区分：多候选 / 标题歌手全等（附候选歌名）/ 无同名候选
 - [ ] **挂到歌**：点开后搜索框预填候选歌名 → 选歌 → 提示成功 → 歌曲详情页出现该 TTML（对唱 tab 可看）
-- [ ] SQL 复核：`SELECT * FROM lyric_versions WHERE id = 'lv_<hubId>'`（format=ttml, source=ttml-hub, status=published, langs 有值）；pending 行 `resolution='confirmed'`
+- [ ] SQL 复核：`SELECT * FROM lyric_versions WHERE id = 'lv_<hubId>'`（format=ttml, source=ttml-hub, status=published, langs 有值）；pending 行 `resolution='merged'`
 - [ ] **忽略**：确认后条目从队列消失（resolution='ignored'）
 - [ ] **挪歌**（拆分场景）：选目标歌后版本 song_id 更新，详情页两首歌的歌词归属正确
 - [ ] **删除已导入版本**：版本删除后，ttml-hub 下一轮同步会重新将其按未导入处理（幂等可恢复）

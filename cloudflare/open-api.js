@@ -535,7 +535,7 @@ function sortLyricVersions(list) {
 
 /** 版本署名：用户版 = 贡献者名（无则站名）；ttml-hub 版 = TTML metadata 贡献者（无则来源标注） */
 function versionCreditOf(v, contributorNames) {
-  if (v.source === 'ttml-hub') return v.source_credit || '来自 TTML Hub'
+  if (v.source === 'ttml-hub') return v.source_credit || '本歌词来自于:LunaBeat TTML 歌词站@lrcshare.com'
   const name = v.contributor_id ? contributorNames.get(v.contributor_id) : null
   return name ? `本歌词来自于:${name}@${SITE_DOMAIN}` : `本歌词来自于:${SITE_DOMAIN}`
 }

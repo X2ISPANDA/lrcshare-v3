@@ -154,7 +154,7 @@
         <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
-          <button v-if="ttmlVersions.length" class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'ttml' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('ttml')">{{ ttmlTabLabel }}</button>
+          <button v-if="ttmlVersions.length" class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'ttml' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('ttml')">🎼 TTML</button>
         </div>
         <div class="p-6 md:p-8">
           <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
@@ -201,6 +201,24 @@
           </div>
           <!-- TTML 逐字/对唱视图：结构化渲染（声部分列 + 和声 + 翻译随行），渐进增强 -->
           <div v-show="activeTab === 'ttml'" class="text-left">
+            <!-- 来源署名条（ttml-hub 导入版本）：LunaBeat logo + 双链接，尊重上游创作 -->
+            <div v-if="selectedTtml?.source === 'ttml-hub'" class="mb-4 flex items-center justify-center gap-2.5 flex-wrap rounded-xl bg-gray-900 px-4 py-3 text-sm text-gray-300 shadow-md">
+              <span class="w-7 h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                <svg viewBox="0 0 1024 1024" class="w-4 h-4" aria-hidden="true">
+                  <g>
+                    <path fill="#171717" fill-rule="evenodd" d="M798,667.5c0,153-80,248-202,248h-137c-130,0-233-98-233-228V159.5c0-25,15-51,48-51,24,0,41,23,41,51v527c0,85,60,147,147,147h132c76,0,122-59,122-162,0-109-57-171-141-171-73,0-118,37-118,90v106c0,24-19,43-43,43s-43-19-43-43v-234.97c14.17,16.82,28.33,33.65,42.5,50.47,14.5-17.12,29-34.23,43.5-51.35,3.35-3.76,8.41-8.96,15.21-14.32,36.33-28.64,79.6-27.83,103.79-27.83,128,0,222,87,222,249Z" />
+                    <path fill="#171717" d="M371,295.11h86v138.92c-14.33,18.25-28.67,36.49-43,54.74-14.33-18.25-28.67-36.49-43-54.74v-138.92Z" />
+                    <path fill="#171717" d="M371,284.93h86v-34.4c-.57-16.6-19.8-30.03-43-30.03s-42.43,13.43-43,30.03v34.4Z" />
+                  </g>
+                </svg>
+              </span>
+              <span>本歌词来自</span>
+              <a href="https://github.com/2755337087/LunaBeat" target="_blank" rel="noopener noreferrer"
+                class="font-semibold text-white underline decoration-gray-500/60 underline-offset-4 transition-colors hover:text-pink-400 hover:decoration-pink-400">LunaBeat</a>
+              <span class="text-gray-600">·</span>
+              <a href="https://2755337087.github.io/ttml-hub/" target="_blank" rel="noopener noreferrer"
+                class="font-semibold text-white underline decoration-gray-500/60 underline-offset-4 transition-colors hover:text-pink-400 hover:decoration-pink-400">TTML 歌词站</a>
+            </div>
             <!-- 版本切换（多个 TTML 版本时） -->
             <div v-if="ttmlVersions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <select
@@ -661,7 +679,14 @@ const ttmlStructure = computed<TtmlStructure | null>(() => {
   return st.lines.length ? st : null
 })
 
-const ttmlTabLabel = computed(() => (ttmlStructure.value?.hasAgent ? '🎭 对唱歌词' : '⌨️ 逐字歌词'))
+/** 署名：版本自带署名 > 贡献者署名（ttml-hub 来源署名由 TTML 视图顶部 info 条承担，不重复显示） */
+const ttmlCredit = computed(() => {
+  const v = selectedTtml.value
+  if (!v) return ''
+  if (v.source_credit) return v.source_credit
+  if (v.source === 'ttml-hub') return ''
+  return songCredit.value
+})
 
 function ttmlVersionLabel(v: LyricVersionMeta): string {
   const src = v.source === 'ttml-hub' ? 'TTML Hub' : v.source === 'user' ? '投稿' : v.source
@@ -705,15 +730,6 @@ function ttmlGroupAlign(g: TtmlGroup): string {
   if (side === 'right') return 'items-end text-right self-end w-4/5'
   return 'items-center text-center self-center w-full'
 }
-
-/** 署名：版本自带署名 > ttml-hub 来源标注 > 贡献者署名 */
-const ttmlCredit = computed(() => {
-  const v = selectedTtml.value
-  if (!v) return ''
-  if (v.source_credit) return v.source_credit
-  if (v.source === 'ttml-hub') return '歌词来自 TTML Hub'
-  return songCredit.value
-})
 
 /** 行表 → 版本列表（每个 (lang,kind) 一个版本） */
 const lyricVersions = computed<LyricVersion[]>(() => groupVersions(lyricLineRows.value))

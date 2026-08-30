@@ -131,7 +131,7 @@ import { TTML_HUB_BASE } from '@/lib/constants'
 /**
  * TTML Hub 同步管理：待匹配人工确认（档2/档3 队列）+ 已导入版本挪歌/删除。
  * 挂歌 = 下载 TTML 原文（sha256 校验）→ upsert lyric_versions（确定性 id = lv_+hubId，与同步 Worker 幂等兼容）
- * → 队列条目标记 resolution='confirmed'；挪歌 = 改 lyric_versions.song_id（TTML 版本无行表数据，单字段即完整迁移）。
+ * → 队列条目标记 resolution='merged'；挪歌 = 改 lyric_versions.song_id（TTML 版本无行表数据，单字段即完整迁移）。
  */
 
 interface PendingRow {
@@ -289,7 +289,7 @@ async function confirmAttach(row: PendingRow, song: SongRow) {
       contributor_id: null,
       source_credit: null,
     } as any, 'id')
-    await adminApi.update('ttml_hub_pending', row.id, { resolution: 'confirmed' } as any)
+    await adminApi.update('ttml_hub_pending', row.id, { resolution: 'merged' } as any)
     ElMessage.success('已挂到「' + song.title + '」')
     pickerVisible.value = false
     await load()
