@@ -37,7 +37,7 @@ export const LYRIC_LANG_OPTIONS = [
   // 独立文字系统（可自动检测）
   'ru', 'th', 'ar', 'hi', 'he', 'el', 'bo', 'mn', 'my', 'km', 'lo',
   // 特殊
-  'ja-Latn', 'en-US',
+  'en-US',
 ]
 
 /** 语言码 → 中文名（界面展示用，用户友好） */
@@ -70,7 +70,6 @@ export const LYRIC_LANG_LABELS: Record<string, string> = {
   my: '缅甸语',
   km: '高棉语',
   lo: '老挝语',
-  'ja-Latn': '罗马音',
   'en-US': '英语（美）',
 }
 

@@ -95,7 +95,7 @@ GET /v1/song/:id
 - **显式圈定语义**：带语言参数圈定后匹配不到任何版本时 `lrc` 为 `null`（不回退原始文本，避免拿到意料之外的语言组合）
 - `lyrics` 数组：带语言参数时附带，每个选中版本一份 `{lang, kind, format, lrc}`——`lrc` 为该版本的独立完整文本（`line` / `enhanced` 末尾带署名行，`ttml` 为纯 XML 不带）
 
-常用语言代码：`zh` 中文、`zh-Hant` 繁体中文、`yue` 粤语、`ja` 日语、`ko` 韩语、`en` 英语、`ja-Latn` 罗马音；另有 `fr` / `de` / `es` / `ru` / `th` / `bo` / `mn` 等二十余种，以站内投稿语言选项为准。
+常用语言代码：`zh` 中文、`zh-Hant` 繁体中文、`yue` 粤语、`ja` 日语、`ko` 韩语、`en` 英语；另有 `fr` / `de` / `es` / `ru` / `th` / `bo` / `mn` 等二十余种，以站内投稿语言选项为准。罗马音不是独立语言：版本角色由 `kind` 区分（`romanization`），`lang` 填源语言（如日语罗马音 = `lang: ja` + `kind: romanization`），`lyric_translation_lang=ja` 即可圈到日语罗马音。
 
 ### 歌词格式 {#lyric-formats}
 
