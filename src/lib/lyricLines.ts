@@ -437,6 +437,8 @@ export interface TtmlStructure {
   hasAgent: boolean
   /** 是否有词级时间 */
   hasWordTiming: boolean
+  /** 是否有注音（ruby / ttm:role="x-ruby"） */
+  hasRuby: boolean
 }
 
 /**
@@ -446,9 +448,13 @@ export interface TtmlStructure {
  */
 export function parseTtmlStructure(xml: string): TtmlStructure {
   // SSG 构建期（Node）无 DOMParser：返回空结构，内容由客户端水合后重新解析
-  if (typeof DOMParser === 'undefined') return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false }
+  if (typeof DOMParser === 'undefined') return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false, hasRuby: false }
   const doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
-  if (doc.querySelector('parsererror')) return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false }
+  if (doc.querySelector('parsererror')) return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false, hasRuby: false }
+
+  // 注音（Apple/AMLL TTML：span[ttm:role=x-ruby]，或原生 <ruby> 元素）
+  const hasRuby = !!doc.querySelector('ruby') ||
+    Array.from(doc.querySelectorAll('span')).some(el => (el.getAttribute('ttm:role') || '') === 'x-ruby')
 
   // 声部定义
   const agentMeta: Record<string, string | null> = {}
@@ -490,7 +496,7 @@ export function parseTtmlStructure(xml: string): TtmlStructure {
     lines.push({ begin: Number.isNaN(begin) ? null : begin, agent: agent || null, text, bg, lang })
   })
 
-  return { lines, agentMeta, hasAgent, hasWordTiming }
+  return { lines, agentMeta, hasAgent, hasWordTiming, hasRuby }
 }
 
 /** 从 TTML 原文提取语言集合（供入库 langs 摘要） */

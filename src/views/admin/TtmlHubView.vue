@@ -2,7 +2,7 @@
   <div class="space-y-6">
     <el-alert type="info" :closable="false" show-icon
       title="TTML Hub 同步管理"
-      description="ttml-hub 每次同步产生的待匹配条目在此人工确认：挂到库里已有歌、忽略，或对已导入版本挪歌/删除。自动建的白板歌可在「歌曲管理」中编辑补全信息。" />
+      description="同步不会自动建歌或合并。此处的条目由人工确认引入：「挂到歌」= 合并到库里已有歌；「新建展示」= 库里没有但想展示，确认后建歌；「忽略」= 永不引入。未处理的条目不会出现在主站。" />
 
     <!-- ===== 待确认队列 ===== -->
     <el-card shadow="never">
@@ -28,9 +28,10 @@
             <span v-if="candidateSongTitles(row)" class="text-xs text-gray-500">{{ candidateSongTitles(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="openPicker(row)">挂到歌</el-button>
+            <el-button size="small" type="success" @click="createFromHub(row)">新建展示</el-button>
             <el-button size="small" @click="ignorePending(row)">忽略</el-button>
           </template>
         </el-table-column>
@@ -44,6 +45,7 @@
             </div>
             <div class="flex gap-2 pt-1">
               <el-button size="small" type="primary" @click="openPicker(row)">挂到歌</el-button>
+              <el-button size="small" type="success" @click="createFromHub(row)">新建展示</el-button>
               <el-button size="small" @click="ignorePending(row)">忽略</el-button>
             </div>
           </div>
@@ -129,13 +131,16 @@ import { detectTtmlLangs } from '@/lib/lyricLines'
 import { TTML_HUB_BASE } from '@/lib/constants'
 
 /**
- * TTML Hub 同步管理：待匹配人工确认（档2/档3 队列）+ 已导入版本挪歌/删除。
- * 挂歌 = 下载 TTML 原文（sha256 校验）→ upsert lyric_versions（确定性 id = lv_+hubId，与同步 Worker 幂等兼容）
- * → 队列条目标记 resolution='merged'；挪歌 = 改 lyric_versions.song_id（TTML 版本无行表数据，单字段即完整迁移）。
+ * TTML Hub 同步管理（完全剥离模式）：
+ * 同步 Worker 不再自动建歌/合并，所有引入均在此人工确认——
+ * 「挂到歌」= 下载 TTML 原文（sha256 校验）挂为已有歌的版本（确定性 id = lv_+hubId，与同步 Worker 幂等兼容）；
+ * 「新建展示」= 库里没有但想展示：建歌 + 歌手/专辑归一复用（无则建）+ 关系绑定 + 挂版本；
+ * 挪歌 = 改 lyric_versions.song_id（TTML 版本无行表数据，单字段即完整迁移）。
  */
 
 interface PendingRow {
   id: string; title: string; artists: string[]; album: string | null
+  source_ids: Record<string, unknown> | null
   path: string; sha256: string | null; reason: string; candidates: any
   resolution: string | null
 }
@@ -143,10 +148,14 @@ interface VersionRow {
   id: string; song_id: string; external_id: string | null; langs: string[]
 }
 interface SongRow { id: string; title: string; origin: string | null }
+interface ArtistRow { id: string; name: string }
+interface AlbumRow { id: string; name: string }
 
 const pendings = ref<PendingRow[]>([])
 const imported = ref<VersionRow[]>([])
 const songs = ref<SongRow[]>([])
+const artists = ref<ArtistRow[]>([])
+const albums = ref<AlbumRow[]>([])
 const loading = ref(false)
 
 const page = ref(1)
@@ -186,14 +195,18 @@ function candidateSongTitles(row: any): string {
 async function load() {
   loading.value = true
   try {
-    const [p, v, s] = await Promise.all([
+    const [p, v, s, a, al] = await Promise.all([
       adminApi.getAll<PendingRow>('ttml_hub_pending', { order: 'created_at', ascending: false }),
       adminApi.getAll<VersionRow>('lyric_versions', { select: 'id,song_id,external_id,langs', eq: { source: 'ttml-hub' }, order: 'created_at', ascending: false }),
       adminApi.getAll<SongRow>('songs', { select: 'id,title,origin' }),
+      adminApi.getAll<ArtistRow>('artists', { select: 'id,name' }),
+      adminApi.getAll<AlbumRow>('albums', { select: 'id,name' }),
     ])
     pendings.value = p.filter(r => !r.resolution)
     imported.value = v
     songs.value = s
+    artists.value = a
+    albums.value = al
   } catch (e: any) {
     ElMessage.error('加载失败：' + (e.message || e))
   } finally {
@@ -263,35 +276,134 @@ async function pickSong(s: SongRow) {
   }
 }
 
-// ---------- 挂歌（下载 TTML + sha256 + upsert 版本 + 标记已确认） ----------
+// ---------- 公共工具 ----------
+
+/** NFKC + 小写 + 删空白与分隔符（与同步 Worker 的归一化规则一致） */
+function norm(s: string): string {
+  return String(s || '').normalize('NFKC').toLowerCase()
+    .replace(/[\s·・._\-–—'"`~（）()[\]【】<>《》!！?？,，.。;；:：/\\|@#$%^&*+=]/g, '')
+}
+
+/** 下载 TTML 原文并校验 sha256（挂到歌 / 新建展示共用） */
+async function downloadTtmlForRow(row: PendingRow): Promise<{ text: string; hash: string }> {
+  const res = await fetch(new URL(row.path, TTML_HUB_BASE).href)
+  if (!res.ok) throw new Error(`TTML 下载失败（${res.status}）`)
+  const buf = await res.arrayBuffer()
+  const text = new TextDecoder().decode(buf)
+  const digest = await crypto.subtle.digest('SHA-256', buf)
+  const hash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+  if (row.sha256 && hash !== row.sha256) throw new Error('sha256 校验不符，源文件可能已更新，请刷新队列后重试')
+  return { text, hash }
+}
+
+/** 挂 TTML 版本到指定歌（确定性 id = lv_ + hubId） */
+async function attachVersionToSong(row: PendingRow, songId: string) {
+  const { text, hash } = await downloadTtmlForRow(row)
+  await adminApi.upsert('lyric_versions', {
+    id: 'lv_' + row.id,
+    song_id: songId,
+    format: 'ttml',
+    source: 'ttml-hub',
+    external_id: row.id,
+    content_hash: hash,
+    ttml_text: text,
+    langs: detectTtmlLangs(text),
+    status: 'published',
+    is_primary: false,
+    contributor_id: null,
+    source_credit: null,
+  } as any, 'id')
+}
+
+// ---------- 挂到歌（合并到已有歌） ----------
 async function confirmAttach(row: PendingRow, song: SongRow) {
   saving.value = true
   try {
-    const res = await fetch(new URL(row.path, TTML_HUB_BASE).href)
-    if (!res.ok) throw new Error(`TTML 下载失败（${res.status}）`)
-    const buf = await res.arrayBuffer()
-    const text = new TextDecoder().decode(buf)
-    const digest = await crypto.subtle.digest('SHA-256', buf)
-    const hash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
-    if (row.sha256 && hash !== row.sha256) throw new Error('sha256 校验不符，源文件可能已更新，请刷新队列后重试')
-
-    await adminApi.upsert('lyric_versions', {
-      id: 'lv_' + row.id, // 与同步 Worker 相同的确定性 id，幂等兼容
-      song_id: song.id,
-      format: 'ttml',
-      source: 'ttml-hub',
-      external_id: row.id,
-      content_hash: hash,
-      ttml_text: text,
-      langs: detectTtmlLangs(text),
-      status: 'published',
-      is_primary: false,
-      contributor_id: null,
-      source_credit: null,
-    } as any, 'id')
+    await attachVersionToSong(row, song.id)
     await adminApi.update('ttml_hub_pending', row.id, { resolution: 'merged' } as any)
     ElMessage.success('已挂到「' + song.title + '」')
     pickerVisible.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e.message || String(e))
+  } finally {
+    saving.value = false
+  }
+}
+
+// ---------- 新建展示（确认后建歌 + 歌手/专辑归一复用 + 关系 + 版本） ----------
+async function createFromHub(row: PendingRow) {
+  await ElMessageBox.confirm(
+    `将新建歌「${row.title}」` +
+    (row.artists?.length ? `（歌手：${row.artists.join('、')}` : '（无歌手信息') +
+    (row.album ? ` · 专辑：${row.album}` : '') +
+    '），绑定关系并下载 TTML 挂为版本。已有的同名歌手/专辑会复用，不会重复创建。确认？',
+    '新建展示确认', { type: 'warning' },
+  )
+  saving.value = true
+  try {
+    // 1. 歌手：归一复用，无则建；归一化相同的名字去重（如 "Tizzy T"/"TizzyT"）
+    const artistsByNorm = new Map(artists.value.map(a => [norm(a.name), a.id]))
+    const artistIds: string[] = []
+    for (const name of new Set(row.artists || [])) {
+      const key = norm(name)
+      let id = artistsByNorm.get(key)
+      if (!id) {
+        id = 'art_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+        await adminApi.insert('artists', {
+          id, name, types: ['singer'], is_show: true, sort: 0, avatar: '', bio: '', aliases: [], disambiguation: '',
+        })
+        artistsByNorm.set(key, id)
+        artists.value.push({ id, name })
+      }
+      artistIds.push(id)
+    }
+    const uniqArtistIds = [...new Set(artistIds)]
+
+    // 2. 专辑：归一复用，无则建 + 专辑-歌手关系（幂等）
+    let albumId: string | null = null
+    if (row.album) {
+      const albumsByNorm = new Map(albums.value.map(a => [norm(a.name), a.id]))
+      albumId = albumsByNorm.get(norm(row.album)) || null
+      if (!albumId) {
+        albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
+        await adminApi.insert('albums', { id: albumId, name: row.album, year: null, cover: '', description: null })
+        albumsByNorm.set(norm(row.album), albumId)
+        albums.value.push({ id: albumId, name: row.album })
+      }
+      if (uniqArtistIds.length) {
+        await adminApi.upsertBatch('album_contributors',
+          uniqArtistIds.map(artist_id => ({ album_id: albumId, artist_id })), 'album_id,artist_id')
+      }
+    }
+
+    // 3. 歌本体
+    const songId = 's' + Date.now() + Math.floor(Math.random() * 1000)
+    await adminApi.insert('songs', {
+      id: songId,
+      title: row.title,
+      album_id: albumId,
+      duration: '',
+      track: null,
+      lrc_text: null,
+      cover: '',
+      video_url: null,
+      status: 'published',
+      contributor_id: null,
+      genres: [],
+      source_ids: row.source_ids || {},
+      origin: 'ttml-hub',
+    })
+    if (uniqArtistIds.length) {
+      await adminApi.insertBatch('song_contributors',
+        uniqArtistIds.map(artist_id => ({ song_id: songId, artist_id, role: 'singer' })))
+    }
+    songs.value.push({ id: songId, title: row.title, origin: 'ttml-hub' })
+
+    // 4. 下载 TTML 挂版本 + 标记队列已确认
+    await attachVersionToSong(row, songId)
+    await adminApi.update('ttml_hub_pending', row.id, { resolution: 'created' } as any)
+    ElMessage.success('已新建「' + row.title + '」')
     await load()
   } catch (e: any) {
     ElMessage.error(e.message || String(e))

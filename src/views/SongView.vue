@@ -150,7 +150,7 @@
         </p>
         <span class="hidden sm:block h-px flex-1 bg-gradient-to-l from-transparent to-amber-300/70"></span>
       </div>
-      <div ref="lyricsCardRef" class="bg-white rounded-2xl shadow-sm mb-6">
+      <div class="bg-white rounded-2xl shadow-sm mb-6">
         <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
@@ -200,7 +200,12 @@
             </div>
           </div>
           <!-- TTML 逐字/对唱视图：结构化渲染（声部分列 + 和声 + 翻译随行），渐进增强 -->
-          <div v-show="activeTab === 'ttml'" class="text-left">
+          <div v-show="activeTab === 'ttml'" class="text-left group relative">
+            <!-- 悬浮「全部复制」：复制当前选中版本的 TTML 原文 -->
+            <button
+              class="absolute top-0 right-0 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
+              @click="copyCurrentTtml"
+            >全部复制</button>
             <!-- 来源署名条（ttml-hub 导入版本）：LunaBeat logo + 双链接，尊重上游创作 -->
             <div v-if="selectedTtml?.source === 'ttml-hub'" class="mb-4 flex items-center justify-center gap-2.5 flex-wrap rounded-xl bg-gray-900 px-4 py-3 text-sm text-gray-300 shadow-md">
               <span class="w-7 h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
@@ -283,22 +288,6 @@
   </main>
 
   <RewardModal v-model="showReward" />
-
-  <!-- 复制 LRC 浮动胶囊：歌词区可见且滚过页头时出现 -->
-  <Transition
-    enter-active-class="transition duration-200 ease-out"
-    enter-from-class="opacity-0 translate-y-2"
-    enter-to-class="opacity-100 translate-y-0"
-    leave-active-class="transition duration-150 ease-in"
-    leave-from-class="opacity-100 translate-y-0"
-    leave-to-class="opacity-0 translate-y-2"
-  >
-    <button
-      v-if="showCopyFab"
-      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-full bg-white/90 backdrop-blur shadow-lg border border-gray-100 text-sm font-medium text-gray-600 hover:text-pink-600 hover:border-pink-200 transition-colors"
-      @click="copyCurrentLrc"
-    >📋 复制歌词</button>
-  </Transition>
 </template>
 
 <script setup lang="ts">
@@ -308,7 +297,7 @@ import { useHead } from '@unhead/vue'
 import { ElMessage } from 'element-plus'
 // 显式导入 ElMessage 不会附带样式（自动导入才有），需手动补 message 样式，否则提示框无定位不可见
 import 'element-plus/es/components/message/style/css'
-import { useElementVisibility, useWindowScroll } from '@vueuse/core'
+import { useElementVisibility } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
@@ -775,14 +764,15 @@ function copyCurrentLrc() {
   copyText(lrcText.value).then(() => ElMessage.success('歌词已复制到剪贴板！'))
 }
 
+/** TTML 视图悬浮复制：当前选中版本的 TTML 原文 */
+function copyCurrentTtml() {
+  const t = selectedTtml.value?.ttml_text
+  if (!t) return
+  copyText(t).then(() => ElMessage.success('TTML 已复制到剪贴板！'))
+}
+
 // ============ 操作 ============
 const showReward = ref(false)
-
-// 复制 LRC 浮动胶囊：歌词卡片可见且已滚过页头时出现（SSG 安全：回调内才读 window）
-const lyricsCardRef = ref<HTMLElement | null>(null)
-const lyricsVisible = useElementVisibility(lyricsCardRef)
-const { y: scrollY } = useWindowScroll()
-const showCopyFab = computed(() => lyricsVisible.value && scrollY.value > 300)
 
 function shareSong() {
   copyText(window.location.href).then(() => ElMessage.success('链接已复制到剪贴板！'))
@@ -808,10 +798,6 @@ function shareSong() {
   background: #000;
   box-shadow: 0 12px 40px -10px rgb(0 0 0 / 0.4);
   animation: mini-pop-in 0.25s ease-out;
-}
-/* 小屏抬高避开居中的「复制 LRC」胶囊 */
-@media (max-width: 767px) {
-  .video-mini { bottom: 4.75rem; }
 }
 @keyframes mini-pop-in {
   from { opacity: 0; transform: translateY(10px) scale(0.97); }
