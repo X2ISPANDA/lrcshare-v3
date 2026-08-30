@@ -4,8 +4,7 @@
 # 逻辑与 cloudflare/ttml-sync/worker.js 完全共用（sync 函数），Node 运行无 Cloudflare 子请求配额限制。
 #
 # 首次启用前需在仓库 Settings → Secrets and variables → Actions 添加：
-#   SUPABASE_URL               https://xxxx.supabase.co
-#   SUPABASE_SERVICE_ROLE_KEY  service role key
+#   SUPABASE_SERVICE_ROLE_KEY  service role key（复用已有的 VITE_SUPABASE_URL，勿将 service key 配 VITE_ 前缀注入前端）
 #
 # 手动触发：Actions 页 → ttml-hub sync → Run workflow，可勾选 dry_run 观察匹配结果不写库。
 
@@ -28,7 +27,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120 # 首次全量导入可能较久；被杀也不怕，幂等设计，重跑自动断点续传
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +37,7 @@ jobs:
 
       - name: 运行同步
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TTML_HUB_BASE: https://2755337087.github.io/ttml-hub/
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
