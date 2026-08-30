@@ -47,6 +47,7 @@ export default <RouteRecordRaw[]>[
       { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/DashboardView.vue') },
       { path: 'submissions', name: 'admin-submissions', component: () => import('@/views/admin/SubmissionsView.vue') },
       { path: 'songs', name: 'admin-songs', component: () => import('@/views/admin/SongsView.vue') },
+      { path: 'lyric-doubts', name: 'admin-lyric-doubts', component: () => import('@/views/admin/DoubtsView.vue') },
       { path: 'artists', name: 'admin-artists', component: () => import('@/views/admin/ArtistsView.vue') },
       { path: 'albums', name: 'admin-albums', component: () => import('@/views/admin/AlbumsView.vue') },
       { path: 'sponsors', name: 'admin-sponsors', component: () => import('@/views/admin/SponsorsView.vue') },

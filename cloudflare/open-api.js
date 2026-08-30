@@ -500,7 +500,232 @@ async function handleSongs(env, url) {
   return jsonOk({ total: result.total, limit, offset, items }, TTL_LIST)
 }
 
-async function handleSong(env, id) {
+// ---------- 歌词行表合成（phase4） ----------
+
+/** 读一首歌的歌词行表（所有版本，分页拉全） */
+async function getLyricVersions(env, songId) {
+  return pgListAll(env, 'song_lyric_lines', {
+    song_id: `eq.${songId}`,
+    select: 'lang,kind,seq,time_ms,end_ms,text',
+    order: 'seq.asc',
+  })
+}
+
+/** 行表 → versions（每个 (lang,kind) 一个版本，rows 按 seq 排） */
+function groupVersions(rows) {
+  const map = new Map()
+  for (const r of rows) {
+    const key = `${r.lang}|${r.kind}`
+    let v = map.get(key)
+    if (!v) { v = { lang: r.lang, kind: r.kind, rows: [] }; map.set(key, v) }
+    v.rows.push({ seq: r.seq, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
+  }
+  return [...map.values()]
+}
+
+/** primary_lang = original 版本里行数最多的 lang */
+function derivePrimaryLang(versions) {
+  const counts = {}
+  for (const v of versions) {
+    if (v.kind !== 'original') continue
+    counts[v.lang] = (counts[v.lang] || 0) + v.rows.length
+  }
+  let best = null
+  for (const lang of Object.keys(counts)) {
+    if (best === null || counts[lang] > counts[best]) best = lang
+  }
+  return best
+}
+
+/** 毫秒 → mm:ss.xxx（三位毫秒，不舍入，与歌词滚动姬一致） */
+function formatLyricTime(ms) {
+  if (ms == null) return null
+  const mm = Math.floor(ms / 60000)
+  const ss = Math.floor((ms % 60000) / 1000)
+  const xxx = ms % 1000
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(xxx).padStart(3, '0')}`
+}
+
+/** 剥词标签（<偏移毫秒> → 只留文本），line 格式用 */
+function stripWordTags(text) {
+  return String(text || '').replace(/<\d{1,6}>/g, '')
+}
+
+/** 词标签相对偏移 → 绝对时间（enhanced 格式用）：<偏移毫秒> → <mm:ss.xxx绝对>；首个词补行时间标签 */
+function composeEnhancedText(text, timeMs, endMs) {
+  const s = String(text || '')
+  if (!/<\d{1,6}>/.test(s)) return s // 无词标签 → 降级为 line（原样）
+  const converted = s.replace(/<(\d{1,6})>/g, (_, off) => `<${formatLyricTime(timeMs + Number(off))}>`)
+  let out = `<${formatLyricTime(timeMs)}>${converted}`
+  if (endMs != null) out += `<${formatLyricTime(endMs)}>`
+  return out
+}
+
+/** 词标签相对偏移 → 绝对时间（verbatim 格式用）：每词前补 [mm:ss.xxx绝对]，无独立行首、无行尾（末词结束由播放器兜底） */
+function composeVerbatimText(text, timeMs, endMs) {
+  const s = String(text || '')
+  if (!/<\d{1,6}>/.test(s)) {
+    // 无词标签 → 降级为 line（单词 verbatim 与 line 同形）
+    return `[${formatLyricTime(timeMs)}]${s}`
+  }
+  const words = parseWordTags(s)
+  let out = words.map(w => `[${formatLyricTime(timeMs + w.offset_ms)}]${w.text}`).join('')
+  if (endMs != null) out += `[${formatLyricTime(endMs)}]`
+  return out
+}
+
+/** 选中版本：original(lyricLang) + 命中 translationLangs 的非 original 版本 */
+function selectVersions(versions, lyricLang, translationLangs) {
+  const selected = []
+  const wantAll = translationLangs.includes('all')
+  for (const v of versions) {
+    if (v.kind === 'original') {
+      if (v.lang === lyricLang) selected.push(v)
+    } else if (wantAll || translationLangs.includes(v.lang)) {
+      selected.push(v)
+    }
+  }
+  return selected
+}
+
+/** 补齐公共行：非 original 版本补齐 original 中该版本没有对应 time_ms 的行（Hello/NONONO 等公共行，翻译版本也完整） */
+function fillCommonRows(versions) {
+  const original = versions.find(v => v.kind === 'original')
+  if (!original) return versions
+  for (const v of versions) {
+    if (v.kind === 'original') continue
+    const vTimeSet = new Set(v.rows.map(r => r.time_ms).filter(t => t != null))
+    const fill = original.rows
+      .filter(r => r.time_ms != null && !vTimeSet.has(r.time_ms))
+      .map(r => ({ seq: r.seq, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text }))
+    if (fill.length) {
+      v.rows = [...v.rows, ...fill].sort((a, b) => (a.time_ms !== b.time_ms ? a.time_ms - b.time_ms : a.seq - b.seq))
+    }
+  }
+  return versions
+}
+
+/** 元数据行 key（[ti:xxx] → ti） */
+function metaKeyOf(line) {
+  const m = String(line).match(/^\[([A-Za-z]+):/)
+  return m ? m[1].toLowerCase() : ''
+}
+
+/** 元数据行去重 + 按 key 序（ti/ar/al/by/其他） */
+function dedupeMeta(metaLines) {
+  const keyRank = { ti: 0, ar: 1, al: 2, by: 3 }
+  const seen = new Set()
+  return [...metaLines]
+    .sort((a, b) => (keyRank[metaKeyOf(a)] ?? 4) - (keyRank[metaKeyOf(b)] ?? 4))
+    .filter(line => {
+      const key = metaKeyOf(line)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+/** 合成 LRC 文本（line/enhanced/verbatim）：元数据头部 + 选中版本歌词合并 + 稳定排序 + 格式化 */
+function composeLrc(versions, format) {
+  const lines = []
+  const meta = []
+  for (const v of versions) {
+    for (const r of v.rows) {
+      if (r.time_ms == null) {
+        meta.push(r.text) // 元数据行（完整 [ti:xxx]）
+        continue
+      }
+      lines.push({ time_ms: r.time_ms, end_ms: r.end_ms, kind: v.kind, lang: v.lang, text: r.text })
+    }
+  }
+  lines.sort((a, b) => {
+    if (a.time_ms !== b.time_ms) return a.time_ms - b.time_ms
+    const rank = k => (k === 'original' ? 0 : k === 'translation' ? 1 : 2)
+    return rank(a.kind) - rank(b.kind) || a.lang.localeCompare(b.lang)
+  })
+  const body = lines.map(l => {
+    if (format === 'verbatim') return composeVerbatimText(l.text, l.time_ms, l.end_ms) // 无独立行首，词1时间=行时间
+    const text = format === 'enhanced' ? composeEnhancedText(l.text, l.time_ms, l.end_ms) : stripWordTags(l.text)
+    return `[${formatLyricTime(l.time_ms)}]${text}`
+  }).join('\n')
+  const head = dedupeMeta(meta).join('\n')
+  return head ? `${head}\n${body}` : body
+}
+
+/** 毫秒 → TTML clock-time HH:MM:SS.mmm */
+function formatTtmlTime(ms) {
+  const hh = Math.floor(ms / 3600000)
+  const mm = Math.floor((ms % 3600000) / 60000)
+  const ss = Math.floor((ms % 60000) / 1000)
+  const xxx = ms % 1000
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(xxx).padStart(3, '0')}`
+}
+
+/** XML 转义 */
+function escapeXml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]))
+}
+
+/** 解析 text 词标签 → [{text, offset_ms}]；无标签则整行一个词 */
+function parseWordTags(text) {
+  const s = String(text || '')
+  const tokens = s.split(/<(\d{1,6})>/)
+  const words = []
+  let offset = 0
+  for (let i = 0; i < tokens.length; i++) {
+    if (i % 2 === 0) {
+      if (tokens[i]) words.push({ text: tokens[i], offset_ms: offset })
+    } else {
+      offset = Number(tokens[i])
+    }
+  }
+  if (words.length === 0) words.push({ text: s, offset_ms: 0 })
+  return words
+}
+
+/** 合成 TTML：行 → <p>，词 → <span>；end 派生（p=下一行 begin，span=下一词 begin，末位兜底 +3000ms）；署名走 <metadata> */
+function composeTtml(versions, credit) {
+  const lines = []
+  const metaLines = []
+  for (const v of versions) {
+    for (const r of v.rows) {
+      if (r.time_ms == null) {
+        metaLines.push(r.text)
+        continue
+      }
+      lines.push({ time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
+    }
+  }
+  lines.sort((a, b) => a.time_ms - b.time_ms)
+  const ps = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const pBeginMs = line.time_ms
+    const pEndMs = line.end_ms != null
+      ? line.end_ms
+      : (i + 1 < lines.length ? lines[i + 1].time_ms : line.time_ms + 3000)
+    const words = parseWordTags(line.text)
+    const spans = words.map((w, wi) => {
+      const wBeginMs = pBeginMs + w.offset_ms
+      const wEndMs = wi + 1 < words.length ? pBeginMs + words[wi + 1].offset_ms : pEndMs
+      return `<span begin="${formatTtmlTime(wBeginMs)}" end="${formatTtmlTime(wEndMs)}">${escapeXml(w.text)}</span>`
+    }).join('')
+    ps.push(`<p begin="${formatTtmlTime(pBeginMs)}" end="${formatTtmlTime(pEndMs)}">${spans}</p>`)
+  }
+  const meta = metaLines.length ? `<head><metadata>${dedupeMeta(metaLines).map(escapeXml).join('\n')}</metadata></head>` : ''
+  // 署名走超界时间 <p>（06:59:19.999 对应 LRC [419:19.999]，播放器永不渲染，但工具按字幕行解析收录）
+  const creditP = credit ? `<p begin="06:59:19.999" end="06:59:20.999">${escapeXml(credit)}</p>` : ''
+  return `<tt xmlns="http://www.w3.org/ns/ttml">${meta}<body><div>${ps.join('')}${creditP}</div></body></tt>`
+}
+
+async function handleSong(env, id, url) {
+  const q = url ? url.searchParams : new URLSearchParams()
+  const lyricLang = (q.get('lyric_lang') || '').trim()
+  const translationRaw = (q.get('lyric_translation_lang') || '').trim()
+  const translationLangs = translationRaw ? translationRaw.split(',').map(s => s.trim()).filter(Boolean) : []
+  const lyricFormat = q.get('lyric_format') || 'line'
+  const wantLines = q.get('lyric_lines') === '1'
+  const hasLyricParam = !!(lyricLang || translationLangs.length || wantLines)
   // song_contributors 嵌套（FK song_id）：贡献关系唯一数据源（含歌手/词/曲/编）
   const select = SONG_DETAIL_SELECT
   const row = await pgOne(env, 'songs', select, { id: `eq.${id}`, status: 'eq.published' })
@@ -521,15 +746,58 @@ async function handleSong(env, id) {
     row.contributor_id ? getContributorNameMap(env, [row.contributor_id]) : Promise.resolve(new Map()),
   ])
   const idsToNames = ids => ids.map(x => artistNames.get(x)).filter(Boolean)
-  return jsonOk(
-    {
-      ...mapSongDetailBase(row, artistNames, albumArtistNames, contributorNames.get(row.contributor_id) || null),
-      lyricist: idsToNames(creditIds.lyricist),
-      composer: idsToNames(creditIds.composer),
-      arranger: idsToNames(creditIds.arranger),
-    },
-    TTL_DETAIL,
-  )
+  const base = {
+    ...mapSongDetailBase(row, artistNames, albumArtistNames, contributorNames.get(row.contributor_id) || null),
+    lyricist: idsToNames(creditIds.lyricist),
+    composer: idsToNames(creditIds.composer),
+    arranger: idsToNames(creditIds.arranger),
+  }
+
+  // 带 lyric 参数：读行表合成（不带参数 = 存量 lrc_text 原样，零改动）
+  if (hasLyricParam) {
+    const rows = await getLyricVersions(env, id)
+    if (rows && rows.length > 0) {
+      const versions = groupVersions(rows)
+      const primaryLang = derivePrimaryLang(versions)
+      const effLyricLang = lyricLang || primaryLang || ''
+      const selected = selectVersions(versions, effLyricLang, translationLangs)
+
+      // lyric_lines 结构化行（指定了 lang 参数则只返回选中，否则返回全部版本；非 original 版本补齐公共行）
+      if (wantLines) {
+        const filled = fillCommonRows(versions)
+        const outVersions = (lyricLang || translationLangs.length ? selectVersions(filled, effLyricLang, translationLangs) : filled)
+          .map(v => ({ lang: v.lang, kind: v.kind, rows: v.rows }))
+        base.lyric_lines = { primary_lang: primaryLang, versions: outVersions }
+      }
+
+      // 合成 lrc + lyrics 数组（带语言参数时）
+      if (lyricLang || translationLangs.length) {
+        if (selected.length === 0) {
+          // 匹配不到任何版本 → 空 lrc（显式圈定语义，不 fallback 原始 lrc_text）
+          base.lrc = null
+        } else if (lyricFormat === 'ttml') {
+          const ttml = composeTtml(selected, base.comment)
+          if (ttml) base.lrc = ttml
+        } else {
+          const composed = composeLrc(selected, lyricFormat)
+          if (composed) {
+            base.lrc = `${composed}\n[419:19.999]${base.comment}`
+          }
+        }
+        // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行；line/enhanced 带署名，ttml 纯 XML 不带）
+        if (selected.length > 0) {
+          const filled = fillCommonRows(selected)
+          base.lyrics = filled.map(v => {
+            const text = lyricFormat === 'ttml' ? composeTtml([v], base.comment) : composeLrc([v], lyricFormat)
+            const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${base.comment}` : null)
+            return { lang: v.lang, kind: v.kind, format: lyricFormat, lrc }
+          })
+        }
+      }
+    }
+  }
+
+  return jsonOk(base, TTL_DETAIL)
 }
 
 /** 详情装配的公共部分（lyricist/composer/arranger 由调用方按角色结果传入覆盖） */
@@ -712,7 +980,7 @@ export default {
         const ma = path.match(/^\/v1\/album\/([^/]+)$/)
         const mar = path.match(/^\/v1\/artist\/([^/]+)$/)
         const mars = path.match(/^\/v1\/artist\/([^/]+)\/songs$/)
-        if (m) res = await handleSong(env, decodeURIComponent(m[1]))
+        if (m) res = await handleSong(env, decodeURIComponent(m[1]), url)
         else if (ma) res = await handleAlbum(env, decodeURIComponent(ma[1]))
         else if (mars) res = await handleArtistSongs(env, decodeURIComponent(mars[1]), url)
         else if (mar) res = await handleArtist(env, decodeURIComponent(mar[1]))

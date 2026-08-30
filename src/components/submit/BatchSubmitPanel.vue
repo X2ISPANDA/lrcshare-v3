@@ -138,6 +138,10 @@
                 <div class="text-xs text-gray-500 mb-1">歌词（LRC 全文，可直接修改）</div>
                 <el-input v-model="row.lrcText" type="textarea" :autosize="{ minRows: 8, maxRows: 24 }" class="font-mono" />
               </div>
+              <div>
+                <div class="text-xs text-gray-500 mb-1">多语言版本（{{ row.versions?.length || 0 }} 个，已自动拆分，可调整）</div>
+                <LyricVersionsEditor v-model="row.versions" />
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -200,6 +204,8 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { unzipSync } from 'fflate'
 import ArtistTagInput from './ArtistTagInput.vue'
+import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, composeMixedLrc } from '@/lib/lyricLines'
+import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { VALIDATION_ABORT } from '@/lib/constants'
 import type { Artist, AlbumWithArtists } from '@/lib/types'
 
@@ -281,6 +287,8 @@ interface BatchRow {
   duration: string
   lrcText: string
   fileName: string
+  /** 多语言版本（上传时自动拆分，展开行可调整） */
+  versions: LyricVersionForm[]
   /** 行级覆盖：留空/空数组 = 用①公共信息 */
   overrides: BatchOverrides
 }
@@ -323,6 +331,8 @@ function extractTitle(text: string, fileName: string): string {
 function pushRow(lrcText: string, fileName: string) {
   const text = lrcText.replace(/^\uFEFF/, '') // 去 BOM
   if (!text.trim()) return false
+  // 上传时自动拆分多语言版本（原文/译文/罗马音），展开行可再核对调整——无需逐首手动拆
+  const vers = splitLrcToVersions(text.trim())
   rows.value.push({
     uid: ++uidSeed,
     title: extractTitle(text, fileName),
@@ -330,6 +340,7 @@ function pushRow(lrcText: string, fileName: string) {
     duration: '',
     lrcText: text,
     fileName,
+    versions: vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) })),
     overrides: emptyOverrides(),
   })
   return true
@@ -392,6 +403,11 @@ function buildSongData(row: BatchRow) {
   const lyricists = ov.lyricists.length ? ov.lyricists : common.lyricists
   const composers = ov.composers.length ? ov.composers : common.composers
   const arrangers = ov.arrangers.length ? ov.arrangers : common.arrangers
+  // 多语言版本：合成 lrc_text + 存 versions（投稿人调整过的版本精确入库，发布链优先用 versions）
+  const vers = (row.versions || []).filter(v => v.lrc.trim())
+  const lrcText = vers.length
+    ? composeMixedLrc(vers.map(v => ({ lang: v.lang || 'zh', kind: v.kind, rows: parseLrcToRows(v.lrc) })), 'line')
+    : row.lrcText.trim()
   return {
     type: 'song',
     title: row.title.trim(),
@@ -405,7 +421,8 @@ function buildSongData(row: BatchRow) {
     year: albumYear.value.trim() || undefined,
     duration: row.duration.trim(),
     track: row.track.trim() || undefined,
-    lrc_text: row.lrcText.trim(),
+    lrc_text: lrcText,
+    versions: vers.length ? vers : undefined,
     video_url: ov.videoUrl.trim(),
   }
 }

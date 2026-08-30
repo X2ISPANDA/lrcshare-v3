@@ -202,6 +202,16 @@
           <el-tabs v-model="lyricsTab" type="card" class="w-full">
             <el-tab-pane label="LRC 歌词" name="lrc">
               <el-input v-model="form.lrc_text" type="textarea" :rows="8" placeholder="粘贴完整的 LRC 格式歌词..." class="font-mono!" />
+              <div class="text-xs text-gray-400 mt-1">双语混排（同时间戳两行）粘贴后由系统自动拆分为多语言版本；编辑已有歌曲也可切到「多语言版本」精细管理。</div>
+            </el-tab-pane>
+            <el-tab-pane label="多语言版本" name="versions">
+              <div class="space-y-3">
+                <div v-if="!editing" class="text-xs text-amber-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  新增歌曲请先在「LRC 歌词」粘贴整体歌词（保存后自动拆分）；本 tab 用于编辑已有歌曲的多语言版本。
+                </div>
+                <LyricVersionsEditor v-model="versionForms" show-format :add-disabled="!editing" />
+                <div class="text-xs text-gray-400">每个版本独立维护语言与类型；保存后自动合成回「LRC 歌词」。</div>
+              </div>
             </el-tab-pane>
             <el-tab-pane label="文本歌词 (Markdown/HTML)" name="text">
               <RichTextToolbar :text="form.lyrics_text" :textarea-ref="lyricsTextRef" @update:text="v => form.lyrics_text = v" />
@@ -236,7 +246,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -248,7 +258,9 @@ import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
+import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { GENRE_OPTIONS, TIP_ICONS } from '@/lib/constants'
+import { loadLyricLines, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, rebuildLyricLines, type LyricVersion } from '@/lib/lyricLines'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
 /** 歌曲管理：列表 + 新增/编辑（专辑锁定、艺术家自动补建、双歌词 tab、隐藏口令） */
@@ -360,6 +372,38 @@ const lyricsTextRef = ref<any>(null)
 const albumDropdownOpen = ref(false)
 const albumUnlocked = ref(false)
 
+// ===== 多语言版本管理 =====
+const versionForms = ref<LyricVersionForm[]>([])
+const versionsDirty = ref(false)
+const versionsLoading = ref(false)
+/** 程序化赋值（加载/重置）期间抑制脏标记，nextTick 后恢复 */
+let suppressDirty = false
+function setVersionForms(v: LyricVersionForm[]) {
+  suppressDirty = true
+  versionForms.value = v
+  nextTick(() => {
+    suppressDirty = false
+    versionsDirty.value = false
+  })
+}
+/** 深度监听：语言/类型下拉、增删版本、文本编辑都是原地修改，不走 update:model-value */
+watch(versionForms, () => {
+  if (!suppressDirty) versionsDirty.value = true
+}, { deep: true })
+async function loadVersions(songId: string) {
+  versionsLoading.value = true
+  try {
+    const rows = await loadLyricLines(songId)
+    const vers = groupVersions(rows)
+    setVersionForms(vers.map(v => ({ lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: rowsToLrcText(v.rows) })))
+  } catch (e: any) {
+    setVersionForms([])
+    console.warn('[歌词版本加载失败]', songId, e?.message)
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
 const form = reactive({
   title: '',
   aliases: [] as string[],
@@ -397,6 +441,7 @@ function openNew() {
   })
   albumUnlocked.value = false
   lyricsTab.value = 'lrc'
+  setVersionForms([])
   showDialog.value = true
 }
 
@@ -427,6 +472,8 @@ function openEdit(row: any) {
   })
   albumUnlocked.value = false
   lyricsTab.value = 'lrc'
+  setVersionForms([])
+  loadVersions(row.id)
   showDialog.value = true
 }
 
@@ -577,6 +624,21 @@ async function save() {
       await syncAlbumContributors(albumId, albumArtistIds)
     }
 
+    // 歌词版本处理：版本管理脏（编辑已有歌曲）→ 写行表 + 合成 lrc_text；否则 lrc_text 权威
+    // （新增走触发器自动拆行；编辑整体改动后手动 rebuild）
+    let finalLrcText = form.lrc_text.trim()
+    if (versionsDirty.value && editing.value) {
+      const versions: LyricVersion[] = versionForms.value
+        .filter(v => v.lrc.trim())
+        .map(v => ({
+          lang: v.lang?.trim() || 'zh',
+          kind: v.kind,
+          rows: v.format === 'ttml' ? parseTtmlToRows(v.lrc) : parseLrcToRows(v.lrc),
+        }))
+      await saveLyricLines(editing.value.id, versions)
+      finalLrcText = composeMixedLrc(versions, 'line')
+    }
+
     // 3. 歌曲记录（贡献关系只写 song_contributors 中间表，不再写旧列）
     const payload: Record<string, unknown> = {
       title: form.title.trim(),
@@ -584,7 +646,7 @@ async function save() {
       album_id: albumId,
       duration: form.duration.trim(),
       track: form.track || 0,
-      lrc_text: form.lrc_text.trim(),
+      lrc_text: finalLrcText,
       lyrics_text: form.lyrics_text || null,
       video_url: form.video_url.trim() || null,
       description: form.description || null,
@@ -596,6 +658,10 @@ async function save() {
 
     if (editing.value) {
       await adminApi.update('songs', editing.value.id, payload)
+      // 歌词行表：版本管理脏 → 上面已写行表；否则整体 lrc_text 改动后重拆（触发器仅 INSERT，不会自动重拆 UPDATE）
+      if (!versionsDirty.value) {
+        await rebuildLyricLines(editing.value.id)
+      }
       await syncSongSecrets(editing.value.id, form.unlock_code.trim())
       // 双写中间表（全量替换，幂等）
       await syncSongContributors(editing.value.id, {

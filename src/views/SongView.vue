@@ -162,10 +162,40 @@
             :html="textLyricsHtml"
             content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
           />
-          <div v-show="activeTab === 'lrc'" class="text-left leading-relaxed text-lg">
-            <div v-for="(line, i) in lrcLines" :key="i" class="lyric-line py-1" :class="{ 'pl-2': !line.time }">
-              <span v-if="line.time" class="lrc-time mr-2">{{ line.time }}</span>
-              <span class="lrc-text">{{ line.text }}</span>
+          <div v-show="activeTab === 'lrc'" class="text-left">
+            <!-- 工具行：版本下拉（多版本时出现）+ 格式下拉 -->
+            <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <select
+                v-if="lyricVersions.length > 1"
+                v-model="lrcVersionKey"
+                class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+              >
+                <option value="all">全部版本（混合）</option>
+                <option v-for="v in lyricVersions" :key="`${v.lang}|${v.kind}`" :value="`${v.lang}|${v.kind}`">
+                  {{ LYRIC_KIND_LABEL[v.kind] }} · {{ langLabel(v.lang) }}
+                </option>
+              </select>
+              <span v-else-if="lyricVersions.length === 1" class="text-xs text-gray-400">
+                {{ LYRIC_KIND_LABEL[lyricVersions[0].kind] }} · {{ langLabel(lyricVersions[0].lang) }}
+              </span>
+              <span v-else></span>
+              <select
+                v-model="lrcFormat"
+                class="format-select text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+              >
+                <option value="line">LRC</option>
+                <option value="enhanced" :disabled="!hasWordTiming">增强逐字 LRC（无词级数据）</option>
+                <option value="verbatim" :disabled="!hasWordTiming">逐字 LRC（无词级数据）</option>
+                <option value="ttml">TTML</option>
+              </select>
+            </div>
+            <!-- 文本框 + Typora 式「全部复制」（悬浮出现） -->
+            <div class="group relative">
+              <button
+                class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
+                @click="copyCurrentLrc"
+              >全部复制</button>
+              <pre class="lyric-code text-sm text-gray-600 whitespace-pre-wrap">{{ lrcText }}</pre>
             </div>
           </div>
         </div>
@@ -219,8 +249,8 @@
     <button
       v-if="showCopyFab"
       class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-full bg-white/90 backdrop-blur shadow-lg border border-gray-100 text-sm font-medium text-gray-600 hover:text-pink-600 hover:border-pink-200 transition-colors"
-      @click="copyLrc"
-    >📋 复制 LRC</button>
+      @click="copyCurrentLrc"
+    >📋 复制歌词</button>
   </Transition>
 </template>
 
@@ -238,6 +268,18 @@ import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL, TIP_ICONS } from '@/lib/constants'
 import { copyText } from '@/lib/clipboard'
+import {
+  LYRIC_KIND_LABEL,
+  groupVersions,
+  loadLyricLines,
+  composeMixedLrc,
+  versionsToTtml,
+  fillCommonRows,
+  rowsHaveWordTags,
+  langLabel,
+  type LyricLineRow,
+  type LyricVersion,
+} from '@/lib/lyricLines'
 import RewardModal from '@/components/common/RewardModal.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import CreditLinks from '@/components/song/CreditLinks.vue'
@@ -531,23 +573,75 @@ const textLyricsHtml = computed(() => {
   return text.split('\n').map(line => line || '&nbsp;').join('<br>')
 })
 
-/** LRC 行（多时间标签行拆分为多行，过滤元数据行） */
-const lrcLines = computed<{ time: string; text: string }[]>(() => {
-  const lrc = song.value?.lrc_text || ''
-  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2})\]/g
-  const lines: { time: string; text: string }[] = []
-  for (const line of lrc.split('\n')) {
-    const matches = [...line.matchAll(timeRegex)]
-    const text = line.replace(timeRegex, '').trim()
-    if (!text) continue
-    if (matches.length > 0) {
-      for (const m of matches) lines.push({ time: `[${m[1]}:${m[2]}.${m[3]}]`, text })
-    } else if (!/^\[(ti|ar|al|by)\]/.test(line.trim())) {
-      lines.push({ time: '', text })
+// ============ 多语言歌词（LRC tab：行表 → 版本/格式切换） ============
+const lyricLineRows = ref<LyricLineRow[]>([])
+const lrcFormat = ref<'line' | 'enhanced' | 'verbatim' | 'ttml'>('line')
+const lrcVersionKey = ref<string>('all')
+
+/** 行表加载：song 就绪且非隐藏（或已解锁）时拉取；解锁重拉（song 对象被整体替换） */
+let linesLoadedFor = ''
+watch(
+  () => [song.value?.id, isHidden.value] as const,
+  async ([id, hidden]) => {
+    if (!id || hidden) {
+      lyricLineRows.value = []
+      linesLoadedFor = ''
+      return
+    }
+    if (linesLoadedFor === id) return
+    linesLoadedFor = id
+    try {
+      lyricLineRows.value = await loadLyricLines(id)
+    } catch {
+      lyricLineRows.value = [] // 行表读失败回退 lrc_text
+    }
+  },
+  { immediate: true },
+)
+
+/** 行表 → 版本列表（每个 (lang,kind) 一个版本） */
+const lyricVersions = computed<LyricVersion[]>(() => groupVersions(lyricLineRows.value))
+
+/** 是否有词级时间（无则增强逐字/逐字格式无从渲染，禁用选项） */
+const hasWordTiming = computed(() => rowsHaveWordTags(lyricLineRows.value))
+watch(hasWordTiming, ok => {
+  if (!ok && (lrcFormat.value === 'enhanced' || lrcFormat.value === 'verbatim')) lrcFormat.value = 'line'
+})
+
+/** 选中版本（下拉）：all = 全部混合；单选译文时补齐原文公共行（完整可独立渲染） */
+const selectedVersions = computed<LyricVersion[]>(() => {
+  const vs = lyricVersions.value
+  if (lrcVersionKey.value === 'all') return vs
+  const sel = vs.filter(v => `${v.lang}|${v.kind}` === lrcVersionKey.value)
+  if (sel.length === 1 && sel[0].kind !== 'original') {
+    const orig = vs.find(v => v.kind === 'original')
+    if (orig) {
+      const [, filled] = fillCommonRows([orig, sel[0]])
+      return [filled]
     }
   }
-  return lines
+  return sel
 })
+
+/** LRC tab 展示文本：行表优先，格式/版本可选；行表为空回退 lrc_text 原文 */
+const lrcText = computed<string>(() => {
+  const vs = selectedVersions.value
+  if (!vs.length) return song.value?.lrc_text || ''
+  if (lrcFormat.value === 'ttml') {
+    return versionsToTtml(vs, songCredit.value)
+  }
+  return composeMixedLrc(vs, lrcFormat.value)
+})
+
+/** 署名（TTML 超界 <p> 用） */
+const songCredit = computed(() =>
+  contributor.value ? `本歌词来自于:${contributor.value.name}@lrcshare.com` : '本歌词来自于:lrcshare.com',
+)
+
+function copyCurrentLrc() {
+  if (!lrcText.value) return
+  copyText(lrcText.value).then(() => ElMessage.success('歌词已复制到剪贴板！'))
+}
 
 // ============ 操作 ============
 const showReward = ref(false)
@@ -557,11 +651,6 @@ const lyricsCardRef = ref<HTMLElement | null>(null)
 const lyricsVisible = useElementVisibility(lyricsCardRef)
 const { y: scrollY } = useWindowScroll()
 const showCopyFab = computed(() => lyricsVisible.value && scrollY.value > 300)
-
-function copyLrc() {
-  if (!song.value?.lrc_text) return
-  copyText(song.value.lrc_text).then(() => ElMessage.success('LRC 歌词已复制到剪贴板！'))
-}
 
 function shareSong() {
   copyText(window.location.href).then(() => ElMessage.success('链接已复制到剪贴板！'))
@@ -596,13 +685,30 @@ function shareSong() {
   from { opacity: 0; transform: translateY(10px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
-.lyric-line { transition: all 0.2s; padding: 4px 0; }
-.lyric-line:hover { color: inherit; transform: none; }
-.lrc-time { color: inherit; font-weight: normal; }
-.lrc-text { color: #374151; }
+/* LRC tab 代码框：等宽紧凑 + 最大高度内滚动 */
+.lyric-code {
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fafafa;
+  border: 1px solid #f3f4f6;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.7;
+  tabular-nums: normal;
+}
+.lyric-code::-webkit-scrollbar { width: 6px; }
+.lyric-code::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 3px; }
 .tab-btn { transition: all 0.2s; }
 .tab-active { color: #ec4899; border-bottom: 2px solid #ec4899; }
 .tab-inactive { color: #9ca3af; border-bottom: 2px solid transparent; }
+/* 格式下拉禁用项：原生 option:disabled 样式太弱，加明显灰态 + 删除线 */
+.format-select option:disabled {
+  color: #c0c4cc;
+  background: #f5f5f5;
+  text-decoration: line-through;
+}
 .song-card { transition: all 0.2s; }
 .song-card:hover {
   background: linear-gradient(90deg, #fdf2f8 0%, #faf5ff 100%);

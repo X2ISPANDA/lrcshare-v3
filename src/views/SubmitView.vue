@@ -158,6 +158,55 @@
           </div>
         </div>
 
+        <!-- 上传须知（投稿前必看，单曲/批量都适用） -->
+        <div class="text-sm text-red-700 bg-red-50 border border-red-300 rounded-lg px-4 py-3 mb-6 space-y-2">
+          <p class="font-semibold text-red-800">⚠️ 注意事项</p>
+          <div>
+            <p class="font-medium">1. 翻译歌词（多语）这样写：同一时间结构，每种语言各一行</p>
+            <div class="mt-1 ml-4 font-mono space-y-1">
+              <p>逐行：[00:10.00]Hello World　/　[00:10.00]你好世界</p>
+              <p>逐字：[00:10.00]Hello[00:10.50]World[00:10.59]　/　[00:10.00]你好世界</p>
+              <p>加强逐字：[00:10.00]Hello&lt;00:10.50&gt;World&lt;00:10.59&gt;　/　[00:10.00]你好世界</p>
+              <p>TTML（同 begin）：&lt;p begin="00:00:10.000"&gt;Hello World&lt;/p&gt;　/　&lt;p begin="00:00:10.000"&gt;你好世界&lt;/p&gt;</p>
+            </div>
+          </div>
+          <div>
+            <p class="font-medium">2. 禁止同语言多行相同时间戳</p>
+            <p>例如:</p>
+            <p class="mt-1 ml-4">a. 给单词加注解，写进括号，别拆两行：<span class="font-mono">[00:10.00]Jah Rastafari(耶和华塔法里教)</span></p>
+            <p class="ml-4">b. 创作者信息错开时间戳，别堆同一时间点：<span class="font-mono">[00:00:00]作词:XX　[00:01:00]作曲:XX</span></p>
+          </div>
+          <div>
+            <p class="font-medium">3. 每行歌词都要有时间戳</p>
+            <p class="mt-1 ml-4">a. 没有 <span class="font-mono">[mm:ss]</span> 的裸文本行会被整行丢弃，不会入库</p>
+          </div>
+          <div>
+            <p class="font-medium">4. 时间戳必须带毫秒（至少 2 位小数）</p>
+            <p class="mt-1 ml-4">a. <span class="font-mono">[00:10]</span>（无毫秒）、<span class="font-mono">[00:10.5]</span>（仅 1 位）无法识别，整行会被丢弃</p>
+            <p class="ml-4">b. 正确写法：<span class="font-mono">[00:10.00]</span> 或 <span class="font-mono">[00:10.000]</span></p>
+          </div>
+          <div>
+            <p class="font-medium">5. 译文时间戳必须与原文完全一致</p>
+            <p class="mt-1 ml-4">a. 译文时间戳哪怕错开一点，就会被判进原文版本，污染原文</p>
+            <p class="ml-4">b. 请直接复制原文时间戳，不要手动重新打</p>
+          </div>
+          <div>
+            <p class="font-medium">6. 多语言翻译要整首歌成组（同语言对译也支持，如粤语→普通话）</p>
+            <p class="mt-1 ml-4">a. 系统按同戳多行组判断：多数组内语言不同，或整首歌大多时间戳成对出现 → 翻译歌，同戳组按行序拆分（第 1 行原文，第 2 行起为译文）</p>
+            <p class="ml-4">b. 只有个别时间戳多行（如开头堆在一起的创作者信息）→ 不拆分译文，全归原文——请参考第 2 条错开时间戳</p>
+          </div>
+          <div>
+            <p class="font-medium">7. 自动识别语言有局限，拆分后请核对版本列表</p>
+            <p class="mt-1 ml-4">a. 简体/繁体/粤语都识别为「中文」；罗马音、法语等拉丁字母语言识别为「英语」</p>
+            <p class="ml-4">b. 藏语、蒙语可自动识别；标错的请在版本列表里手动改语言标注</p>
+          </div>
+          <div>
+            <p class="font-medium">8. 加强逐字的词标签格式</p>
+            <p class="mt-1 ml-4">a. 词标签必须写 <span class="font-mono">&lt;mm:ss.xx&gt;</span> 或 <span class="font-mono">&lt;mm:ss.xxx&gt;</span></p>
+            <p class="ml-4">b. <span class="font-mono">&lt;00:10&gt;</span>、<span class="font-mono">&lt;10.5&gt;</span> 等错误格式不识别，会残留在歌词文本里显示出来</p>
+          </div>
+        </div>
+
         <!-- ===== 歌曲信息 ===== -->
         <div class="border-b pb-6">
           <div class="flex items-center justify-between mb-4">
@@ -304,18 +353,28 @@
 
         <!-- 歌词内容 -->
         <div>
-          <h2 class="text-lg font-semibold text-gray-700 mb-4">📝 LRC 歌词内容</h2>
-          <p class="text-sm text-gray-500 mb-2">
-            粘贴完整的 LRC 格式歌词，包括时间轴标签。例如：<br />
-            <code class="bg-gray-100 px-2 py-1 rounded text-xs">[ti:歌曲名]<br />[ar:歌手]<br />[00:01.00] 歌词内容</code>
-          </p>
+          <h2 class="text-lg font-semibold text-gray-700 mb-4">📝 歌词内容</h2>
+          <div class="text-sm text-gray-500 mb-3">
+            <p class="mb-1">支持四种歌词格式，粘贴后自动识别拆分：</p>
+            <div class="text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 space-y-1">
+              <p>· 逐行：每行一个 <code class="font-mono">[时间]</code> 开头　例 <code class="font-mono">[00:01.00]歌词内容</code></p>
+              <p>· 逐字：每词前一个 <code class="font-mono">[时间]</code>，最后一个 <code class="font-mono">[时间]</code> 是这句结束　例 <code class="font-mono">[00:01.00]歌[00:01.50]词[00:01.90]</code></p>
+              <p>· 加强逐字：行首 <code class="font-mono">[时间]</code>，之后每词 <code class="font-mono">&lt;时间&gt;</code>，行尾 <code class="font-mono">&lt;时间&gt;</code> 是结束　例 <code class="font-mono">[00:01.00]歌&lt;00:01.50&gt;词&lt;00:01.90&gt;</code></p>
+              <p>· TTML：每句一个 <code class="font-mono">&lt;p begin="..."&gt;</code>　例 <code class="font-mono">&lt;p begin="00:00:01.000"&gt;歌词&lt;/p&gt;</code></p>
+            </div>
+          </div>
           <textarea
             v-model="song.lrcText"
-            rows="12"
+            rows="8"
             required
             class="w-full px-4 py-2 border border-gray-200 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
-            placeholder="在此粘贴完整的LRC歌词..."
+            placeholder="在此粘贴 LRC 或 TTML 歌词..."
           ></textarea>
+
+          <div v-if="lyricParsed" class="mt-3">
+            <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认（可增删改）：</div>
+            <LyricVersionsEditor v-model="lyricVersions" />
+          </div>
         </div>
 
         <!-- 提交按钮 -->
@@ -352,10 +411,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { contactLabel, LOGO_URL as DEFAULT_LOGO, VALIDATION_ABORT } from '@/lib/constants'
+import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, type LyricKind } from '@/lib/lyricLines'
+import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import BatchSubmitPanel from '@/components/submit/BatchSubmitPanel.vue'
@@ -502,6 +563,48 @@ const song = reactive({
   videoUrl: '',
 })
 
+// 歌词多语言版本：贴 LRC/TTML → 自动拆分 → 版本列表（对齐后台版本管理），投稿人可确认/调整
+const lyricVersions = ref<LyricVersionForm[]>([])
+const lyricParsed = ref(false)
+
+function parseLyrics(silent = false) {
+  const raw = song.lrcText.trim()
+  if (!raw) {
+    if (!silent) ElMessage.warning('请先粘贴歌词内容')
+    return
+  }
+  // 自动识别格式：TTML → 转 LRC
+  let lrc = raw
+  if (/^<\s*tt\b/i.test(lrc) || /<p\s+begin=/i.test(lrc)) {
+    const rows = parseTtmlToRows(raw)
+    if (!rows.length) {
+      if (!silent) ElMessage.warning('TTML 解析失败，请检查格式（仅支持 clock-time 时间戳，如 00:01:02.500）')
+      return
+    }
+    lrc = rowsToLrcText(rows)
+  }
+  const versions = splitLrcToVersions(lrc)
+  // 拆分不出任何有内容的行（纯文本/空）→ 视为未解析（不设版本，提交走原样）
+  if (!versions.some(v => v.rows.length > 0)) {
+    if (!silent) ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
+    return
+  }
+  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  lyricParsed.value = true
+}
+
+// 输入防抖自动拆分：停止输入 600ms 后静默拆分（失败不打断，提交时兜底）
+let parseTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => song.lrcText, (val) => {
+  if (parseTimer) clearTimeout(parseTimer)
+  if (!(val || '').trim()) {
+    lyricVersions.value = []
+    lyricParsed.value = false
+    return
+  }
+  parseTimer = setTimeout(() => parseLyrics(true), 600)
+})
+
 // 会话内新建艺术家共享池：从各字段当前值实时派生（id 为 null 即本次新建），删除 tag 后自动出池
 const sessionNewArtists = computed(() => {
   const names: string[] = []
@@ -597,6 +700,29 @@ async function handleSubmit() {
     Object.assign(contactObj, collectContactsObj())
   }
 
+  // 歌词：提交前未自动拆分则静默拆分一次（兜底）；已解析 → versions + 合成 lrc_text；否则原样（自动识别 TTML → 转 LRC）
+  if (!lyricParsed.value) parseLyrics(true)
+  let lrcText = song.lrcText.trim()
+  let versions: { lang: string; kind: string; lrc: string }[] | undefined
+  if (lyricParsed.value && lyricVersions.value.length) {
+    const vers = lyricVersions.value
+      .filter(v => v.lrc.trim())
+      .map(v => ({ lang: v.lang?.trim() || 'zh', kind: v.kind, lrc: v.lrc.trim() }))
+    if (!vers.length) {
+      ElMessage.warning('多语言版本为空，请确认已粘贴歌词')
+      return
+    }
+    versions = vers
+    lrcText = composeMixedLrc(vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) })), 'line')
+  } else if (/^<\s*tt\b/i.test(lrcText) || /<p\s+begin=/i.test(lrcText)) {
+    const rows = parseTtmlToRows(song.lrcText)
+    if (!rows.length) {
+      ElMessage.warning('TTML 解析失败，请检查格式（仅支持 clock-time 时间戳，如 00:01:02.500）')
+      return
+    }
+    lrcText = rowsToLrcText(rows)
+  }
+
   const songData = {
     type: 'song',
     title: song.title.trim(),
@@ -611,7 +737,8 @@ async function handleSubmit() {
     year: albumYear.value.trim() || undefined,
     duration: song.duration.trim(),
     track: song.track.trim() || undefined,
-    lrc_text: song.lrcText.trim(),
+    lrc_text: lrcText,
+    versions,
     video_url: song.videoUrl.trim(),
   }
 
@@ -646,6 +773,8 @@ function continueSubmit() {
   submittedType.value = 'song'
   // 清空歌曲表单（单曲 + 批量面板的公共专辑选择）
   Object.assign(song, { title: '', artists: [], albumArtists: [], lyricists: [], composers: [], arrangers: [], duration: '', track: '', lrcText: '', videoUrl: '' })
+  lyricVersions.value = []
+  lyricParsed.value = false
   albumName.value = ''
   albumYear.value = ''
   albumId.value = null

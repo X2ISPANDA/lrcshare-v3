@@ -256,7 +256,15 @@
             </el-col>
           </el-row>
           <el-form-item label="歌词">
-            <el-input v-model="review.edited_data.lrc_text" type="textarea" :rows="5" class="font-mono!" />
+            <div class="w-full">
+              <el-input v-model="review.edited_data.lrc_text" type="textarea" :rows="5" class="font-mono!" />
+              <div class="mt-2 flex items-center justify-between">
+                <span class="text-sm text-gray-600">多语言版本（{{ review.edited_data.versions?.length || 0 }} 个）</span>
+                <el-button size="small" @click="splitReviewVersions">从 LRC 拆分</el-button>
+              </div>
+              <LyricVersionsEditor v-model="review.edited_data.versions" class="mt-2" />
+              <div class="text-xs text-gray-400 mt-1">留空则发布时按 LRC 自动拆分；填写则按版本精确入库。</div>
+            </div>
           </el-form-item>
         </el-form>
 
@@ -321,6 +329,8 @@
             <div class="px-6 py-3 space-y-3">
               <div class="text-xs text-gray-400">歌词（LRC 全文，可直接修改）</div>
               <el-input v-model="row.sd.lrc_text" type="textarea" :autosize="{ minRows: 8, maxRows: 24 }" class="font-mono" />
+              <div class="text-xs text-gray-400">多语言版本（{{ row.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
+              <LyricVersionsEditor v-model="row.sd.versions" />
             </div>
           </template>
         </el-table-column>
@@ -559,7 +569,11 @@
                   <el-button link type="info" size="small" @click="removeBatchRow(i)">移出</el-button>
                 </div>
               </div>
-              <el-input v-if="lyricOpenId === r.row.id" v-model="r.sd.lrc_text" type="textarea" :autosize="{ minRows: 6, maxRows: 16 }" class="font-mono" />
+              <div v-if="lyricOpenId === r.row.id" class="space-y-2">
+                <el-input v-model="r.sd.lrc_text" type="textarea" :autosize="{ minRows: 6, maxRows: 16 }" class="font-mono" />
+                <div class="text-xs text-gray-400">多语言版本（{{ r.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
+                <LyricVersionsEditor v-model="r.sd.versions" />
+              </div>
             </div>
           </div>
           <div v-if="!batchRows.length" class="py-8 text-center text-gray-400 text-sm">暂无待审行</div>
@@ -651,6 +665,8 @@ import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
+import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, saveLyricLines } from '@/lib/lyricLines'
+import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Artist } from '@/lib/types'
@@ -887,6 +903,12 @@ function normalizeSubmission(row: any): any {
   if (edited.cover === undefined) edited.cover = ''
   if (edited.album_desc === undefined) edited.album_desc = ''
   if (edited.track === undefined) edited.track = ''
+  if (!Array.isArray(edited.versions)) edited.versions = []
+  // 投稿未带多语言版本（批量传 LRC 文件 / 老投稿）→ 从 lrc_text 自动拆分，审核人只需核对、无需逐首手动拆
+  if (!edited.versions.length && edited.lrc_text?.trim()) {
+    const vers = splitLrcToVersions(edited.lrc_text.trim())
+    edited.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  }
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
       if (!item) return
@@ -909,6 +931,23 @@ function normalizeSubmission(row: any): any {
     })
   }
   return edited
+}
+
+/** 审核端：把当前 lrc_text 自动拆分为多语言版本（供审核人核对/调整） */
+function splitReviewVersions() {
+  const ed = review.value?.edited_data
+  const lrc = ed?.lrc_text?.trim()
+  if (!lrc) {
+    ElMessage.warning('请先填写歌词')
+    return
+  }
+  const versions = splitLrcToVersions(lrc)
+  if (!versions.length) {
+    ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
+    return
+  }
+  ed.versions = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  ElMessage.success(`已拆分为 ${versions.length} 个语言版本`)
 }
 
 /** 专辑下拉 v-model：选项值为专辑 ID（同名专辑按年份区分展示）。
@@ -1310,6 +1349,18 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       } catch (e: any) {
         console.warn('[发布]中间表同步失败:', e?.message)
         throw new Error(`歌曲已插入但贡献关系写入失败（${e?.message}），请撤回后重试`)
+      }
+      // 多语言版本：投稿/审核提交了 versions → 精确写行表（覆盖触发器按 lrc_text 的语言判定结果）
+      if (Array.isArray(sd.versions) && sd.versions.length) {
+        try {
+          const versions = sd.versions
+            .filter((v: any) => v.lrc?.trim())
+            .map((v: any) => ({ lang: v.lang?.trim() || 'zh', kind: v.kind, rows: parseLrcToRows(v.lrc) }))
+          await saveLyricLines(songId, versions)
+        } catch (e: any) {
+          console.warn('[发布]多语言版本写行表失败:', e?.message)
+          throw new Error(`歌曲已插入但多语言版本写入失败（${e?.message}），请撤回后重试`)
+        }
       }
     }
 

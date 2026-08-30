@@ -34,7 +34,9 @@
 | `composer` | string[] | TCOM | COMPOSER | 作曲（名字数组），多人合作多项返回 |
 | `arranger` | string[] | —（部分编辑器映射 TXXX:Arranger） | ARRANGER | 编曲（名字数组），ID3v2 无标准帧，Vorbis 原生支持；ID3 可写入自定义帧 TXXX |
 | `comment` | string | COMM | COMMENT | 署名字符串：`本歌词来自于:{贡献者名}@lrcshare.com`，可直接整串写入 |
-| `lrc` | string \| null | USLT | LYRICS | 完整时间轴 LRC 歌词，末尾自动追加一行来源署名（无时间戳） |
+| `lrc` | string \| null | USLT | LYRICS | 完整时间轴 LRC 歌词，末尾自动追加一行来源署名（无时间戳）；带歌词参数时为按语言圈定后的合成结果，见[多语言歌词](/api/songs#multi-lang-lyrics) |
+| `lyrics` | `{lang, kind, format, lrc}[]` \| null | — | — | 按语言参数选中的版本数组，每项的 `lrc` 为该版本独立完整歌词文本（仅带 `lyric_lang` / `lyric_translation_lang` 请求时返回） |
+| `lyric_lines` | object \| null | — | — | 结构化多语言歌词（`lyric_lines=1` 时返回）：`{primary_lang, versions[]}`，每个版本 `{lang, kind, rows[]}`，`kind` 为 `original` / `translation` / `romanization`，结构见[lyric_lines 结构化行](/api/songs#lyric-lines) |
 | `album.year` | string \| null | TDRC | DATE | 发行年份（经所属专辑获取） |
 
 ## Album {#album}
