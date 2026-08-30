@@ -270,11 +270,12 @@ export async function sync(env) {
     }
   }
 
-  // 7. state 落盘（完整跑完才写 revision/etag/snapshot；dry-run 只更新 last_check）
+  // 7. state 落盘（完整跑完且零失败才写 revision/etag/snapshot——failed 的歌若标记 revision
+  //    会被后续 304 短路挡住永远补不上；dry-run 只更新 last_check）
   const now = new Date().toISOString()
   if (dryRun) {
     await sbMutate(env, 'ttml_hub_state', '?id=eq.singleton', 'PATCH', { last_check: now })
-  } else if (unchanged + merged + created + pended + failed === index.songs.length) {
+  } else if (unchanged + merged + created + pended + failed === index.songs.length && failed === 0) {
     await sbMutate(env, 'ttml_hub_state', '?id=eq.singleton', 'PATCH', {
       revision: manifest.revision,
       etag,
