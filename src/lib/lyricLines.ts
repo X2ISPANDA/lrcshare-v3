@@ -413,6 +413,130 @@ export function parseTtmlToRows(xml: string): LyricRow[] {
   return rows.map((r, i) => ({ ...r, seq: i + 1 }))
 }
 
+// ---------- TTML 结构化渲染（phase5 阶段 F：对唱/和声/语言 渐进增强） ----------
+
+/** TTML 单行渲染结构 */
+export interface TtmlRenderLine {
+  begin: number | null
+  /** ttm:agent 声部 id（v1/v2…，无对唱为 null） */
+  agent: string | null
+  /** 主行文本（已剔除 x-bg 和声） */
+  text: string
+  /** x-bg 和声行（bg 歌词，可能多段） */
+  bg: string[]
+  /** 行语言（继承 div/p 的 xml:lang） */
+  lang: string | null
+}
+
+/** TTML 结构化解析结果 */
+export interface TtmlStructure {
+  lines: TtmlRenderLine[]
+  /** 声部定义（xml:id → type），来自 <ttm:agent> 元数据 */
+  agentMeta: Record<string, string | null>
+  /** 行是否带声部（决定左右分列渲染） */
+  hasAgent: boolean
+  /** 是否有词级时间 */
+  hasWordTiming: boolean
+}
+
+/**
+ * TTML → 结构化渲染模型（保留对唱/和声/语言；不要求 clock-time，
+ * begin 解析失败仅置 null 不丢弃行——渲染场景容错优先）。
+ * 与 parseTtmlToRows（严格拆行表）不同：本函数为展示服务，解析不出就降级纯文本行。
+ */
+export function parseTtmlStructure(xml: string): TtmlStructure {
+  // SSG 构建期（Node）无 DOMParser：返回空结构，内容由客户端水合后重新解析
+  if (typeof DOMParser === 'undefined') return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false }
+  const doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
+  if (doc.querySelector('parsererror')) return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false }
+
+  // 声部定义
+  const agentMeta: Record<string, string | null> = {}
+  doc.querySelectorAll('agent').forEach(a => {
+    const id = a.getAttribute('xml:id') || a.getAttribute('id')
+    if (id) agentMeta[id] = a.getAttribute('ttm:type') || a.getAttribute('type')
+  })
+
+  const lines: TtmlRenderLine[] = []
+  let hasAgent = false
+  let hasWordTiming = false
+  doc.querySelectorAll('p').forEach(p => {
+    const begin = parseTtmlTime(p.getAttribute('begin') || '')
+    const agent = p.getAttribute('ttm:agent')
+    if (agent) hasAgent = true
+    const divLang = p.closest('div')?.getAttribute('xml:lang') || null
+    const lang = p.getAttribute('xml:lang') || divLang
+
+    // 子节点拆分：x-bg span → 和声；其余（文本节点 + 无角色 span）→ 主文本
+    const bg: string[] = []
+    let main = ''
+    p.childNodes.forEach(node => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element
+        if (el.getAttribute('ttm:role') === 'x-bg') {
+          const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+          if (t) bg.push(t)
+          if (el.querySelector('span')) hasWordTiming = true
+          return
+        }
+        if (el.tagName.toLowerCase() === 'span' && el.getAttribute('begin')) hasWordTiming = true
+        main += el.textContent || ''
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        main += node.textContent || ''
+      }
+    })
+    const text = main.replace(/\s+/g, ' ').trim()
+    if (!text && !bg.length) return
+    lines.push({ begin: Number.isNaN(begin) ? null : begin, agent: agent || null, text, bg, lang })
+  })
+
+  return { lines, agentMeta, hasAgent, hasWordTiming }
+}
+
+/** 从 TTML 原文提取语言集合（供入库 langs 摘要） */
+export function detectTtmlLangs(xml: string): string[] {
+  const { lines } = parseTtmlStructure(xml)
+  const langs = new Set<string>()
+  for (const l of lines) {
+    const k = l.lang || detectLang(l.text)
+    if (k && k !== 'unknown') langs.add(k)
+  }
+  return [...langs]
+}
+
+// ---------- 歌词版本元数据（lyric_versions 直读，前端渲染用） ----------
+
+export interface LyricVersionMeta {
+  id: string
+  song_id: string
+  format: 'lrc' | 'enhanced' | 'ttml'
+  source: string
+  source_credit: string | null
+  is_primary: boolean
+  langs: string[]
+  ttml_text?: string | null
+}
+
+/** 格式展示排序权重：TTML > 逐字 > 行级（D2 tab 排序规则的一环） */
+const FORMAT_RANK: Record<string, number> = { ttml: 0, enhanced: 1, lrc: 2 }
+
+/** 读一首歌的已发布歌词版本（默认按 D2 规则排序：is_primary > 格式 > 创建时间） */
+export async function loadLyricVersionMetas(songId: string, withTtml = false): Promise<LyricVersionMeta[]> {
+  const cols = `id,song_id,format,source,source_credit,is_primary,langs${withTtml ? ',ttml_text' : ''}`
+  const { data, error } = await supabase
+    .from('lyric_versions')
+    .select(cols)
+    .eq('song_id', songId)
+    .eq('status', 'published')
+  if (error) throw error
+  const rows = (data || []) as unknown as LyricVersionMeta[]
+  return rows.sort((a, b) => {
+    if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1
+    const fr = (FORMAT_RANK[a.format] ?? 9) - (FORMAT_RANK[b.format] ?? 9)
+    return fr
+  })
+}
+
 /** 单行语言判定（独立文字系统逐一匹配，拉丁文字统一判 en 不细分 en/fr/罗马音，由用户手动改）：
  *  假名→ja / 谚文→ko / 泰文→th / 老挝文→lo / 藏文→bo / 蒙文→mn / 缅甸文→my / 高棉文→km /
  *  天城文→hi / 阿拉伯文→ar / 希伯来文→he / 希腊文→el / 西里尔→ru / 汉字→zh / 拉丁→en / 其他→unknown */

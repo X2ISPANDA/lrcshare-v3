@@ -232,13 +232,14 @@ export async function sync(env) {
   const BUDGET_STOP = new Error('__BUDGET_STOP__')
   let merged = 0, created = 0, pended = 0, unchanged = 0, failed = 0
   const pendingRows = []
+  const importDoneIds = [] // 本轮合并/建歌成功的 hub id，轮末清掉其遗留的待确认队列记录
   const newSnapshot = {}
   for (const hub of index.songs || []) {
     newSnapshot[hub.id] = { p: hub.path, h: hub.sha256 }
     try {
       const action = await processSong(env, { dryRun, base, hub, ourSongs, singersBySong, artistByNorm, albumByNorm, existingByHubId, resolvedHubIds, budget, BUDGET_STOP, pendingRows })
-      if (action === 'merged') merged++
-      else if (action === 'created') created++
+      if (action === 'merged') { merged++; importDoneIds.push(hub.id) }
+      else if (action === 'created') { created++; importDoneIds.push(hub.id) }
       else if (action === 'pending') pended++
       else unchanged++
     } catch (e) {
@@ -255,6 +256,14 @@ export async function sync(env) {
   for (let i = 0; i < pendingRows.length; i += 500) {
     await sbMutate(env, 'ttml_hub_pending', '?on_conflict=id', 'POST',
       pendingRows.slice(i, i + 500), 'return=minimal,resolution=merge-duplicates')
+  }
+
+  // 本轮已导入（合并/建歌）的 hub 歌，清掉其仍未人工处理的队列记录（清除 dry-run 噪音，队列只留真正待确认的）
+  if (!dryRun && importDoneIds.length) {
+    for (let i = 0; i < importDoneIds.length; i += 100) {
+      const ids = importDoneIds.slice(i, i + 100).join(',')
+      await sbMutate(env, 'ttml_hub_pending', `?id=in.(${ids})&resolution=is.null`, 'DELETE')
+    }
   }
 
   // 6. 删除跟随（快照 diff：旧有新无；仅完整跑完才做）

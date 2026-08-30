@@ -154,6 +154,7 @@
         <div class="flex items-stretch sticky top-14 z-10 bg-white/95 backdrop-blur border-b rounded-t-2xl">
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
+          <button v-if="ttmlVersions.length" class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'ttml' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('ttml')">{{ ttmlTabLabel }}</button>
         </div>
         <div class="p-6 md:p-8">
           <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
@@ -197,6 +198,34 @@
               >全部复制</button>
               <pre class="lyric-code text-sm text-gray-600 whitespace-pre-wrap">{{ lrcText }}</pre>
             </div>
+          </div>
+          <!-- TTML 逐字/对唱视图：结构化渲染（声部分列 + 和声 + 翻译随行），渐进增强 -->
+          <div v-show="activeTab === 'ttml'" class="text-left">
+            <!-- 版本切换（多个 TTML 版本时） -->
+            <div v-if="ttmlVersions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <select
+                v-model="ttmlVersionId"
+                class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+              >
+                <option v-for="v in ttmlVersions" :key="v.id" :value="v.id">
+                  {{ ttmlVersionLabel(v) }}
+                </option>
+              </select>
+            </div>
+            <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-3 py-2">
+              <div
+                v-for="(g, gi) in ttmlGroups"
+                :key="gi"
+                class="flex flex-col"
+                :class="ttmlGroupAlign(g)"
+              >
+                <p class="text-lg leading-relaxed text-gray-700 whitespace-pre-wrap">{{ g.line.text }}</p>
+                <p v-for="(b, bi) in g.line.bg" :key="`bg${bi}`" class="text-sm text-gray-400 italic leading-snug">{{ b }}</p>
+                <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
+              </div>
+            </div>
+            <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
+            <p v-if="ttmlCredit" class="text-center text-xs text-gray-400 mt-4">{{ ttmlCredit }}</p>
           </div>
         </div>
       </div>
@@ -272,6 +301,8 @@ import {
   LYRIC_KIND_LABEL,
   groupVersions,
   loadLyricLines,
+  loadLyricVersionMetas,
+  parseTtmlStructure,
   composeMixedLrc,
   versionsToTtml,
   fillCommonRows,
@@ -279,6 +310,9 @@ import {
   langLabel,
   type LyricLineRow,
   type LyricVersion,
+  type LyricVersionMeta,
+  type TtmlRenderLine,
+  type TtmlStructure,
 } from '@/lib/lyricLines'
 import RewardModal from '@/components/common/RewardModal.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
@@ -549,12 +583,14 @@ onBeforeUnmount(() => {
 })
 
 // ============ 歌词 ============
-// 歌词视图 tab 写入路由 query（?tab=lrc），从歌手/专辑页返回时保持所在视图
-const activeTab = ref<'text' | 'lrc'>(route.query.tab === 'lrc' ? 'lrc' : 'text')
+// 歌词视图 tab 写入路由 query（?tab=lrc / ?tab=ttml），从歌手/专辑页返回时保持所在视图；
+// 有 TTML 版本且无歌词正文时默认落在 TTML tab（D2：TTML 优先）
+const routeHasTab = (t: string) => ['text', 'lrc', 'ttml'].includes(t)
+const activeTab = ref<'text' | 'lrc' | 'ttml'>(routeHasTab(route.query.tab as string) ? (route.query.tab as any) : 'text')
 
-function switchLyricsTab(key: 'text' | 'lrc') {
+function switchLyricsTab(key: 'text' | 'lrc' | 'ttml') {
   activeTab.value = key
-  router.replace({ query: key === 'lrc' ? { ...route.query, tab: 'lrc' } : { ...route.query, tab: undefined } })
+  router.replace({ query: key === 'text' ? { ...route.query, tab: undefined } : { ...route.query, tab: key } })
 }
 
 /** 文本歌词：lyrics_text（Markdown + 内嵌 HTML）优先，否则从 LRC 提取纯文本。
@@ -577,6 +613,9 @@ const textLyricsHtml = computed(() => {
 const lyricLineRows = ref<LyricLineRow[]>([])
 const lrcFormat = ref<'line' | 'enhanced' | 'verbatim' | 'ttml'>('line')
 const lrcVersionKey = ref<string>('all')
+// TTML 逐字/对唱 tab（声明在 watch 之前：immediate 回调首轮即会写入）
+const ttmlVersions = ref<LyricVersionMeta[]>([])
+const ttmlVersionId = ref('')
 
 /** 行表加载：song 就绪且非隐藏（或已解锁）时拉取；解锁重拉（song 对象被整体替换） */
 let linesLoadedFor = ''
@@ -595,9 +634,86 @@ watch(
     } catch {
       lyricLineRows.value = [] // 行表读失败回退 lrc_text
     }
+    // TTML 版本（对唱/逐字 tab）：与行表同生命周期（隐藏歌解锁后重拉）
+    try {
+      const metas = await loadLyricVersionMetas(id, true)
+      ttmlVersions.value = metas.filter(v => v.format === 'ttml' && v.ttml_text)
+      ttmlVersionId.value = ttmlVersions.value[0]?.id || ''
+      // 白板歌（ttml-hub 导入）无文本歌词正文 → 默认展示 TTML tab
+      if (ttmlVersions.value.length && !routeHasTab(route.query.tab as string) && !song.value?.lyrics_text && !song.value?.lrc_text) {
+        activeTab.value = 'ttml'
+      }
+    } catch {
+      ttmlVersions.value = []
+    }
   },
   { immediate: true },
 )
+
+// ============ TTML 逐字/对唱视图 ============
+const selectedTtml = computed(() => ttmlVersions.value.find(v => v.id === ttmlVersionId.value) || null)
+
+/** 结构化解析（展示容错版：解析不出整体降级为提示，不丢数据） */
+const ttmlStructure = computed<TtmlStructure | null>(() => {
+  const text = selectedTtml.value?.ttml_text
+  if (!text) return null
+  const st = parseTtmlStructure(text)
+  return st.lines.length ? st : null
+})
+
+const ttmlTabLabel = computed(() => (ttmlStructure.value?.hasAgent ? '🎭 对唱歌词' : '⌨️ 逐字歌词'))
+
+function ttmlVersionLabel(v: LyricVersionMeta): string {
+  const src = v.source === 'ttml-hub' ? 'TTML Hub' : v.source === 'user' ? '投稿' : v.source
+  const langs = (v.langs || []).map(langLabel).join('/')
+  return langs ? `${src} · ${langs}` : src
+}
+
+/** 渲染分组：同 begin 的跨语言行合并为一组（第 1 行主歌词，其余作翻译随行） */
+interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[] }
+const ttmlGroups = computed<TtmlGroup[]>(() => {
+  const st = ttmlStructure.value
+  if (!st) return []
+  const groups: TtmlGroup[] = []
+  const beginIndex = new Map<number, number>()
+  for (const l of st.lines) {
+    const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
+    if (gi != null && groups[gi].line.lang !== l.lang && l.lang !== null) {
+      groups[gi].translations.push(l)
+    } else {
+      if (l.begin != null && !beginIndex.has(l.begin)) beginIndex.set(l.begin, groups.length)
+      groups.push({ line: l, translations: [] })
+    }
+  }
+  return groups
+})
+
+/** 声部 → 左右分列（按首次出现顺序：第 1 声部居左、第 2 居右、其余/无声部居中） */
+const ttmlAgentSides = computed(() => {
+  const st = ttmlStructure.value
+  const m = new Map<string, 'left' | 'right'>()
+  if (!st?.hasAgent) return m
+  for (const l of st.lines) {
+    if (l.agent && !m.has(l.agent)) m.set(l.agent, m.size === 0 ? 'left' : 'right')
+  }
+  return m
+})
+
+function ttmlGroupAlign(g: TtmlGroup): string {
+  const side = g.line.agent ? ttmlAgentSides.value.get(g.line.agent) : undefined
+  if (side === 'left') return 'items-start text-left self-start w-4/5'
+  if (side === 'right') return 'items-end text-right self-end w-4/5'
+  return 'items-center text-center self-center w-full'
+}
+
+/** 署名：版本自带署名 > ttml-hub 来源标注 > 贡献者署名 */
+const ttmlCredit = computed(() => {
+  const v = selectedTtml.value
+  if (!v) return ''
+  if (v.source_credit) return v.source_credit
+  if (v.source === 'ttml-hub') return '歌词来自 TTML Hub'
+  return songCredit.value
+})
 
 /** 行表 → 版本列表（每个 (lang,kind) 一个版本） */
 const lyricVersions = computed<LyricVersion[]>(() => groupVersions(lyricLineRows.value))

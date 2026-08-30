@@ -76,6 +76,7 @@ const menus = [
   { path: '/admin/submissions', icon: '📝', label: '投稿审核' },
   { path: '/admin/songs', icon: '🎵', label: '歌曲管理' },
   { path: '/admin/lyric-doubts', icon: '🔍', label: '歌词存疑' },
+  { path: '/admin/ttml-hub', icon: '🌐', label: 'TTML Hub' },
   { path: '/admin/artists', icon: '🎤', label: '艺术家管理' },
   { path: '/admin/albums', icon: '💿', label: '专辑管理' },
   { path: '/admin/sponsors', icon: '💖', label: '赞助管理' },

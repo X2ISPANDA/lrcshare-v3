@@ -1,5 +1,8 @@
 /** 站点静态资源与展示常量 */
 
+/** ttml-hub 静态站点根地址（含尾斜杠）——与 cloudflare/ttml-sync/wrangler.toml 的 TTML_HUB_BASE 保持一致 */
+export const TTML_HUB_BASE = 'https://2755337087.github.io/ttml-hub/'
+
 export const LOGO_URL =
   'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
