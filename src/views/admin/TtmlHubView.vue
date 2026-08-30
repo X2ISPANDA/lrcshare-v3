@@ -7,9 +7,12 @@
     <!-- ===== 待确认队列 ===== -->
     <el-card shadow="never">
       <template #header>
-        <div class="flex items-center justify-between">
-          <span class="font-bold">待确认队列（{{ pendings.length }}）</span>
-          <el-button size="small" :loading="loading" @click="load">刷新</el-button>
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <span class="font-bold">待确认队列（{{ filteredPendings.length }}）</span>
+          <div class="flex items-center gap-2">
+            <el-input v-model="pendingKw" placeholder="搜索标题 / 歌手" clearable class="w-full sm:!w-56" :prefix-icon="Search" />
+            <el-button size="small" :loading="loading" @click="load">刷新</el-button>
+          </div>
         </div>
       </template>
       <AdminTable :data="pagedPendings" :loading="loading" row-key="id">
@@ -31,7 +34,7 @@
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="openPicker(row)">挂到歌</el-button>
-            <el-button size="small" type="success" @click="createFromHub(row)">新建展示</el-button>
+            <el-button size="small" type="success" @click="openCreate(row)">新建展示</el-button>
             <el-button size="small" @click="ignorePending(row)">忽略</el-button>
           </template>
         </el-table-column>
@@ -45,14 +48,14 @@
             </div>
             <div class="flex gap-2 pt-1">
               <el-button size="small" type="primary" @click="openPicker(row)">挂到歌</el-button>
-              <el-button size="small" type="success" @click="createFromHub(row)">新建展示</el-button>
+              <el-button size="small" type="success" @click="openCreate(row)">新建展示</el-button>
               <el-button size="small" @click="ignorePending(row)">忽略</el-button>
             </div>
           </div>
         </template>
       </AdminTable>
-      <el-pagination v-if="pendings.length > pageSize" class="mt-4 justify-center" layout="prev, pager, next"
-        :total="pendings.length" :page-size="pageSize" v-model:current-page="page" />
+      <el-pagination v-if="filteredPendings.length > pageSize" class="mt-4 justify-center" layout="prev, pager, next"
+        :total="filteredPendings.length" :page-size="pageSize" v-model:current-page="page" />
     </el-card>
 
     <!-- ===== 已导入版本 ===== -->
@@ -116,6 +119,19 @@
         <el-button @click="pickerVisible = false">取消</el-button>
       </template>
     </el-dialog>
+
+    <!-- ===== 新建展示：复用共用歌曲表单（人工确认歌手/专辑/曲目号等，绝不自绑） ===== -->
+    <SongFormDialog
+      v-model="createVisible"
+      :artists="artists"
+      :albums="albums"
+      :contributors="contributors"
+      :initial="createInitial"
+      title="新建展示歌词"
+      :require-lyrics="false"
+      :require-album="false"
+      @saved="onCreateSaved"
+    />
   </div>
 </template>
 
@@ -126,9 +142,11 @@ import { Search } from '@element-plus/icons-vue'
 import 'element-plus/es/components/message/style/css'
 import 'element-plus/es/components/message-box/style/css'
 import AdminTable from '@/components/admin/AdminTable.vue'
+import SongFormDialog from '@/components/admin/SongFormDialog.vue'
 import { adminApi } from '@/lib/adminApi'
 import { detectTtmlLangs } from '@/lib/lyricLines'
 import { TTML_HUB_BASE } from '@/lib/constants'
+import type { Artist, Contributor } from '@/lib/types'
 
 /**
  * TTML Hub 同步管理（完全剥离模式）：
@@ -148,28 +166,35 @@ interface VersionRow {
   id: string; song_id: string; external_id: string | null; langs: string[]
 }
 interface SongRow { id: string; title: string; origin: string | null }
-interface ArtistRow { id: string; name: string }
-interface AlbumRow { id: string; name: string }
 
 const pendings = ref<PendingRow[]>([])
 const imported = ref<VersionRow[]>([])
 const songs = ref<SongRow[]>([])
-const artists = ref<ArtistRow[]>([])
-const albums = ref<AlbumRow[]>([])
+const artists = ref<Artist[]>([])
+const albums = ref<any[]>([])
+const contributors = ref<Contributor[]>([])
 const loading = ref(false)
 
 const page = ref(1)
 const importedPage = ref(1)
 const importedKw = ref('')
+const pendingKw = ref('')
 const pageSize = 10
 
+const filteredPendings = computed(() => {
+  const kw = pendingKw.value.trim().toLowerCase()
+  if (!kw) return pendings.value
+  return pendings.value.filter(r =>
+    r.title?.toLowerCase().includes(kw) ||
+    (r.artists || []).some(a => a.toLowerCase().includes(kw)))
+})
 const filteredImported = computed(() => {
   const kw = importedKw.value.trim().toLowerCase()
   if (!kw) return imported.value
   return imported.value.filter(v =>
     songTitle(v.song_id).toLowerCase().includes(kw) || (v.external_id || '').toLowerCase().includes(kw))
 })
-const pagedPendings = computed(() => pendings.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+const pagedPendings = computed(() => filteredPendings.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedImported = computed(() => filteredImported.value.slice((importedPage.value - 1) * pageSize, importedPage.value * pageSize))
 
 const songMap = computed(() => new Map(songs.value.map(s => [s.id, s])))
@@ -195,18 +220,28 @@ function candidateSongTitles(row: any): string {
 async function load() {
   loading.value = true
   try {
-    const [p, v, s, a, al] = await Promise.all([
+    const [p, v, s, a, al, c, ac] = await Promise.all([
       adminApi.getAll<PendingRow>('ttml_hub_pending', { order: 'created_at', ascending: false }),
       adminApi.getAll<VersionRow>('lyric_versions', { select: 'id,song_id,external_id,langs', eq: { source: 'ttml-hub' }, order: 'created_at', ascending: false }),
       adminApi.getAll<SongRow>('songs', { select: 'id,title,origin' }),
-      adminApi.getAll<ArtistRow>('artists', { select: 'id,name' }),
-      adminApi.getAll<AlbumRow>('albums', { select: 'id,name' }),
+      adminApi.getAll<Artist>('artists', { order: 'name' }),
+      adminApi.getAll<any>('albums', { order: 'name' }),
+      adminApi.getAll<Contributor>('contributors', { order: 'sort' }),
+      adminApi.getAll<any>('album_contributors'),
     ])
+    // 专辑装饰 artist_ids，供 SongFormDialog 的专辑下拉显示专辑艺术家
+    const acMap = new Map<string, string[]>()
+    for (const r of ac as any[]) {
+      const list = acMap.get(r.album_id) || []
+      list.push(r.artist_id)
+      acMap.set(r.album_id, list)
+    }
     pendings.value = p.filter(r => !r.resolution)
     imported.value = v
     songs.value = s
     artists.value = a
-    albums.value = al
+    albums.value = (al as any[]).map(row => ({ ...row, artist_ids: acMap.get(row.id) || [] }))
+    contributors.value = c
   } catch (e: any) {
     ElMessage.error('加载失败：' + (e.message || e))
   } finally {
@@ -278,12 +313,6 @@ async function pickSong(s: SongRow) {
 
 // ---------- 公共工具 ----------
 
-/** NFKC + 小写 + 删空白与分隔符（与同步 Worker 的归一化规则一致） */
-function norm(s: string): string {
-  return String(s || '').normalize('NFKC').toLowerCase()
-    .replace(/[\s·・._\-–—'"`~（）()[\]【】<>《》!！?？,，.。;；:：/\\|@#$%^&*+=]/g, '')
-}
-
 /** 下载 TTML 原文并校验 sha256（挂到歌 / 新建展示共用） */
 async function downloadTtmlForRow(row: PendingRow): Promise<{ text: string; hash: string }> {
   const res = await fetch(new URL(row.path, TTML_HUB_BASE).href)
@@ -331,82 +360,38 @@ async function confirmAttach(row: PendingRow, song: SongRow) {
   }
 }
 
-// ---------- 新建展示（确认后建歌 + 歌手/专辑归一复用 + 关系 + 版本） ----------
-async function createFromHub(row: PendingRow) {
-  await ElMessageBox.confirm(
-    `将新建歌「${row.title}」` +
-    (row.artists?.length ? `（歌手：${row.artists.join('、')}` : '（无歌手信息') +
-    (row.album ? ` · 专辑：${row.album}` : '') +
-    '），绑定关系并下载 TTML 挂为版本。已有的同名歌手/专辑会复用，不会重复创建。确认？',
-    '新建展示确认', { type: 'warning' },
-  )
+// ---------- 新建展示（复用共用歌曲表单，歌手/专辑/曲目号等全部人工确认，杜绝自绑脏数据） ----------
+const createVisible = ref(false)
+const createInitial = ref<Partial<any> | null>(null)
+const creatingRow = ref<PendingRow | null>(null)
+
+function openCreate(row: any) {
+  creatingRow.value = row
+  // 预填 hub 的歌名/歌手/专辑名，交给表单里的 ArtistTagInput / 专辑下拉人工选绑或新建
+  createInitial.value = {
+    title: row.title || '',
+    artists: (row.artists || []).map((name: string) => ({ id: null as string | null, name, _new: true })),
+    albumName: row.album || '',
+  }
+  createVisible.value = true
+}
+
+/** 表单保存后（歌已建好）：下载 TTML 挂为版本 + 标记队列已确认 */
+async function onCreateSaved(payload: any) {
+  const row = creatingRow.value
+  if (!row || !payload?.id) return
   saving.value = true
   try {
-    // 1. 歌手：归一复用，无则建；归一化相同的名字去重（如 "Tizzy T"/"TizzyT"）
-    const artistsByNorm = new Map(artists.value.map(a => [norm(a.name), a.id]))
-    const artistIds: string[] = []
-    for (const name of new Set(row.artists || [])) {
-      const key = norm(name)
-      let id = artistsByNorm.get(key)
-      if (!id) {
-        id = 'art_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-        await adminApi.insert('artists', {
-          id, name, types: ['singer'], is_show: true, sort: 0, avatar: '', bio: '', aliases: [], disambiguation: '',
-        })
-        artistsByNorm.set(key, id)
-        artists.value.push({ id, name })
-      }
-      artistIds.push(id)
-    }
-    const uniqArtistIds = [...new Set(artistIds)]
-
-    // 2. 专辑：归一复用，无则建 + 专辑-歌手关系（幂等）
-    let albumId: string | null = null
-    if (row.album) {
-      const albumsByNorm = new Map(albums.value.map(a => [norm(a.name), a.id]))
-      albumId = albumsByNorm.get(norm(row.album)) || null
-      if (!albumId) {
-        albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
-        await adminApi.insert('albums', { id: albumId, name: row.album, year: null, cover: '', description: null })
-        albumsByNorm.set(norm(row.album), albumId)
-        albums.value.push({ id: albumId, name: row.album })
-      }
-      if (uniqArtistIds.length) {
-        await adminApi.upsertBatch('album_contributors',
-          uniqArtistIds.map(artist_id => ({ album_id: albumId, artist_id })), 'album_id,artist_id')
-      }
-    }
-
-    // 3. 歌本体
-    const songId = 's' + Date.now() + Math.floor(Math.random() * 1000)
-    await adminApi.insert('songs', {
-      id: songId,
-      title: row.title,
-      album_id: albumId,
-      duration: '',
-      track: null,
-      lrc_text: null,
-      cover: '',
-      video_url: null,
-      status: 'published',
-      contributor_id: null,
-      genres: [],
-      source_ids: row.source_ids || {},
-      origin: 'ttml-hub',
-    })
-    if (uniqArtistIds.length) {
-      await adminApi.insertBatch('song_contributors',
-        uniqArtistIds.map(artist_id => ({ song_id: songId, artist_id, role: 'singer' })))
-    }
-    songs.value.push({ id: songId, title: row.title, origin: 'ttml-hub' })
-
-    // 4. 下载 TTML 挂版本 + 标记队列已确认
-    await attachVersionToSong(row, songId)
+    await attachVersionToSong(row, payload.id)
     await adminApi.update('ttml_hub_pending', row.id, { resolution: 'created' } as any)
-    ElMessage.success('已新建「' + row.title + '」')
+    ElMessage.success('已新建「' + payload.title + '」并挂上 TTML')
+    createVisible.value = false
+    creatingRow.value = null
+    createInitial.value = null
     await load()
   } catch (e: any) {
-    ElMessage.error(e.message || String(e))
+    // 歌已建但挂版本失败：不阻塞，提示手工重挂
+    ElMessage.error('歌已创建，但 TTML 挂载失败：' + (e.message || e))
   } finally {
     saving.value = false
   }

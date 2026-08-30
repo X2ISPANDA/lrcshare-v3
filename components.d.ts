@@ -63,6 +63,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchOverlay: typeof import('./src/components/layout/SearchOverlay.vue')['default']
+    SongFormDialog: typeof import('./src/components/admin/SongFormDialog.vue')['default']
     TwikooComment: typeof import('./src/components/submit/TwikooComment.vue')['default']
   }
   export interface GlobalDirectives {
