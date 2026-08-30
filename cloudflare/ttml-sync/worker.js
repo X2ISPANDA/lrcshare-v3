@@ -437,8 +437,10 @@ async function createWhitelistSong(env, hub, artistByNorm, albumByNorm) {
     albumByNorm.set(norm(hub.album), albumId)
   }
   if (albumId && uniqArtistIds.length) {
-    await sbMutate(env, 'album_contributors', '', 'POST',
-      uniqArtistIds.map(artist_id => ({ album_id: albumId, artist_id })))
+    // 同专辑多首歌逐首建歌时会重复关联同一歌手 → 幂等插入（已存在则忽略）
+    await sbMutate(env, 'album_contributors', '?on_conflict=album_id,artist_id', 'POST',
+      uniqArtistIds.map(artist_id => ({ album_id: albumId, artist_id })),
+      'return=minimal,resolution=ignore-duplicates')
   }
 
   // 歌本体（白板：无封面无歌词，状态正常进搜索）
