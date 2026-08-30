@@ -95,7 +95,23 @@ GET /v1/song/:id
 - **显式圈定语义**：带语言参数圈定后匹配不到任何版本时 `lrc` 为 `null`（不回退原始文本，避免拿到意料之外的语言组合）
 - `lyrics` 数组：带语言参数时附带，每个选中版本一份 `{lang, kind, format, lrc}`——`lrc` 为该版本的独立完整文本（`line` / `enhanced` 末尾带署名行，`ttml` 为纯 XML 不带）
 
-常用语言代码：`zh` 中文、`zh-Hant` 繁体中文、`yue` 粤语、`ja` 日语、`ko` 韩语、`en` 英语；另有 `fr` / `de` / `es` / `ru` / `th` / `bo` / `mn` 等二十余种，以站内投稿语言选项为准。罗马音不是独立语言：版本角色由 `kind` 区分（`romanization`），`lang` 填源语言（如日语罗马音 = `lang: ja` + `kind: romanization`），`lyric_translation_lang=ja` 即可圈到日语罗马音。
+语言代码对照表（`lyric_lang` / `lyric_translation_lang` 取值）：
+
+| 代码 | 语言 | | 代码 | 语言 | | 代码 | 语言 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `zh` | 中文 | | `ru` | 俄语 | | `hi` | 印地语 |
+| `zh-Hant` | 繁体中文 | | `th` | 泰语 | | `he` | 希伯来语 |
+| `yue` | 粤语 | | `ar` | 阿拉伯语 | | `el` | 希腊语 |
+| `ja` | 日语 | | `bo` | 藏语 | | `my` | 缅甸语 |
+| `ko` | 韩语 | | `mn` | 蒙语 | | `km` | 高棉语 |
+| `en` | 英语 | | `tr` | 土耳其语 | | `lo` | 老挝语 |
+| `fr` | 法语 | | `nl` | 荷兰语 | | `en-US` | 英语（美） |
+| `de` | 德语 | | `pl` | 波兰语 | | `und` | 未标注 |
+| `es` | 西班牙语 | | `id` | 印尼语 | | | |
+| `it` | 意大利语 | | `ms` | 马来语 | | | |
+| `pt` | 葡萄牙语 | | `vi` | 越南语 | | | |
+
+**罗马音不是独立语言代码**：版本角色由 `kind` 区分（`romanization`），`lang` 填**源语言**——日语罗马音 = `lang: ja` + `kind: romanization`，韩语罗马音 = `lang: ko` + `kind: romanization`，中文拼音 = `lang: zh` + `kind: romanization`。调用方圈版本时 `lyric_translation_lang=ja` 即可选中日语罗马音（日语歌曲通常没有日语译文，`ja` 命中的就是罗马音本身）。
 
 ### 歌词格式 {#lyric-formats}
 
