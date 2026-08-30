@@ -41,5 +41,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TTML_HUB_BASE: https://2755337087.github.io/ttml-hub/
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
-          SYNC_BUDGET: '5000'
+          SYNC_BUDGET: '50000' # Node 环境无 CF 子请求限制，拉大让全量导入一轮跑完
         run: node scripts/run-ttml-sync.mjs

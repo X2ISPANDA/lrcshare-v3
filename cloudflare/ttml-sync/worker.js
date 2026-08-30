@@ -410,9 +410,9 @@ async function attachVersion(env, base, hub, songId) {
 async function createWhitelistSong(env, hub, artistByNorm, albumByNorm) {
   const genId = prefix => prefix + Date.now() + Math.floor(Math.random() * 1000)
 
-  // 歌手：归一复用，无则建
+  // 歌手：归一复用，无则建；去重（同一首歌可能出现归一化相同的名字，如 "Tizzy T"/"TizzyT"）
   const artistIds = []
-  for (const name of hub.artists || []) {
+  for (const name of new Set(hub.artists || [])) {
     const key = norm(name)
     let id = artistByNorm.get(key)
     if (!id) {
@@ -424,6 +424,8 @@ async function createWhitelistSong(env, hub, artistByNorm, albumByNorm) {
     }
     artistIds.push(id)
   }
+  // ID 层兜底去重（不同名字归一化相同 → 同一 artist_id）
+  const uniqArtistIds = [...new Set(artistIds)]
 
   // 专辑：归一复用，无则建（白板专辑，无年份封面）
   let albumId = hub.album ? albumByNorm.get(norm(hub.album)) : null
@@ -434,9 +436,9 @@ async function createWhitelistSong(env, hub, artistByNorm, albumByNorm) {
     })
     albumByNorm.set(norm(hub.album), albumId)
   }
-  if (albumId && artistIds.length) {
+  if (albumId && uniqArtistIds.length) {
     await sbMutate(env, 'album_contributors', '', 'POST',
-      artistIds.map(artist_id => ({ album_id: albumId, artist_id })))
+      uniqArtistIds.map(artist_id => ({ album_id: albumId, artist_id })))
   }
 
   // 歌本体（白板：无封面无歌词，状态正常进搜索）
@@ -456,9 +458,9 @@ async function createWhitelistSong(env, hub, artistByNorm, albumByNorm) {
     source_ids: hub.sourceIds || {},
     origin: 'ttml-hub',
   })
-  if (artistIds.length) {
+  if (uniqArtistIds.length) {
     await sbMutate(env, 'song_contributors', '', 'POST',
-      artistIds.map(artist_id => ({ song_id: songId, artist_id, role: 'singer' })))
+      uniqArtistIds.map(artist_id => ({ song_id: songId, artist_id, role: 'singer' })))
   }
   return songId
 }
