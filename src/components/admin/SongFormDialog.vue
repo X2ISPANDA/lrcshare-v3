@@ -54,6 +54,22 @@
                 </div>
               </div>
             </div>
+            <!-- 专辑信息卡片（与单曲审核同款）：点击打开 AlbumInfoDialog，保存即入库/写回 -->
+            <button
+              v-if="form.albumName.trim()"
+              type="button"
+              class="w-full mt-1.5 flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 hover:border-pink-300 hover:bg-pink-50/50 transition text-left"
+              @click="openAlbumInfo"
+            >
+              <img v-if="albumCoverOfForm" :src="albumCoverOfForm" class="w-8 h-8 rounded object-cover flex-shrink-0" />
+              <span v-else class="w-8 h-8 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0 text-sm">💿</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-xs text-gray-700 truncate">{{ form.albumName }}</span>
+                <span class="block text-[11px] text-gray-400">点击{{ form.albumId ? '查看 / 更新专辑信息（保存即写回库）' : '补全专辑信息（保存即入库）' }}（封面 / 年份 / 简介）</span>
+              </span>
+              <el-tag v-if="form.albumId" size="small" type="success" class="shrink-0">已关联</el-tag>
+              <el-tag v-else size="small" type="warning" class="shrink-0">新建</el-tag>
+            </button>
           </el-form-item>
         </el-col>
       </el-row>
@@ -160,6 +176,20 @@
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="save">保存</el-button>
     </template>
+
+    <!-- 专辑信息共用弹窗（保存即入库/写回，与单曲审核同款） -->
+    <AlbumInfoDialog
+      v-model="showAlbumInfo"
+      :artists="artists"
+      :album-id="form.albumId || null"
+      :album-name="form.albumName"
+      :album-artists="form.albumArtists"
+      :cover="albumCoverOfForm"
+      :year="form.year"
+      :description="albumDescOfForm"
+      @artist-saved="onArtistSaved"
+      @saved="onAlbumInfoSaved"
+    />
   </el-dialog>
 </template>
 
@@ -168,9 +198,10 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { mdToHtml } from '@/lib/markdown'
 import { recomputeArtistTypes } from '@/lib/artistTypes'
-import { syncSongContributors, syncAlbumContributors, syncSongSecrets } from '@/lib/contribRelations'
+import { syncSongContributors, syncSongSecrets } from '@/lib/contribRelations'
 import { adminApi } from '@/lib/adminApi'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
@@ -364,6 +395,35 @@ function selectAlbum(a: any) {
   albumUnlocked.value = false
 }
 
+// ============ 专辑信息共用弹窗（保存即入库/写回，与单曲审核同款） ============
+const showAlbumInfo = ref(false)
+const albumCoverOfForm = computed(() => albumMap.value.get(form.albumId || '')?.cover || '')
+const albumDescOfForm = computed(() => albumMap.value.get(form.albumId || '')?.description || '')
+function openAlbumInfo() {
+  if (!form.albumName.trim()) {
+    ElMessage.warning('请先填写专辑名')
+    return
+  }
+  showAlbumInfo.value = true
+}
+/** 保存成功 → 回填表单（关联 id/年份）+ 更新本地专辑池（搜索下拉即时刷新） */
+function onAlbumInfoSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
+  form.albumId = p.albumId
+  form.albumName = p.name
+  form.year = p.year ? String(p.year) : ''
+  const row = props.albums.find(a => a.id === p.albumId)
+  if (row) {
+    row.name = p.name
+    row.year = p.year
+    row.cover = p.cover
+    row.description = p.description
+    row.artist_ids = p.artistIds
+  } else {
+    props.albums.push({ id: p.albumId, name: p.name, year: p.year, cover: p.cover, description: p.description, artist_ids: p.artistIds } as any)
+  }
+  albumUnlocked.value = false
+}
+
 // ============ 简介 tip 插入与预览 ============
 const lyricsPreview = computed(() =>
   form.lyrics_text ? mdToHtml(form.lyrics_text) : '<span style="color:#c0c4cc">预览区</span>')
@@ -454,6 +514,16 @@ async function save() {
     ElMessage.warning('请填写必填字段：专辑（或关闭专辑必填后留空）')
     return
   }
+  // 专辑保存即入库：填了专辑名但未入库（未点卡片保存/搜索未选）时兜底阻断，避免歌挂空专辑
+  if (form.albumName.trim() && !form.albumId) {
+    const hit = props.albums.find(a => a.name.toLowerCase() === form.albumName.trim().toLowerCase())
+    if (hit) {
+      form.albumId = hit.id
+    } else {
+      ElMessage.warning('专辑「' + form.albumName.trim() + '」尚未入库：请点击专辑信息卡片填写并保存，或从搜索下拉选择已有专辑')
+      return
+    }
+  }
   if (props.requireLyrics && !form.lrc_text.trim()) {
     ElMessage.warning('请填写必填字段：LRC 歌词')
     return
@@ -473,32 +543,8 @@ async function save() {
       resolveArtists(form.albumArtists, 'album'),
     ])
 
-    let albumId = form.albumId
-    if (albumId) {
-      const album = albumMap.value.get(albumId)
-      const albumChanged =
-        albumUnlocked.value &&
-        (album?.name !== form.albumName.trim() ||
-          (album?.artist_ids || []).join(',') !== albumArtistIds.join(',') ||
-          String(album?.year || '') !== form.year.trim())
-      if (albumChanged) {
-        await adminApi.update('albums', albumId, {
-          name: form.albumName.trim(),
-          year: form.year.trim() ? parseInt(form.year.trim()) : null,
-        })
-        await syncAlbumContributors(albumId, albumArtistIds)
-      }
-    } else if (form.albumName.trim()) {
-      const created = await adminApi.insert('albums', {
-        id: 'al' + Date.now(),
-        name: form.albumName.trim(),
-        year: form.year.trim() ? parseInt(form.year.trim()) : null,
-        cover: '',
-      })
-      albumId = created!.id
-      props.albums.push({ ...created, artist_ids: albumArtistIds })
-      await syncAlbumContributors(albumId, albumArtistIds)
-    }
+    // 专辑由 AlbumInfoDialog 保存即入库/写回；这里只取表单关联的 albumId 绑定到歌
+    const albumId = form.albumId || null
 
     let finalLrcText = form.lrc_text.trim()
     if (versionsDirty.value && editing.value) {

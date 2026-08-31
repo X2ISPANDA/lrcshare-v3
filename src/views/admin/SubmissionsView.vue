@@ -290,38 +290,33 @@
       </template>
     </el-dialog>
 
-    <!-- 专辑信息弹窗（单曲审核，点专辑卡片打开；与艺术家头像弹窗同款交互。专辑艺术家属专辑，在此编辑。
-         保存即入库：新专辑当场建库并回填关联，已关联专辑当场写回差异，发布时只做歌↔专辑绑定） -->
-    <el-dialog v-model="showAlbumDialog" :title="review?.edited_data?.album_id ? '专辑信息（已关联，保存即写回库）' : '新专辑信息（保存即入库）'" width="560px" append-to-body>
-      <div v-if="review?.edited_data" class="space-y-3">
-        <div class="flex items-center gap-3">
-          <img
-            v-if="review.edited_data.album_cover"
-            :src="review.edited_data.album_cover"
-            class="w-12 h-12 rounded object-cover cursor-pointer border border-gray-200"
-            @click="ui.openPreview([review.edited_data.album_cover])"
-          />
-          <span v-else class="w-12 h-12 rounded bg-gray-100 text-gray-400 flex items-center justify-center text-xl">💿</span>
-          <div class="min-w-0">
-            <div class="font-medium text-gray-800 truncate">{{ review.edited_data.album }}</div>
-            <div class="text-xs text-gray-400">{{ review.edited_data.album_id ? '已关联库内专辑' : '新专辑' }}</div>
-          </div>
-        </div>
-        <div>
-          <div class="text-xs text-gray-500 mb-1">专辑艺术家</div>
-          <ArtistTagInput v-model="review.edited_data.album_artists" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" tone="gray" admin @artist-saved="onArtistSaved" />
-        </div>
-        <el-input v-model="review.edited_data.album_cover" placeholder="专辑封面 URL（选填）" />
-        <el-input v-model="review.edited_data.year" maxlength="4" placeholder="年份（选填，如 2024）" />
-        <el-input v-model="review.edited_data.album_desc" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="专辑简介（选填，Markdown）" />
-      </div>
-      <template #footer>
-        <el-button @click="showAlbumDialog = false">取消</el-button>
-        <el-button type="primary" :loading="albumSaving" @click="saveAlbumNow">
-          {{ review?.edited_data?.album_id ? '保存写回' : '保存并入库' }}
-        </el-button>
-      </template>
-    </el-dialog>
+    <!-- 专辑信息共用弹窗（保存即入库）：抽取为 AlbumInfoDialog，批量审核单行/歌曲管理/TTML Hub 同款复用 -->
+    <AlbumInfoDialog
+      v-model="showAlbumDialog"
+      :artists="artists"
+      :album-id="review?.edited_data?.album_id || null"
+      :album-name="review?.edited_data?.album || ''"
+      :album-artists="review?.edited_data?.album_artists"
+      :cover="review?.edited_data?.album_cover"
+      :year="review?.edited_data?.year"
+      :description="review?.edited_data?.album_desc"
+      @artist-saved="onArtistSaved"
+      @saved="onAlbumSaved"
+    />
+
+    <!-- 批量审核单行专辑编辑（点行内专辑封面打开，与单曲审核同款弹窗） -->
+    <AlbumInfoDialog
+      v-model="showBatchAlbum"
+      :artists="artists"
+      :album-id="batchRows[batchAlbumRowIndex]?.sd?.album_id || null"
+      :album-name="batchRows[batchAlbumRowIndex]?.sd?.album || ''"
+      :album-artists="batchRows[batchAlbumRowIndex]?.sd?.album_artists"
+      :cover="batchRows[batchAlbumRowIndex]?.sd?.album_cover"
+      :year="batchRows[batchAlbumRowIndex]?.sd?.year"
+      :description="batchRows[batchAlbumRowIndex]?.sd?.album_desc"
+      @artist-saved="onArtistSaved"
+      @saved="onBatchAlbumSaved"
+    />
 
     <!-- 批量审核弹窗：Excel 式表格（行=投稿、列=字段），列头⚡统一填充（勾选行则仅填充勾选行），单元格直接改，底部一键全部发布 -->
     <el-dialog v-model="showBatchReview" title="批量审核" width="min(1500px, 94vw)" :close-on-click-modal="false" append-to-body>
@@ -634,26 +629,8 @@
         >
           <el-option v-for="al in filteredAlbums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
         </el-select>
-        <!-- 专辑信息（与单曲审核一致）：选库内专辑 → 预填库内值，改了发布时写回；输入新名 → 随发布创建 -->
-        <div v-if="fillAlbum" class="mt-4 pt-3 border-t border-gray-100 space-y-3">
-          <div v-if="isNewAlbum" class="text-xs text-amber-600">新专辑「{{ fillAlbum }}」：可补全以下信息（选填），发布时随专辑一并创建</div>
-          <div v-else class="text-xs text-green-600">已关联「{{ linkedAlbumName }}」：以下预填库内信息，修改后发布时写回该专辑</div>
-          <div>
-            <div class="text-xs text-gray-500 mb-1">专辑艺术家</div>
-            <ArtistTagInput v-model="fillAlbumArtists" :artists="artists" tone="gray" admin @artist-saved="onArtistSaved" />
-          </div>
-          <div class="flex items-center gap-2">
-            <img
-              v-if="fillAlbumCover"
-              :src="fillAlbumCover"
-              class="w-10 h-10 rounded object-cover cursor-pointer border border-gray-200 flex-shrink-0"
-              @click="ui.openPreview([fillAlbumCover])"
-            />
-            <el-input v-model="fillAlbumCover" placeholder="专辑封面 URL（选填）" />
-          </div>
-          <el-input v-model="fillAlbumYear" placeholder="年份（选填，如 2024）" />
-          <el-input v-model="fillAlbumDesc" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="专辑简介（选填，Markdown）" />
-        </div>
+        <!-- 批量覆盖模式只选专辑应用行；单行编辑走 AlbumInfoDialog（保存即入库/写回，与单曲审核同款） -->
+        <div v-if="isFillAll" class="text-xs text-gray-400 mt-2">批量覆盖只设置专辑关联；需编辑封面/年份/简介，请先应用到行，再点该行专辑封面编辑。</div>
       </template>
       <el-select v-else-if="fillKey === 'genres'" v-model="fillGenres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
         <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
@@ -678,6 +655,7 @@ import { useUiStore } from '@/stores/ui'
 import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, detectLang, saveLyricLines } from '@/lib/lyricLines'
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Artist } from '@/lib/types'
 
@@ -1161,58 +1139,25 @@ function onArtistSaved(tag: any) {
   }
 }
 
-/** 专辑弹窗保存即入库：新专辑当场建库并回填关联；已关联专辑当场写回差异。发布时只做歌↔专辑绑定。 */
-const albumSaving = ref(false)
-async function saveAlbumNow() {
+/** AlbumInfoDialog 保存成功 → 回填审核表单关联 + 更新本地专辑池（⚡下拉等即时刷新） */
+function onAlbumSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
   const ed = review.value?.edited_data
-  if (!ed) return
-  if (!ed.album_id && !String(ed.album || '').trim()) {
-    ElMessage.warning('请先在审核表单填写专辑名')
-    return
+  if (ed) {
+    ed.album = p.name
+    ed.album_id = p.albumId
+    ed.album_cover = p.cover
+    ed.year = p.year ?? ''
+    ed.album_desc = p.description || ''
   }
-  albumSaving.value = true
-  try {
-    const albumArtistIds = (ed.album_artists || []).map((a: any) => a.id).filter(Boolean)
-    if (ed.album_id) {
-      // 已关联：当场写回差异（与发布链路沿用分支同一套比较规则）
-      const albumRow = albums.value.find(a => a.id === ed.album_id)
-      const patch: Record<string, any> = {}
-      const oldArtistIds = albumRow?.artist_ids || []
-      const artistIdsChanged = albumArtistIds.length && JSON.stringify(albumArtistIds) !== JSON.stringify(oldArtistIds)
-      if (ed.album_cover && ed.album_cover !== (albumRow?.cover ?? '')) patch.cover = ed.album_cover
-      if (ed.year) {
-        const y = parseInt(String(ed.year), 10) || null
-        if (y && y !== (albumRow?.year ?? null)) patch.year = y
-      }
-      if ((ed.album_desc || '') !== (albumRow?.description || '')) patch.description = ed.album_desc || null
-      if (Object.keys(patch).length) await adminApi.update('albums', ed.album_id, patch)
-      if (artistIdsChanged) await syncAlbumContributors(ed.album_id, albumArtistIds)
-      // 同步本地专辑池（下拉/封面立即可见）
-      if (albumRow) Object.assign(albumRow, patch, { artist_ids: albumArtistIds })
-      ElMessage.success('专辑信息已写回数据库')
-    } else {
-      // 新专辑：当场建库并关联，发布链路见 album_id 已存在自动走"沿用"
-      const albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
-      const name = String(ed.album).trim()
-      const year = ed.year ? (parseInt(String(ed.year), 10) || null) : null
-      await adminApi.insert('albums', {
-        id: albumId,
-        name,
-        year,
-        cover: ed.album_cover || '',
-        description: ed.album_desc || null,
-      })
-      await syncAlbumContributors(albumId, albumArtistIds)
-      ed.album = name
-      ed.album_id = albumId
-      albums.value.push({ id: albumId, name, year, cover: ed.album_cover || '', description: ed.album_desc || null, artist_ids: albumArtistIds })
-      ElMessage.success('新专辑已创建并关联本投稿')
-    }
-    showAlbumDialog.value = false
-  } catch (e: any) {
-    ElMessage.error(e.message || '专辑保存失败')
-  } finally {
-    albumSaving.value = false
+  const row = albums.value.find(a => a.id === p.albumId)
+  if (row) {
+    row.name = p.name
+    row.year = p.year
+    row.cover = p.cover
+    row.description = p.description
+    row.artist_ids = p.artistIds
+  } else {
+    albums.value.push({ id: p.albumId, name: p.name, year: p.year, cover: p.cover, description: p.description, artist_ids: p.artistIds })
   }
 }
 
@@ -2097,42 +2042,42 @@ const fillRowIndex = ref(-1) // -1 = 应用到全部行；≥0 = 仅该行
 const fillText = ref('')
 const fillArtists = ref<any[]>([])
 const fillAlbum = ref('')
-/** 新建专辑的补全信息（封面/年份/简介），应用到行后随发布链建专辑时入库 */
-const fillAlbumCover = ref('')
-const fillAlbumYear = ref('')
-const fillAlbumDesc = ref('')
-const fillAlbumArtists = ref<any[]>([])
 const fillGenres = ref<string[]>([])
 
-/** 当前专辑输入是新名（非库内 ID）→ 新建态文案；否则为已关联 */
-const isNewAlbum = computed(() => fillKey.value === 'album' && !!fillAlbum.value && !albums.value.some(a => a.id === fillAlbum.value))
-const linkedAlbumName = computed(() => albums.value.find(a => a.id === fillAlbum.value)?.name || '')
-
-// 下拉选中库内专辑 → 预填其专辑艺术家/封面/年份/简介（改了发布时差异写回）；手动改信息不触发本 watch
-watch(fillAlbum, v => {
-  if (fillKey.value !== 'album') return
-  const hit = albums.value.find(a => a.id === v)
-  if (hit) {
-    fillAlbumArtists.value = albumArtistTags(hit.artist_ids)
-    fillAlbumCover.value = hit.cover || ''
-    fillAlbumYear.value = hit.year ? String(hit.year) : ''
-    fillAlbumDesc.value = hit.description || ''
-  }
-})
-
 function openFill(key: string, rowIndex = -1) {
+  // 单行专辑编辑：直接打开共用 AlbumInfoDialog（保存即入库/写回，与单曲审核同款）
+  if (key === 'album' && rowIndex >= 0) {
+    openBatchAlbumDialog(rowIndex)
+    return
+  }
   fillKey.value = key
   fillRowIndex.value = rowIndex
   const sd = rowIndex >= 0 ? batchRows.value[rowIndex].sd : null
   fillText.value = sd ? String(sd[key] ?? '') : ''
   fillArtists.value = sd ? JSON.parse(JSON.stringify(sd[key] || [])) : []
   fillAlbum.value = sd ? (sd.album_id || sd.album || '') : ''
-  fillAlbumCover.value = sd ? (sd.album_cover || '') : ''
-  fillAlbumYear.value = sd ? String(sd.year ?? '') : ''
-  fillAlbumDesc.value = sd ? (sd.album_desc || '') : ''
-  fillAlbumArtists.value = sd ? JSON.parse(JSON.stringify(sd.album_artists || [])) : []
   fillGenres.value = sd ? [...(sd.genres || [])] : []
   showFill.value = true
+}
+
+/** 批量审核单行专辑编辑：打开 AlbumInfoDialog，预填该行当前值 */
+const showBatchAlbum = ref(false)
+const batchAlbumRowIndex = ref(-1)
+function openBatchAlbumDialog(rowIndex: number) {
+  batchAlbumRowIndex.value = rowIndex
+  showBatchAlbum.value = true
+}
+/** 单行专辑保存成功 → 回填该行关联 + 更新本地专辑池（⚡下拉即时刷新） */
+function onBatchAlbumSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
+  const row = batchRows.value[batchAlbumRowIndex.value]
+  if (row) {
+    row.sd.album = p.name
+    row.sd.album_id = p.albumId
+    row.sd.album_cover = p.cover
+    row.sd.year = p.year ?? ''
+    row.sd.album_desc = p.description || ''
+  }
+  onAlbumSaved(p)
 }
 
 const isFillAll = computed(() => fillRowIndex.value < 0)
@@ -2158,14 +2103,10 @@ function applyFill() {
       // 逐行深拷贝，避免多行共享同一 tag 对象（发布时回填 ID/_new 会互相串）
       r.sd[key] = JSON.parse(JSON.stringify(fillArtists.value))
     } else if (key === 'album') {
+      // 批量覆盖：只设关联（专辑信息编辑走行内 AlbumInfoDialog，保存即入库）
       const hit = albums.value.find(a => a.id === fillAlbum.value)
       r.sd.album_id = hit ? hit.id : null
       r.sd.album = hit ? hit.name : fillAlbum.value.trim()
-      // 专辑信息（专辑艺术家/封面/年份/简介）统一随行：已关联 → 发布时与库内差异写回；新建 → 随创建入库
-      r.sd.album_artists = JSON.parse(JSON.stringify(fillAlbumArtists.value))
-      if (fillAlbumCover.value.trim()) r.sd.album_cover = fillAlbumCover.value.trim()
-      if (fillAlbumYear.value.trim()) r.sd.year = fillAlbumYear.value.trim()
-      r.sd.album_desc = fillAlbumDesc.value.trim()
     } else if (key === 'genres') {
       r.sd.genres = [...fillGenres.value]
     } else {
