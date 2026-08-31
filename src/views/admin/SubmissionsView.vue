@@ -159,119 +159,20 @@
           <div v-if="review.song_data?.ttml_text" class="text-xs text-gray-400 mt-1">投稿为 TTML（含对唱/分屏/样式），发布时原文独立成版本落盘</div>
         </div>
 
-        <!-- 审核修改表单 -->
-        <el-form v-if="!isProfileReview" :model="review.edited_data" label-width="92px">
-          <el-row :gutter="12">
-            <el-col :span="12"><el-form-item label="歌曲名"><el-input v-model="review.edited_data.title" /></el-form-item></el-col>
-            <el-col :span="12">
-              <el-form-item label="专辑">
-                <el-select
-                  v-model="albumSelect"
-                  filterable
-                  allow-create
-                  default-first-option
-                  :filter-method="filterAlbums"
-                  placeholder="搜索库内专辑，或输入新专辑名"
-                  class="w-full"
-                >
-                  <el-option v-for="al in filteredAlbums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
-                </el-select>
-                <!-- 投稿的专辑名常驻可复制（下拉选不中文字没法复制），附年份信息 -->
-                <div v-if="review.edited_data.album" class="text-xs text-gray-500 mt-1 w-full break-all select-text">
-                  投稿专辑：<span class="select-all">{{ review.edited_data.album }}</span><span v-if="review.edited_data.year">（{{ review.edited_data.year }}）</span>
-                </div>
-                <div v-if="review.edited_data.album_id" class="text-xs text-green-600 mt-1 w-full">已关联库内专辑（点击下方卡片可查看/更新信息，保存即写回库）</div>
-                <div v-else-if="albumNameExists" class="text-xs text-red-500 mt-1 w-full">库内已有同名专辑！如需沿用请从下拉选择，否则将新建重复专辑</div>
-                <div v-else-if="review.edited_data.album" class="text-xs text-amber-600 mt-1 w-full">新专辑（点下方卡片补全信息，保存即入库）</div>
-                <!-- 专辑信息卡片（与艺术家头像 chip 同款逻辑：点击弹窗编辑） -->
-                <button
-                  v-if="review.edited_data.album"
-                  type="button"
-                  class="w-full mt-1.5 flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 hover:border-pink-300 hover:bg-pink-50/50 transition text-left"
-                  @click="showAlbumDialog = true"
-                >
-                  <img v-if="review.edited_data.album_cover" :src="review.edited_data.album_cover" class="w-8 h-8 rounded object-cover flex-shrink-0" />
-                  <span v-else class="w-8 h-8 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0 text-sm">💿</span>
-                  <span class="min-w-0 flex-1">
-                    <span class="block text-xs text-gray-700 truncate">{{ review.edited_data.album }}</span>
-                    <span class="block text-[11px] text-gray-400">点击{{ review.edited_data.album_id ? '查看 / 更新专辑信息' : '补全专辑信息' }}（封面 / 年份 / 简介）</span>
-                  </span>
-                  <el-tag v-if="review.edited_data.album_id" size="small" type="success" class="shrink-0">已关联</el-tag>
-                  <el-tag v-else size="small" type="warning" class="shrink-0">新建</el-tag>
-                </button>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="12">
-            <el-col :span="8"><el-form-item label="时长"><el-input v-model="review.edited_data.duration" placeholder="03:30" /></el-form-item></el-col>
-            <el-col :span="8">
-              <el-form-item label="曲目号">
-                <el-input v-model="review.edited_data.track" placeholder="专辑内序号（选填）" />
-                <div v-if="albumTrackOccupied" class="text-xs text-red-500 mt-1 w-full">该曲目号已被专辑内其他歌占用：{{ albumTrackOccupied }}</div>
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="单曲封面">
-                <div class="flex items-center gap-2 w-full">
-                  <img
-                    v-if="review.edited_data.cover"
-                    :src="review.edited_data.cover"
-                    class="w-10 h-10 rounded object-cover cursor-pointer border border-gray-200 flex-shrink-0"
-                    @click="ui.openPreview([review.edited_data.cover])"
-                  />
-                  <el-input v-model="review.edited_data.cover" placeholder="不填用专辑封面" />
-                </div>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="12">
-            <el-col :span="24"><el-form-item label="视频链接"><el-input v-model="review.edited_data.video_url" placeholder="B站/YouTube（选填）" /></el-form-item></el-col>
-          </el-row>
-          <el-row :gutter="12">
-            <el-col :span="24">
-              <el-form-item label="歌手">
-                <ArtistTagInput v-model="review.edited_data.artists" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="singer" admin @artist-saved="onArtistSaved" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="12">
-            <el-col :span="8">
-              <el-form-item label="作词">
-                <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="lyricist" admin @artist-saved="onArtistSaved" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="作曲">
-                <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="composer" admin @artist-saved="onArtistSaved" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item label="编曲">
-                <ArtistTagInput v-model="review.edited_data.arranger_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="arranger" admin @artist-saved="onArtistSaved" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="12">
-            <el-col :span="12">
-              <el-form-item label="风格">
-                <el-select v-model="review.edited_data.genres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
-                  <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-form-item label="歌词">
-            <div class="w-full">
-              <el-input v-model="review.edited_data.lrc_text" type="textarea" :rows="5" class="font-mono!" />
-              <div class="mt-2 flex items-center justify-between">
-                <span class="text-sm text-gray-600">多语言版本（{{ review.edited_data.versions?.length || 0 }} 个）</span>
-                <el-button size="small" @click="splitReviewVersions">从 LRC 拆分</el-button>
-              </div>
-              <LyricVersionsEditor v-model="review.edited_data.versions" class="mt-2" />
-              <div class="text-xs text-gray-400 mt-1">留空则发布时按 LRC 自动拆分；填写则按版本精确入库。</div>
-            </div>
-          </el-form-item>
-        </el-form>
+        <!-- 审核修改表单：复用 SongFormDialog（review 模式：通过发布=回填数据走发布链路，不写库） -->
+        <SongFormDialog
+          v-if="!isProfileReview"
+          v-model="showReviewForm"
+          mode="review"
+          title="审核修改"
+          :artists="artists"
+          :albums="albums"
+          :contributors="[]"
+          :hide-contributor="true"
+          :initial="reviewInitial"
+          @review-data="onReviewData"
+          @reject="onReviewReject"
+        />
 
         <!-- 同名歧义警示 -->
         <div v-if="!isProfileReview && ambiguousArtists.length" class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -285,8 +186,13 @@
 
       <template #footer>
         <el-button @click="showReview = false">取消</el-button>
-        <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
-        <el-button type="success" @click="approve(review)">{{ isProfileReview ? '✅ 通过并更新资料' : '✅ 通过发布' }}</el-button>
+        <template v-if="isProfileReview">
+          <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
+          <el-button type="success" @click="approve(review)">✅ 通过并更新资料</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" @click="openReviewForm">📝 审核修改</el-button>
+        </template>
       </template>
     </el-dialog>
 
@@ -645,7 +551,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { adminApi } from '@/lib/adminApi'
 import { supabase } from '@/lib/supabase'
 import { recomputeArtistTypes } from '@/lib/artistTypes'
@@ -656,6 +562,7 @@ import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, det
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
+import SongFormDialog from '@/components/admin/SongFormDialog.vue'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Artist } from '@/lib/types'
 
@@ -831,6 +738,53 @@ const showReview = ref(false)
 const review = ref<ReviewItem | null>(null)
 /** TTML 源码预览开关（仅含 ttml_text 的投稿显示切换按钮，每次打开弹窗重置为 LRC） */
 const ttmlPreview = ref(false)
+/** 审核修改表单（SongFormDialog review 模式）：edited_data → 表单 initial 的映射与回填 */
+const showReviewForm = ref(false)
+const reviewInitial = ref<any>(null)
+/** 打开审核修改表单：把 edited_data 映射为 SongFormDialog 的 initial 结构 */
+function openReviewForm() {
+  if (!review.value) return
+  const sd = review.value.edited_data
+  reviewInitial.value = {
+    title: sd.title,
+    aliases: sd.aliases || [],
+    duration: sd.duration || '',
+    track: sd.track ? parseInt(String(sd.track), 10) || 0 : 0,
+    artists: (sd.artists || []).map((t: any) => (typeof t === 'string' ? { id: null, name: t } : t)),
+    album_id: sd.album_id || '',
+    albumName: sd.album || '',
+    albumArtists: (sd.album_artists || []).map((t: any) => (typeof t === 'string' ? { id: null, name: t } : t)),
+    year: sd.year || '',
+    lyricists: sd.lyricist_arr || [],
+    composers: sd.composer_arr || [],
+    arrangers: sd.arranger_arr || [],
+    genres: [...(sd.genres || [])],
+    video_url: sd.video_url || '',
+    description: sd.description || '',
+    lrc_text: sd.lrc_text || '',
+    lyrics_text: sd.lyrics_text || '',
+    versions: (sd.versions || []).map((v: any) => ({ lang: v.lang, kind: v.kind, lrc: v.lrc })),
+  }
+  showReviewForm.value = true
+}
+/** review 模式「通过发布」：表单数据回填 edited_data（保留投稿独有字段 ttml_text/单曲封面），走原发布链路 */
+function onReviewData(data: any) {
+  if (!review.value) return
+  const sd = review.value.edited_data
+  const keep = {
+    ttml_text: sd.ttml_text,
+    // 单曲封面不在表单里（用投稿的），多语言版本以表单为准（表单里可编辑）
+    cover: sd.cover,
+  }
+  review.value.edited_data = { ...data, ...keep }
+  showReviewForm.value = false
+  approve(review.value)
+}
+/** review 模式「拒绝」：直接走原拒绝链路 */
+function onReviewReject() {
+  showReviewForm.value = false
+  reject(review.value)
+}
 
 /** 资料更新类投稿（song_data.type === 'profile'）：弹窗不显示歌曲表单，通过时只更新贡献者 */
 const isProfileReview = computed(() => review.value?.song_data?.type === 'profile')
@@ -924,48 +878,6 @@ function normalizeSubmission(row: any): any {
   return edited
 }
 
-/** 审核端：把当前 lrc_text 自动拆分为多语言版本（供审核人核对/调整） */
-function splitReviewVersions() {
-  const ed = review.value?.edited_data
-  const lrc = ed?.lrc_text?.trim()
-  if (!lrc) {
-    ElMessage.warning('请先填写歌词')
-    return
-  }
-  const versions = splitLrcToVersions(lrc)
-  if (!versions.length) {
-    ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
-    return
-  }
-  ed.versions = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
-  ElMessage.success(`已拆分为 ${versions.length} 个语言版本`)
-}
-
-/** 专辑下拉 v-model：选项值为专辑 ID（同名专辑按年份区分展示）。
- *  值之所以用 ID 而非名称——投稿带来的专辑名与选项名相同时，选同名项不产生 change
- *  事件（值未变），导致永远绑不上 ID（红色同名警示无法消除）。改为 ID 后选中必触发变化：
- *  选中库内专辑 → 绑定 ID + 同步名称（绿色提示）；输入新名 → 置空 ID（发布时新建） */
-const albumSelect = computed<string>({
-  get: () => review.value?.edited_data?.album_id || review.value?.edited_data?.album || '',
-  set: (val: string) => {
-    const ed = review.value?.edited_data
-    if (!ed) return
-    const hit = albums.value.find(a => a.id === val)
-    if (hit) {
-      ed.album_id = hit.id
-      ed.album = hit.name
-      // 预填库内专辑信息（专辑艺术家/封面/年份/简介），改了发布时写回（与批量审核一致）
-      ed.album_artists = albumArtistTags(hit.artist_ids)
-      ed.album_cover = hit.cover || ''
-      ed.year = hit.year ? String(hit.year) : ''
-      ed.album_desc = hit.description || ''
-    } else {
-      ed.album_id = null
-      ed.album = val
-    }
-  },
-})
-
 /** 专辑下拉过滤：精确匹配置顶 → 前缀匹配 → 包含匹配（原 filterable 默认按选项原顺序展示，
  *  用户输入的专辑名不会排前面，得在长列表里翻找） */
 const albumFilterQuery = ref('')
@@ -984,32 +896,6 @@ function filterAlbums(q: string) {
   filteredAlbums.value = [...exact, ...prefix, ...rest]
 }
 
-/** 未关联 ID 时专辑名与库内重名（大小写不敏感，警示防建重复专辑） */
-const albumNameExists = computed(() => {
-  if (!review.value?.edited_data?.album || review.value.edited_data.album_id) return false
-  const q = review.value.edited_data.album.toLowerCase()
-  return albums.value.some(a => a.name.toLowerCase() === q)
-})
-
-/** 曲目号占用检测：投稿关联了库内专辑时，拉取专辑内已有歌曲的 track 对照（撞号红字提示） */
-const albumTracks = ref<{ track: number | null; title: string }[]>([])
-const albumTrackOccupied = computed(() => {
-  const ed = review.value?.edited_data
-  if (!ed?.album_id || !ed.track || !/^\d+$/.test(String(ed.track).trim())) return ''
-  const t = parseInt(String(ed.track).trim(), 10)
-  const hit = albumTracks.value.find(s => s.track === t)
-  return hit ? `${hit.title}（track ${t}）` : ''
-})
-
-watch(() => review.value?.edited_data?.album_id, async (albumId) => {
-  albumTracks.value = []
-  if (!albumId) return
-  try {
-    const songs = await adminApi.getAll<{ track: number | null; title: string }>('songs', { eq: { album_id: albumId } })
-    albumTracks.value = songs.map(s => ({ track: s.track ?? null, title: s.title }))
-  } catch { /* 拉取失败仅失去撞号提示，不影响审核 */ }
-}, { immediate: true })
-
 /** 同名歧义：投稿未带 ID 且库内同名人 ≥2（大小写不敏感）→ 程序无法自动判断，人工从下拉（带消歧标注）选择 */
 const ambiguousArtists = computed(() => {
   const res: { name: string; entries: string[] }[] = []
@@ -1025,25 +911,6 @@ const ambiguousArtists = computed(() => {
   }
   return res
 })
-
-// 会话内新建艺术家共享池：从审核表单各字段当前值实时派生（_new 即有会话新建，含已手填 ID 的）。
-// 返回名字数组供下拉联想复用；同名的真实 id 经 sessionIdMap 一并下发，避免跨字段复用又变回新建。
-const sessionIdMap = computed<Record<string, string | null>>(() => {
-  const map: Record<string, string | null> = {}
-  if (!review.value) return map
-  for (const f of ARTIST_FIELDS) {
-    for (const item of review.value.edited_data[f.key] || []) {
-      // _new 标记本会话新建（无论是否已手填 ID）；无 ID 的实时补 _new，保证进入待创建清单
-      if (item && (item._new || !item.id) && item.name) {
-        item._new = true
-        item.is_show ??= true
-        map[item.name] = item.id || null
-      }
-    }
-  }
-  return map
-})
-const sessionNewArtists = computed(() => Object.keys(sessionIdMap.value))
 
 /** 收集待创建艺术家（无 ID 或 _new 标记；跨字段按名合并，types 取并集）。
  *  单曲审核（review）与批量通过（独立 edited）共用 */

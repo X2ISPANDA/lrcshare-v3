@@ -103,14 +103,14 @@
       </el-row>
 
       <el-row :gutter="16">
-        <el-col :span="12">
+        <el-col v-if="!hideContributor" :span="12">
           <el-form-item label="贡献者">
             <el-select v-model="form.contributor_id" filterable clearable placeholder="歌词提交者（选填）" class="w-full">
               <el-option v-for="c in contributors" :key="c.id" :label="c.name + '（' + (c.tags?.join(', ') || '歌词贡献') + '）'" :value="c.id" />
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="12">
+        <el-col :span="hideContributor ? 24 : 12">
           <el-form-item label="风格">
             <el-select v-model="form.genres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
               <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
@@ -174,7 +174,10 @@
 
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+      <el-button v-if="mode === 'review'" type="danger" plain :disabled="saving" @click="emit('reject')">❌ 拒绝</el-button>
+      <el-button type="success" :loading="saving" @click="save">
+        {{ mode === 'review' ? '✅ 通过发布' : '保存' }}
+      </el-button>
     </template>
 
     <!-- 专辑信息共用弹窗（保存即入库/写回，与单曲审核同款） -->
@@ -232,17 +235,26 @@ const props = withDefaults(defineProps<{
   title?: string
   requireLyrics?: boolean
   requireAlbum?: boolean
+  /** 隐藏贡献者下拉（TTML Hub 导入用：无站内贡献者概念） */
+  hideContributor?: boolean
+  /** save=保存写库（歌曲管理/TTML Hub）；review=只回填数据 emit 给父级走发布链路（投稿审核用） */
+  mode?: 'save' | 'review'
 }>(), {
   initial: null,
   editSongId: null,
   title: '新增歌曲',
   requireLyrics: true,
   requireAlbum: true,
+  hideContributor: false,
+  mode: 'save',
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'saved', payload: any): void
+  (e: 'reject'): void
+  /** review 模式：通过发布前把表单数据回填给父级（结构同 edited_data），父级自行发布 */
+  (e: 'review-data', data: any): void
 }>()
 
 const visible = computed({
@@ -327,6 +339,12 @@ function resetForm() {
   lyricsTab.value = 'lrc'
   setVersionForms([])
   if (props.editSongId) loadVersions(props.editSongId)
+  // review 模式（投稿审核）：无库内 songId，投稿自带的多语言版本直接预填
+  else if (props.mode === 'review' && Array.isArray((props.initial as any)?.versions)) {
+    setVersionForms((props.initial as any).versions.map((v: any) => ({
+      lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: v.lrc,
+    })))
+  }
 }
 
 /** 依据 props.initial 填充表单（编辑=整歌对象；新建=预填片段） */
@@ -352,9 +370,9 @@ function editingBasedInit() {
       ? album.artist_ids.map((id: string) => ({ id, name: artistMap.value.get(id)?.name || id }))
       : (init.albumArtists || []),
     year: album?.year ? String(album.year) : (init.year || ''),
-    lyricists: idsToTags(init.lyricist),
-    composers: idsToTags(init.composer),
-    arrangers: idsToTags(init.arranger),
+    lyricists: init.lyricists?.length ? init.lyricists : idsToTags(init.lyricist),
+    composers: init.composers?.length ? init.composers : idsToTags(init.composer),
+    arrangers: init.arrangers?.length ? init.arrangers : idsToTags(init.arranger),
     contributor_id: init.contributor_id || '',
     genres: [...(init.genres || [])],
     video_url: init.video_url || '',
@@ -531,6 +549,35 @@ async function save() {
   const missing = missingNewIds()
   if (missing.length) {
     ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.join('、')}），请点击其头像补全`)
+    return
+  }
+
+  // ===== review 模式：只回填表单数据（结构同投稿 edited_data），由父级走发布链路 =====
+  if (props.mode === 'review') {
+    emit('review-data', {
+      title: form.title.trim(),
+      aliases: form.aliases.map(a => a.trim()).filter(Boolean),
+      artists: form.artists,
+      album: form.albumName.trim(),
+      album_id: form.albumId || null,
+      album_artists: form.albumArtists,
+      album_cover: albumMap.value.get(form.albumId || '')?.cover || '',
+      year: form.year,
+      album_desc: albumMap.value.get(form.albumId || '')?.description || '',
+      duration: form.duration.trim(),
+      track: form.track ? String(form.track) : '',
+      lyricist_arr: form.lyricists,
+      composer_arr: form.composers,
+      arranger_arr: form.arrangers,
+      genres: form.genres,
+      video_url: form.video_url.trim(),
+      description: form.description || null,
+      lrc_text: form.lrc_text.trim(),
+      lyrics_text: form.lyrics_text || null,
+      versions: versionForms.value.map(v => ({ lang: v.lang, kind: v.kind, lrc: v.lrc })),
+      is_hidden: !!form.is_hidden,
+      unlock_code: form.unlock_code.trim(),
+    })
     return
   }
   saving.value = true
