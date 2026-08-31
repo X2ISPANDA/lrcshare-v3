@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AdminTable: typeof import('./src/components/admin/AdminTable.vue')['default']
+    AlbumInfoDialog: typeof import('./src/components/admin/AlbumInfoDialog.vue')['default']
     AppFooter: typeof import('./src/components/layout/AppFooter.vue')['default']
     AppIcon: typeof import('./src/components/common/AppIcon.vue')['default']
     AppNavbar: typeof import('./src/components/layout/AppNavbar.vue')['default']

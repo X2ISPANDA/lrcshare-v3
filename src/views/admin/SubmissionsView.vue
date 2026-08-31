@@ -186,7 +186,7 @@
       @saved="onAlbumSaved"
     />
 
-    <!-- 批量审核单行专辑编辑（点行内专辑封面打开，与单曲审核同款弹窗） -->
+    <!-- 批量审核单行专辑信息编辑（单行专辑填充弹窗内「编辑该专辑信息」打开，与单曲审核同款弹窗） -->
     <AlbumInfoDialog
       v-model="showBatchAlbum"
       :artists="artists"
@@ -511,8 +511,23 @@
         >
           <el-option v-for="al in filteredAlbums" :key="al.id" :label="al.name + (al.year ? `（${al.year}）` : '')" :value="al.id" />
         </el-select>
-        <!-- 批量覆盖模式只选专辑应用行；单行编辑走 AlbumInfoDialog（保存即入库/写回，与单曲审核同款） -->
-        <div v-if="isFillAll" class="text-xs text-gray-400 mt-2">批量覆盖只设置专辑关联；需编辑封面/年份/简介，请先应用到行，再点该行专辑封面编辑。</div>
+        <!-- 批量覆盖只设关联；单行 = 换绑走上方选择，该行专辑卡片（封面即头像）点击编辑专辑信息，与艺术家「点头像编辑」同套交互 -->
+        <div v-if="isFillAll" class="text-xs text-gray-400 mt-2">批量覆盖只设置专辑关联；需编辑专辑封面/年份/简介，请先应用到行，再单行打开本弹窗点击专辑卡片编辑。</div>
+        <button
+          v-else-if="fillRowSd?.album"
+          type="button"
+          class="w-full mt-2 flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 hover:border-pink-300 hover:bg-pink-50/50 transition text-left"
+          @click="editRowAlbumInfo"
+        >
+          <img v-if="albumCoverOf(fillRowSd)" :src="albumCoverOf(fillRowSd)" class="w-8 h-8 rounded object-cover flex-shrink-0" />
+          <span v-else class="w-8 h-8 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0 text-sm">💿</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-xs text-gray-700 truncate">{{ fillRowSd.album }}</span>
+            <span class="block text-[11px] text-gray-400">点击{{ fillRowSd.album_id ? '查看 / 更新专辑信息（保存即写回库）' : '补全专辑信息（保存即入库）' }}（封面 / 年份 / 简介）</span>
+          </span>
+          <el-tag v-if="fillRowSd.album_id" size="small" type="success" class="shrink-0">已关联</el-tag>
+          <el-tag v-else size="small" type="warning" class="shrink-0">新建</el-tag>
+        </button>
       </template>
       <el-select v-else-if="fillKey === 'genres'" v-model="fillGenres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
         <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
@@ -819,8 +834,8 @@ function albumArtistTags(ids: string[] | null | undefined): { id: string; name: 
 const artistNamesOf = (sd: any) =>
   (Array.isArray(sd?.artists) ? sd.artists : []).map((a: any) => a?.name).filter(Boolean).join('、')
 
-/** 深拷贝 song_data 并规范化：补数组字段、_new 标记、按名自动绑定已入库艺术家（大小写不敏感，
- *  仅库内名字唯一时绑——同名多人保留待创建态）。单曲审核与批量通过共用 */
+/** 深拷贝 song_data 并规范化：补数组字段、_new 标记、按名自动绑定已入库艺术家/专辑（大小写不敏感，
+ *  艺术家同名多人 / 专辑同名多张且年份无法唯一消歧时保留待创建态）。单曲审核与批量通过共用 */
 function normalizeSubmission(row: any): any {
   const edited = JSON.parse(JSON.stringify(row.song_data || {}))
   // 兼容旧格式：补全新格式数组字段 + 初始化新艺术家的 is_show
@@ -860,6 +875,26 @@ function normalizeSubmission(row: any): any {
         item._new = false
       }
     })
+  }
+  // 投稿未带专辑 ID 但填了专辑名 → 与艺术家同款按名自动绑定（库内同名唯一时绑）；
+  // 同名多张时投稿年份能唯一命中则绑该张，否则保留待建态（可手动换绑库内专辑）
+  if (!edited.album_id && String(edited.album || '').trim()) {
+    const name = edited.album.trim().toLowerCase()
+    const hits = albums.value.filter(a => a.name.toLowerCase() === name)
+    let hit: any = hits.length === 1 ? hits[0] : null
+    if (!hit && hits.length > 1 && String(edited.year ?? '').trim()) {
+      const byYear = hits.filter(a => String(a.year ?? '') === String(edited.year).trim())
+      if (byYear.length === 1) hit = byYear[0]
+    }
+    if (hit) {
+      edited.album_id = hit.id
+      edited.album = hit.name
+      // 预填库内值（与 openReview 同规则：库内优先，投稿自带值仅库内为空时作默认；否则发布沿用分支会用空值覆盖库内简介）
+      edited.album_cover = hit.cover || edited.album_cover || ''
+      edited.year = hit.year ? String(hit.year) : (edited.year || '')
+      edited.album_desc = hit.description || edited.album_desc || ''
+      if (hit.artist_ids?.length) edited.album_artists = albumArtistTags(hit.artist_ids)
+    }
   }
   return edited
 }
@@ -1903,11 +1938,6 @@ const fillAlbum = ref('')
 const fillGenres = ref<string[]>([])
 
 function openFill(key: string, rowIndex = -1) {
-  // 单行专辑编辑：直接打开共用 AlbumInfoDialog（保存即入库/写回，与单曲审核同款）
-  if (key === 'album' && rowIndex >= 0) {
-    openBatchAlbumDialog(rowIndex)
-    return
-  }
   fillKey.value = key
   fillRowIndex.value = rowIndex
   const sd = rowIndex >= 0 ? batchRows.value[rowIndex].sd : null
@@ -1918,12 +1948,19 @@ function openFill(key: string, rowIndex = -1) {
   showFill.value = true
 }
 
-/** 批量审核单行专辑编辑：打开 AlbumInfoDialog，预填该行当前值 */
+/** 批量审核单行专辑信息编辑：打开 AlbumInfoDialog，预填该行当前值（保存即入库/写回，与单曲审核同款） */
 const showBatchAlbum = ref(false)
 const batchAlbumRowIndex = ref(-1)
 function openBatchAlbumDialog(rowIndex: number) {
   batchAlbumRowIndex.value = rowIndex
   showBatchAlbum.value = true
+}
+/** 单行专辑填充弹窗内的专辑卡片点击入口：关掉本弹窗，转开该行 AlbumInfoDialog */
+function editRowAlbumInfo() {
+  if (fillRowIndex.value < 0) return
+  const idx = fillRowIndex.value
+  showFill.value = false
+  openBatchAlbumDialog(idx)
 }
 /** 单行专辑保存成功 → 回填该行关联 + 更新本地专辑池（⚡下拉即时刷新） */
 function onBatchAlbumSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
@@ -1942,6 +1979,8 @@ function onBatchAlbumSaved(p: { albumId: string; name: string; year: number | nu
 }
 
 const isFillAll = computed(() => fillRowIndex.value < 0)
+/** 单行填充的行数据：专辑卡片展示该行当前专辑（封面即头像，点击编辑专辑信息） */
+const fillRowSd = computed(() => (fillRowIndex.value >= 0 ? batchRows.value[fillRowIndex.value]?.sd : null))
 
 function applyFill() {
   const key = fillKey.value
@@ -1964,10 +2003,17 @@ function applyFill() {
       // 逐行深拷贝，避免多行共享同一 tag 对象（发布时回填 ID/_new 会互相串）
       r.sd[key] = JSON.parse(JSON.stringify(fillArtists.value))
     } else if (key === 'album') {
-      // 批量覆盖：只设关联（专辑信息编辑走行内 AlbumInfoDialog，保存即入库）
       const hit = albums.value.find(a => a.id === fillAlbum.value)
       r.sd.album_id = hit ? hit.id : null
       r.sd.album = hit ? hit.name : fillAlbum.value.trim()
+      // 单行换绑到库内专辑 → 预填库内封面/年份/简介/专辑艺术家（与单曲审核 openReview 同规则：
+      // 库内值优先，投稿自带值仅库内为空时作默认；否则发布沿用分支会用行内空值覆盖库内简介）
+      if (hit && !isFillAll.value) {
+        r.sd.album_cover = hit.cover || r.sd.album_cover || ''
+        r.sd.year = hit.year ? String(hit.year) : (r.sd.year || '')
+        r.sd.album_desc = hit.description || r.sd.album_desc || ''
+        if (hit.artist_ids?.length) r.sd.album_artists = albumArtistTags(hit.artist_ids)
+      }
     } else if (key === 'genres') {
       r.sd.genres = [...fillGenres.value]
     } else {
