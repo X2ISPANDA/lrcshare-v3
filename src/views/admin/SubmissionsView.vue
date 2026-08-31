@@ -118,8 +118,8 @@
       </div>
     </div>
 
-    <!-- 审核弹窗 -->
-    <el-dialog v-model="showReview" title="投稿审核" width="760px" :close-on-click-modal="false">
+    <!-- 审核：歌词类投稿直接打开 SongFormDialog（review 模式），资料更新投稿保留只读弹窗 -->
+    <el-dialog v-if="isProfileReview" v-model="showReview" title="投稿审核（资料更新）" width="760px" :close-on-click-modal="false">
       <template v-if="review">
         <!-- 投稿人信息 -->
         <div class="bg-gray-50 rounded-lg p-3 mb-3 text-sm text-gray-600">
@@ -134,7 +134,7 @@
         </div>
 
         <!-- 资料更新投稿：展示提交的新资料 -->
-        <div v-if="isProfileReview" class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3 space-y-1.5">
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3 space-y-1.5">
           <div class="text-sm font-medium text-gray-700 mb-1">👤 提交的新资料（通过后覆盖贡献者对应字段）</div>
           <div class="text-sm text-gray-600"><span class="text-gray-400">昵称：</span>{{ review.user_name }}</div>
           <div v-if="review.submitter_bio" class="text-sm text-gray-600"><span class="text-gray-400">简介：</span>{{ review.submitter_bio }}</div>
@@ -147,54 +147,30 @@
           </div>
           <div class="text-sm text-gray-600"><span class="text-gray-400">公开联系方式：</span>{{ review.submitter_public_contact ? '是' : '否' }}</div>
         </div>
-
-        <!-- 歌词预览 -->
-        <div v-if="!isProfileReview" class="bg-gray-50 rounded-lg p-3 mb-3">
-          <div class="text-sm font-medium text-gray-700 mb-2">
-            歌词预览{{ review.song_data?.ttml_text ? '（降级 LRC）' : '（原文）' }}
-            <el-button v-if="review.song_data?.ttml_text" link size="small" class="ml-2" @click="ttmlPreview = !ttmlPreview">{{ ttmlPreview ? '查看 LRC' : '查看 TTML 源码' }}</el-button>
-          </div>
-          <pre v-if="!ttmlPreview" class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0">{{ review.song_data?.lrc_text }}</pre>
-          <pre v-else class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto m-0 font-mono">{{ review.song_data?.ttml_text }}</pre>
-          <div v-if="review.song_data?.ttml_text" class="text-xs text-gray-400 mt-1">投稿为 TTML（含对唱/分屏/样式），发布时原文独立成版本落盘</div>
-        </div>
-
-        <!-- 审核修改表单：复用 SongFormDialog（review 模式：通过发布=回填数据走发布链路，不写库） -->
-        <SongFormDialog
-          v-if="!isProfileReview"
-          v-model="showReviewForm"
-          mode="review"
-          title="审核修改"
-          :artists="artists"
-          :albums="albums"
-          :contributors="[]"
-          :hide-contributor="true"
-          :initial="reviewInitial"
-          @review-data="onReviewData"
-          @reject="onReviewReject"
-        />
-
-        <!-- 同名歧义警示 -->
-        <div v-if="!isProfileReview && ambiguousArtists.length" class="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div class="text-sm font-semibold text-red-800 mb-1">⚠️ 同名歧义</div>
-          <div class="text-xs text-red-700 mb-2">以下艺术家库内有多位同名，无法自动绑定。请删除其在各字段中的标签，从下拉中重新选择正确的一位（下拉带消歧标注）：</div>
-          <div v-for="a in ambiguousArtists" :key="a.name" class="text-xs text-red-700 mb-1">
-            · {{ a.name }} → 库内 {{ a.entries.length }} 位：{{ a.entries.join('、') }}
-          </div>
-        </div>
       </template>
 
       <template #footer>
         <el-button @click="showReview = false">取消</el-button>
-        <template v-if="isProfileReview">
-          <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
-          <el-button type="success" @click="approve(review)">✅ 通过并更新资料</el-button>
-        </template>
-        <template v-else>
-          <el-button type="primary" @click="openReviewForm">📝 审核修改</el-button>
-        </template>
+        <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
+        <el-button type="success" @click="approve(review)">✅ 通过并更新资料</el-button>
       </template>
     </el-dialog>
+
+    <!-- 审核：歌词类投稿（SongFormDialog review 模式：表单+投稿信息+歌词，通过发布/拒绝） -->
+    <SongFormDialog
+      v-if="!isProfileReview"
+      v-model="showSongReview"
+      mode="review"
+      title="投稿审核"
+      :artists="artists"
+      :albums="albums"
+      :contributors="[]"
+      :hide-contributor="true"
+      :initial="reviewInitial"
+      :submission-info="reviewSubmissionInfo"
+      @review-data="onReviewData"
+      @reject="onReviewReject"
+    />
 
     <!-- 专辑信息共用弹窗（保存即入库）：抽取为 AlbumInfoDialog，批量审核单行/歌曲管理/TTML Hub 同款复用 -->
     <AlbumInfoDialog
@@ -736,15 +712,43 @@ function clearSelection() {
 // ============ 审核弹窗 ============
 const showReview = ref(false)
 const review = ref<ReviewItem | null>(null)
-/** TTML 源码预览开关（仅含 ttml_text 的投稿显示切换按钮，每次打开弹窗重置为 LRC） */
-const ttmlPreview = ref(false)
-/** 审核修改表单（SongFormDialog review 模式）：edited_data → 表单 initial 的映射与回填 */
-const showReviewForm = ref(false)
+/** 歌词类投稿审核表单（SongFormDialog review 模式，直接打开）：edited_data → initial 的映射 */
+const showSongReview = ref(false)
 const reviewInitial = ref<any>(null)
-/** 打开审核修改表单：把 edited_data 映射为 SongFormDialog 的 initial 结构 */
-function openReviewForm() {
-  if (!review.value) return
-  const sd = review.value.edited_data
+/** 投稿信息区块（提交人/时间/TTML 原文/同名警示），传给 SongFormDialog 顶部展示 */
+const reviewSubmissionInfo = computed(() => {
+  const r = review.value
+  if (!r) return null
+  const amb = ambiguousArtists.value
+  return {
+    submitter: r.user_name,
+    contact: (contactEntries(r).map(c => contactLabel(c.k) + '：' + c.v).join('　') || undefined),
+    time: formatTime(r.created_at),
+    note: r.song_data?.ttml_text ? '投稿为 TTML（含对唱/分屏/样式），发布时原文独立成版本落盘' : undefined,
+    duplicateWarn: amb.length
+      ? '⚠️ 同名歧义：' + amb.map(a => `${a.name}（库内 ${a.entries.length} 位：${a.entries.join('、')}）`).join('；') + '。请删除标签从下拉重新选择正确的一位'
+      : undefined,
+    ttmlText: r.song_data?.ttml_text || undefined,
+  }
+})
+/** 打开审核（歌词类）：把 edited_data 映射为 SongFormDialog 的 initial 结构并直接打开表单 */
+function openReview(row: any) {
+  const sd = normalizeSubmission(row)
+  // 已关联库内专辑 → 预填库内封面/年份/简介/专辑艺术家（改了发布时写回；投稿自带值仅在库内为空时作默认）
+  if (sd.album_id) {
+    const hit = albums.value.find(a => a.id === sd.album_id)
+    if (hit) {
+      sd.album_cover = hit.cover || sd.album_cover || ''
+      sd.year = hit.year ? String(hit.year) : (sd.year || '')
+      sd.album_desc = hit.description || sd.album_desc || ''
+      if (hit.artist_ids?.length) sd.album_artists = albumArtistTags(hit.artist_ids)
+    }
+  }
+  review.value = { ...row, edited_data: sd }
+  if (sd.type === 'profile') {
+    showReview.value = true
+    return
+  }
   reviewInitial.value = {
     title: sd.title,
     aliases: sd.aliases || [],
@@ -765,24 +769,24 @@ function openReviewForm() {
     lyrics_text: sd.lyrics_text || '',
     versions: (sd.versions || []).map((v: any) => ({ lang: v.lang, kind: v.kind, lrc: v.lrc })),
   }
-  showReviewForm.value = true
+  showSongReview.value = true
 }
 /** review 模式「通过发布」：表单数据回填 edited_data（保留投稿独有字段 ttml_text/单曲封面），走原发布链路 */
 function onReviewData(data: any) {
   if (!review.value) return
   const sd = review.value.edited_data
-  const keep = {
+  review.value.edited_data = {
+    ...data,
+    // 投稿独有字段不在表单里，保留
     ttml_text: sd.ttml_text,
-    // 单曲封面不在表单里（用投稿的），多语言版本以表单为准（表单里可编辑）
     cover: sd.cover,
   }
-  review.value.edited_data = { ...data, ...keep }
-  showReviewForm.value = false
+  showSongReview.value = false
   approve(review.value)
 }
 /** review 模式「拒绝」：直接走原拒绝链路 */
 function onReviewReject() {
-  showReviewForm.value = false
+  showSongReview.value = false
   reject(review.value)
 }
 
@@ -809,24 +813,6 @@ function albumArtistTags(ids: string[] | null | undefined): { id: string; name: 
       return a ? { id: a.id, name: a.name } : null
     })
     .filter(Boolean) as { id: string; name: string }[]
-}
-
-function openReview(row: any) {
-  const sd = normalizeSubmission(row)
-  // 已关联库内专辑 → 预填库内封面/年份/简介/专辑艺术家（改了发布时写回；投稿自带值仅在库内为空时作默认）
-  if (sd.album_id) {
-    const hit = albums.value.find(a => a.id === sd.album_id)
-    if (hit) {
-      sd.album_cover = hit.cover || sd.album_cover || ''
-      sd.year = hit.year ? String(hit.year) : (sd.year || '')
-      sd.album_desc = hit.description || sd.album_desc || ''
-      if (hit.artist_ids?.length) sd.album_artists = albumArtistTags(hit.artist_ids)
-    }
-  }
-  review.value = { ...row, edited_data: sd }
-  ttmlPreview.value = false
-  filteredAlbums.value = albums.value
-  showReview.value = true
 }
 
 /** 歌手名拼接（song_data.artists 数组，唯一格式；v2 裸键 artist 已在 phase2-B ⑨ 规范化清除） */
@@ -1035,6 +1021,7 @@ async function approve(sub: ReviewItem | null) {
   const res = await publishSubmission(sub, newArtistsList.value)
   if (res === 'ok') {
     showReview.value = false
+    showSongReview.value = false
     await load()
   }
 }
@@ -1320,6 +1307,7 @@ async function reject(sub: ReviewItem | null) {
     notifyByEmail({ action: 'reject', to, user_name: sub.user_name, song_title: sub.song_data?.title, reject_reason: value }, '拒绝', sub.user_name)
     ElMessage.success('已拒绝')
     showReview.value = false
+    showSongReview.value = false
     await load()
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error('操作失败：' + (e?.message || e))

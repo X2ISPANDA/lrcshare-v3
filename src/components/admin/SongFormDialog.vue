@@ -1,6 +1,20 @@
 <template>
   <el-dialog v-model="visible" :title="editing ? '编辑歌曲' : title" width="880px" :close-on-click-modal="false">
     <el-form :model="form" label-width="84px">
+      <!-- 投稿信息区块（审核模式）：提交人/时间/备注/同名警示/TTML 原文 -->
+      <div v-if="mode === 'review' && submissionInfo" class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5 text-sm">
+        <div class="flex flex-wrap gap-x-6 gap-y-1">
+          <span v-if="submissionInfo.submitter"><span class="text-gray-500">提交人：</span>{{ submissionInfo.submitter }}</span>
+          <span v-if="submissionInfo.contact"><span class="text-gray-500">联系方式：</span>{{ submissionInfo.contact }}</span>
+          <span v-if="submissionInfo.time"><span class="text-gray-500">时间：</span>{{ submissionInfo.time }}</span>
+        </div>
+        <div v-if="submissionInfo.note" class="text-gray-600 break-all">{{ submissionInfo.note }}</div>
+        <div v-if="submissionInfo.duplicateWarn" class="text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">{{ submissionInfo.duplicateWarn }}</div>
+        <details v-if="submissionInfo.ttmlText" class="text-xs">
+          <summary class="cursor-pointer text-blue-600 select-none">查看 TTML 原文</summary>
+          <pre class="mt-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded p-2 whitespace-pre-wrap font-mono text-[11px]">{{ submissionInfo.ttmlText }}</pre>
+        </details>
+      </div>
       <el-row :gutter="16">
         <el-col :span="12"><el-form-item label="歌曲名" required><el-input v-model="form.title" placeholder="歌曲标题" /></el-form-item></el-col>
         <el-col :span="6"><el-form-item label="时长"><el-input v-model="form.duration" placeholder="03:30" /></el-form-item></el-col>
@@ -24,24 +38,16 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item :label="requireAlbum ? '专辑' : '专辑'" :required="requireAlbum">
+          <el-form-item label="专辑" :required="requireAlbum">
             <div class="relative w-full">
               <input
                 v-model="form.albumName"
-                class="w-full min-h-[42px] px-3 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-pink-500 disabled:bg-gray-100 disabled:text-gray-500"
-                :class="{ 'pr-20': !!form.albumId && !albumUnlocked }"
+                class="w-full min-h-[42px] px-3 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-pink-500"
                 :placeholder="requireAlbum ? '搜索已有专辑，或输入新专辑名' : '选填：搜索已有专辑，或输入新专辑名'"
-                :disabled="!!form.albumId && !albumUnlocked"
                 @input="onAlbumInput"
                 @focus="form.albumName && onAlbumInput()"
                 @blur="albumDropdownOpen = false"
               />
-              <button
-                v-if="form.albumId && !albumUnlocked"
-                type="button"
-                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-600 border border-blue-400 rounded px-2 py-0.5 hover:bg-blue-50"
-                @click="albumUnlocked = true"
-              >手动编辑</button>
               <div v-if="albumDropdownOpen && albumDropdown.length" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
                 <div
                   v-for="a in albumDropdown"
@@ -78,14 +84,14 @@
         <el-col :span="16">
           <el-form-item label="专辑艺术家">
             <div class="w-full">
-              <ArtistTagInput v-model="form.albumArtists" :artists="artists" tone="gray" admin :disabled="!!form.albumId && !albumUnlocked" @artist-saved="onArtistSaved" />
+              <ArtistTagInput v-model="form.albumArtists" :artists="artists" tone="gray" admin @artist-saved="onArtistSaved" />
               <div class="text-xs text-gray-400 mt-1">如唱片公司、音乐平台等；选择已有专辑时自动填充</div>
             </div>
           </el-form-item>
         </el-col>
         <el-col :span="8">
           <el-form-item label="年份">
-            <el-input v-model="form.year" placeholder="2024" maxlength="4" :disabled="!!form.albumId && !albumUnlocked" />
+            <el-input v-model="form.year" placeholder="2024" maxlength="4" />
           </el-form-item>
         </el-col>
       </el-row>
@@ -239,6 +245,15 @@ const props = withDefaults(defineProps<{
   hideContributor?: boolean
   /** save=保存写库（歌曲管理/TTML Hub）；review=只回填数据 emit 给父级走发布链路（投稿审核用） */
   mode?: 'save' | 'review'
+  /** 投稿信息区块（review 模式用）：提交人/联系方式/时间/备注/同名警示，null 则不渲染 */
+  submissionInfo?: {
+    submitter?: string
+    contact?: string
+    time?: string
+    note?: string
+    duplicateWarn?: string
+    ttmlText?: string
+  } | null
 }>(), {
   initial: null,
   editSongId: null,
@@ -247,6 +262,7 @@ const props = withDefaults(defineProps<{
   requireAlbum: true,
   hideContributor: false,
   mode: 'save',
+  submissionInfo: null,
 })
 
 const emit = defineEmits<{
@@ -267,7 +283,6 @@ const saving = ref(false)
 const lyricsTab = ref('lrc')
 const lyricsTextRef = ref<any>(null)
 const albumDropdownOpen = ref(false)
-const albumUnlocked = ref(false)
 
 const artistMap = computed(() => new Map(props.artists.map(a => [a.id, a])))
 const albumMap = computed(() => new Map(props.albums.map(a => [a.id, a])))
@@ -335,7 +350,6 @@ onMounted(() => watch(() => props.modelValue, (open) => {
 
 function resetForm() {
   editingBasedInit()
-  albumUnlocked.value = false
   lyricsTab.value = 'lrc'
   setVersionForms([])
   if (props.editSongId) loadVersions(props.editSongId)
@@ -394,6 +408,11 @@ function baseEmpty() {
 
 const albumDropdown = ref<any[]>([])
 function onAlbumInput() {
+  // 手动改字 = 解绑当前专辑（改回原名/从下拉重选可恢复关联）
+  if (form.albumId) {
+    const cur = props.albums.find(a => a.id === form.albumId)
+    if (cur && cur.name !== form.albumName) form.albumId = ''
+  }
   const q = form.albumName.trim().toLowerCase()
   if (!q) {
     albumDropdown.value = []
@@ -410,7 +429,6 @@ function selectAlbum(a: any) {
   form.year = a.year ? String(a.year) : ''
   form.albumArtists = (a.artist_ids || []).map((id: string) => ({ id, name: artistMap.value.get(id)?.name || id }))
   albumDropdownOpen.value = false
-  albumUnlocked.value = false
 }
 
 // ============ 专辑信息共用弹窗（保存即入库/写回，与单曲审核同款） ============
@@ -439,7 +457,6 @@ function onAlbumInfoSaved(p: { albumId: string; name: string; year: number | nul
   } else {
     props.albums.push({ id: p.albumId, name: p.name, year: p.year, cover: p.cover, description: p.description, artist_ids: p.artistIds } as any)
   }
-  albumUnlocked.value = false
 }
 
 // ============ 简介 tip 插入与预览 ============
