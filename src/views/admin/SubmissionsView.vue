@@ -992,7 +992,7 @@ function onArtistSaved(tag: any) {
   }
 }
 
-/** AlbumInfoDialog 保存成功 → 回填审核表单关联 + 更新本地专辑池（⚡下拉等即时刷新） */
+/** AlbumInfoDialog 保存成功 → 回填审核表单关联（含专辑艺术家）+ 更新本地专辑池（⚡下拉等即时刷新） */
 function onAlbumSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
   const ed = review.value?.edited_data
   if (ed) {
@@ -1001,6 +1001,9 @@ function onAlbumSaved(p: { albumId: string; name: string; year: number | null; c
     ed.album_cover = p.cover
     ed.year = p.year ?? ''
     ed.album_desc = p.description || ''
+    ed.album_artists = p.artistIds
+      .map(id => { const a = artists.value.find(x => x.id === id); return a ? { id: a.id, name: a.name } : null })
+      .filter(Boolean) as { id: string; name: string }[]
   }
   const row = albums.value.find(a => a.id === p.albumId)
   if (row) {
@@ -1931,6 +1934,9 @@ function onBatchAlbumSaved(p: { albumId: string; name: string; year: number | nu
     row.sd.album_cover = p.cover
     row.sd.year = p.year ?? ''
     row.sd.album_desc = p.description || ''
+    row.sd.album_artists = p.artistIds
+      .map(id => { const a = artists.value.find(x => x.id === id); return a ? { id: a.id, name: a.name } : null })
+      .filter(Boolean) as { id: string; name: string }[]
   }
   onAlbumSaved(p)
 }

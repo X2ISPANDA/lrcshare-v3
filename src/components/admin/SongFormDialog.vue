@@ -442,11 +442,12 @@ function openAlbumInfo() {
   }
   showAlbumInfo.value = true
 }
-/** 保存成功 → 回填表单（关联 id/年份）+ 更新本地专辑池（搜索下拉即时刷新） */
+/** 保存成功 → 回填表单（关联 id/年份/专辑艺术家）+ 更新本地专辑池（搜索下拉即时刷新） */
 function onAlbumInfoSaved(p: { albumId: string; name: string; year: number | null; cover: string; description: string | null; artistIds: string[] }) {
   form.albumId = p.albumId
   form.albumName = p.name
   form.year = p.year ? String(p.year) : ''
+  form.albumArtists = p.artistIds.map(id => ({ id, name: artistMap.value.get(id)?.name || id }))
   const row = props.albums.find(a => a.id === p.albumId)
   if (row) {
     row.name = p.name
