@@ -429,6 +429,19 @@ function onArtistSaved(tag: ArtistTag) {
     a.aliases = tag.aliases || []
     a.bio = tag.bio || ''
     a.urls = tag.urls || {}
+  } else {
+    // 新建艺术家保存即入库：加入本地艺术家池，供其它字段下拉立即可搜到/复用
+    props.artists.push({
+      id: tag.id!,
+      name: tag.name,
+      avatar: tag.avatar ?? null,
+      types: tag.types ?? [],
+      disambiguation: tag.disambiguation ?? null,
+      aliases: tag.aliases ?? [],
+      bio: tag.bio ?? '',
+      urls: tag.urls ?? {},
+      sort: 0,
+    } as Artist)
   }
 }
 

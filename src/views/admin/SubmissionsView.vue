@@ -180,9 +180,9 @@
                 <div v-if="review.edited_data.album" class="text-xs text-gray-500 mt-1 w-full break-all select-text">
                   投稿专辑：<span class="select-all">{{ review.edited_data.album }}</span><span v-if="review.edited_data.year">（{{ review.edited_data.year }}）</span>
                 </div>
-                <div v-if="review.edited_data.album_id" class="text-xs text-green-600 mt-1 w-full">已关联库内专辑（点击下方卡片可查看/更新信息，发布时写回）</div>
+                <div v-if="review.edited_data.album_id" class="text-xs text-green-600 mt-1 w-full">已关联库内专辑（点击下方卡片可查看/更新信息，保存即写回库）</div>
                 <div v-else-if="albumNameExists" class="text-xs text-red-500 mt-1 w-full">库内已有同名专辑！如需沿用请从下拉选择，否则将新建重复专辑</div>
-                <div v-else-if="review.edited_data.album" class="text-xs text-amber-600 mt-1 w-full">新专辑（发布时创建）</div>
+                <div v-else-if="review.edited_data.album" class="text-xs text-amber-600 mt-1 w-full">新专辑（点下方卡片补全信息，保存即入库）</div>
                 <!-- 专辑信息卡片（与艺术家头像 chip 同款逻辑：点击弹窗编辑） -->
                 <button
                   v-if="review.edited_data.album"
@@ -230,24 +230,24 @@
           <el-row :gutter="12">
             <el-col :span="24">
               <el-form-item label="歌手">
-                <ArtistTagInput v-model="review.edited_data.artists" :artists="artists" :session-names="sessionNewArtists" filter-type="singer" admin @artist-saved="onArtistSaved" />
+                <ArtistTagInput v-model="review.edited_data.artists" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="singer" admin @artist-saved="onArtistSaved" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="12">
             <el-col :span="8">
               <el-form-item label="作词">
-                <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="lyricist" admin @artist-saved="onArtistSaved" />
+                <ArtistTagInput v-model="review.edited_data.lyricist_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="lyricist" admin @artist-saved="onArtistSaved" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="作曲">
-                <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="composer" admin @artist-saved="onArtistSaved" />
+                <ArtistTagInput v-model="review.edited_data.composer_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="composer" admin @artist-saved="onArtistSaved" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="编曲">
-                <ArtistTagInput v-model="review.edited_data.arranger_arr" :artists="artists" :session-names="sessionNewArtists" filter-type="arranger" admin @artist-saved="onArtistSaved" />
+                <ArtistTagInput v-model="review.edited_data.arranger_arr" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" filter-type="arranger" admin @artist-saved="onArtistSaved" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -290,8 +290,9 @@
       </template>
     </el-dialog>
 
-    <!-- 专辑信息弹窗（单曲审核，点专辑卡片打开；与艺术家头像弹窗同款交互。专辑艺术家属专辑，在此编辑） -->
-    <el-dialog v-model="showAlbumDialog" :title="review?.edited_data?.album_id ? '专辑信息（已关联，修改后发布时写回）' : '新专辑信息（发布时创建）'" width="560px" append-to-body>
+    <!-- 专辑信息弹窗（单曲审核，点专辑卡片打开；与艺术家头像弹窗同款交互。专辑艺术家属专辑，在此编辑。
+         保存即入库：新专辑当场建库并回填关联，已关联专辑当场写回差异，发布时只做歌↔专辑绑定） -->
+    <el-dialog v-model="showAlbumDialog" :title="review?.edited_data?.album_id ? '专辑信息（已关联，保存即写回库）' : '新专辑信息（保存即入库）'" width="560px" append-to-body>
       <div v-if="review?.edited_data" class="space-y-3">
         <div class="flex items-center gap-3">
           <img
@@ -308,14 +309,17 @@
         </div>
         <div>
           <div class="text-xs text-gray-500 mb-1">专辑艺术家</div>
-          <ArtistTagInput v-model="review.edited_data.album_artists" :artists="artists" :session-names="sessionNewArtists" tone="gray" admin @artist-saved="onArtistSaved" />
+          <ArtistTagInput v-model="review.edited_data.album_artists" :artists="artists" :session-names="sessionNewArtists" :session-id-map="sessionIdMap" tone="gray" admin @artist-saved="onArtistSaved" />
         </div>
         <el-input v-model="review.edited_data.album_cover" placeholder="专辑封面 URL（选填）" />
         <el-input v-model="review.edited_data.year" maxlength="4" placeholder="年份（选填，如 2024）" />
         <el-input v-model="review.edited_data.album_desc" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="专辑简介（选填，Markdown）" />
       </div>
       <template #footer>
-        <el-button type="primary" @click="showAlbumDialog = false">完成</el-button>
+        <el-button @click="showAlbumDialog = false">取消</el-button>
+        <el-button type="primary" :loading="albumSaving" @click="saveAlbumNow">
+          {{ review?.edited_data?.album_id ? '保存写回' : '保存并入库' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -1044,22 +1048,24 @@ const ambiguousArtists = computed(() => {
   return res
 })
 
-// 会话内新建艺术家共享池：从审核表单各字段当前值实时派生（无 ID 即待创建），删除/填 ID 后自动出池
-const sessionNewArtists = computed(() => {
-  const names: string[] = []
-  if (!review.value) return names
+// 会话内新建艺术家共享池：从审核表单各字段当前值实时派生（_new 即有会话新建，含已手填 ID 的）。
+// 返回名字数组供下拉联想复用；同名的真实 id 经 sessionIdMap 一并下发，避免跨字段复用又变回新建。
+const sessionIdMap = computed<Record<string, string | null>>(() => {
+  const map: Record<string, string | null> = {}
+  if (!review.value) return map
   for (const f of ARTIST_FIELDS) {
     for (const item of review.value.edited_data[f.key] || []) {
-      if (item && !item.id && item.name && !names.includes(item.name)) {
-        names.push(item.name)
-        // 实时补 _new 标记与 is_show，保证动态进入待创建清单
+      // _new 标记本会话新建（无论是否已手填 ID）；无 ID 的实时补 _new，保证进入待创建清单
+      if (item && (item._new || !item.id) && item.name) {
         item._new = true
         item.is_show ??= true
+        map[item.name] = item.id || null
       }
     }
   }
-  return names
+  return map
 })
+const sessionNewArtists = computed(() => Object.keys(sessionIdMap.value))
 
 /** 收集待创建艺术家（无 ID 或 _new 标记；跨字段按名合并，types 取并集）。
  *  单曲审核（review）与批量通过（独立 edited）共用 */
@@ -1149,6 +1155,64 @@ function onArtistSaved(tag: any) {
     a.aliases = tag.aliases || []
     a.bio = tag.bio || ''
     a.urls = tag.urls || {}
+  } else {
+    // 新建艺术家保存即入库：加入本地艺术家池，供其它字段下拉立即可搜到/复用
+    artists.value.push({ ...tag })
+  }
+}
+
+/** 专辑弹窗保存即入库：新专辑当场建库并回填关联；已关联专辑当场写回差异。发布时只做歌↔专辑绑定。 */
+const albumSaving = ref(false)
+async function saveAlbumNow() {
+  const ed = review.value?.edited_data
+  if (!ed) return
+  if (!ed.album_id && !String(ed.album || '').trim()) {
+    ElMessage.warning('请先在审核表单填写专辑名')
+    return
+  }
+  albumSaving.value = true
+  try {
+    const albumArtistIds = (ed.album_artists || []).map((a: any) => a.id).filter(Boolean)
+    if (ed.album_id) {
+      // 已关联：当场写回差异（与发布链路沿用分支同一套比较规则）
+      const albumRow = albums.value.find(a => a.id === ed.album_id)
+      const patch: Record<string, any> = {}
+      const oldArtistIds = albumRow?.artist_ids || []
+      const artistIdsChanged = albumArtistIds.length && JSON.stringify(albumArtistIds) !== JSON.stringify(oldArtistIds)
+      if (ed.album_cover && ed.album_cover !== (albumRow?.cover ?? '')) patch.cover = ed.album_cover
+      if (ed.year) {
+        const y = parseInt(String(ed.year), 10) || null
+        if (y && y !== (albumRow?.year ?? null)) patch.year = y
+      }
+      if ((ed.album_desc || '') !== (albumRow?.description || '')) patch.description = ed.album_desc || null
+      if (Object.keys(patch).length) await adminApi.update('albums', ed.album_id, patch)
+      if (artistIdsChanged) await syncAlbumContributors(ed.album_id, albumArtistIds)
+      // 同步本地专辑池（下拉/封面立即可见）
+      if (albumRow) Object.assign(albumRow, patch, { artist_ids: albumArtistIds })
+      ElMessage.success('专辑信息已写回数据库')
+    } else {
+      // 新专辑：当场建库并关联，发布链路见 album_id 已存在自动走"沿用"
+      const albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
+      const name = String(ed.album).trim()
+      const year = ed.year ? (parseInt(String(ed.year), 10) || null) : null
+      await adminApi.insert('albums', {
+        id: albumId,
+        name,
+        year,
+        cover: ed.album_cover || '',
+        description: ed.album_desc || null,
+      })
+      await syncAlbumContributors(albumId, albumArtistIds)
+      ed.album = name
+      ed.album_id = albumId
+      albums.value.push({ id: albumId, name, year, cover: ed.album_cover || '', description: ed.album_desc || null, artist_ids: albumArtistIds })
+      ElMessage.success('新专辑已创建并关联本投稿')
+    }
+    showAlbumDialog.value = false
+  } catch (e: any) {
+    ElMessage.error(e.message || '专辑保存失败')
+  } finally {
+    albumSaving.value = false
   }
 }
 

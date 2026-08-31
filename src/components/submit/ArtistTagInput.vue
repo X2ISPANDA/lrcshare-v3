@@ -91,6 +91,8 @@ const props = defineProps<{
   tone?: 'pink' | 'gray'
   /** 共享会话池（父组件持有）：本会话内任一字段新建过的艺术家名，跨字段联想复用 */
   sessionNames?: string[]
+  /** 会话新建项名字 → 真实 id（已手填 ID 的会话新建，跨字段选中时保留该 id，而非重新标新建）；缺省时按 __new_ 处理 */
+  sessionIdMap?: Record<string, string | null>
   /** 后台模式：tag 显示头像，点击头像可补全艺术家信息（老艺术家当场写库） */
   admin?: boolean
 }>()
@@ -143,11 +145,16 @@ onBeforeUnmount(() => {
 /**
  * 搜索池 = 数据库全量 + 共享会话池（按名去重）。
  * 会话内新建项 id 以 __new_ 开头、types 未知，不受 filterType 限制（同一人往往身兼歌手/作词/作曲）。
+ * 已手填 ID 的会话新建（sessionIdMap 命中）保留真实 id，选中时不再回退为新建。
  */
 const searchPool = computed<Artist[]>(() => {
   const extra = (props.sessionNames || [])
     .filter(n => n && !props.artists.some(a => a.name.toLowerCase() === n.toLowerCase()))
-    .map(n => ({ id: '__new_' + n, name: n, types: [] }) as unknown as Artist)
+    .map(n => ({
+      id: props.sessionIdMap?.[n] || '__new_' + n,
+      name: n,
+      types: [],
+    }) as unknown as Artist)
   return [...props.artists, ...extra]
 })
 

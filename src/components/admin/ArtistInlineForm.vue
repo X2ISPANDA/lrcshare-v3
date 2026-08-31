@@ -68,7 +68,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { adminApi } from '@/lib/adminApi'
-import { supabase } from '@/lib/supabase'
 import { contactLabel } from '@/lib/constants'
 import type { ArtistTag } from '@/lib/types'
 
@@ -103,16 +102,6 @@ async function save() {
     ElMessage.warning('新建艺术家需填写 ID（如 art_xxx）')
     return
   }
-  // ID 冲突预检：撞已有艺术家直接提示，避免保存歌曲时才抛 PK 冲突原生错误
-  if (isNew.value && form.newId.trim()) {
-    try {
-      const { data } = await supabase.from('artists').select('id,name').eq('id', form.newId.trim()).maybeSingle()
-      if (data) {
-        ElMessage.warning(`ID「${form.newId.trim()}」已被艺术家「${data.name}」占用，请换一个`)
-        return
-      }
-    } catch { /* 预检失败不阻塞，创建时数据库兜底 */ }
-  }
   saving.value = true
   try {
     const urls = Object.fromEntries(form.urlRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()]))
@@ -125,11 +114,42 @@ async function save() {
       urls,
     })
     if (isNew.value) {
-      // 手填 ID 写入 tag.id，_new 标记保持"待创建"（创建链路据此走 insert 而非 update）
-      props.tag.id = form.newId.trim()
-      props.tag._new = true
-      props.tag.is_show = form.is_show
-      ElMessage.success('已记录，保存歌曲时将以此 ID 创建艺术家')
+      // 保存即入库：当场 upsert（id 已存在则更新，避免同批重复创建撞主键），后续（审核通过 / 歌曲保存）只做绑定。
+      await adminApi.upsert('artists', {
+        id: form.newId.trim(),
+        name: props.tag.name,
+        types: props.tag.types || [],
+        is_show: form.is_show,
+        sort: 0,
+        avatar: form.avatar.trim() || null,
+        bio: form.bio,
+        aliases: form.aliases,
+        disambiguation: form.disambiguation.trim() || null,
+        urls,
+      }, 'id')
+      // 同步本地艺术家池，供其它字段下拉立即搜到
+      emit('saved', {
+        id: form.newId.trim(),
+        name: props.tag.name,
+        types: props.tag.types || [],
+        is_show: form.is_show,
+        avatar: form.avatar.trim() || null,
+        bio: form.bio,
+        aliases: form.aliases,
+        disambiguation: form.disambiguation.trim() || null,
+        urls,
+      })
+      Object.assign(props.tag, {
+        id: form.newId.trim(),
+        _new: false,
+        is_show: form.is_show,
+        disambiguation: form.disambiguation.trim() || null,
+        avatar: form.avatar.trim() || null,
+        aliases: form.aliases,
+        bio: form.bio,
+        urls,
+      })
+      ElMessage.success('已新建艺术家并保存到数据库')
       emit('close')
       return
     }
