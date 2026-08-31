@@ -16,11 +16,31 @@
 </template>
 
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { buildAttribution } from '@/lib/clipboard'
 import AppNavbar from '@/components/layout/AppNavbar.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
 import SearchOverlay from '@/components/layout/SearchOverlay.vue'
 import ImgPreview from '@/components/layout/ImgPreview.vue'
 
 const route = useRoute()
+
+/** 前台选中文本复制（Ctrl+C / 右键复制）统一追加来源署名；
+ *  输入框 / 文本域 / 可编辑区内的复制跳过（避免污染密码、表单内容）；
+ *  「全部复制」按钮走 copyText 的 programmatic writeText，不触发 copy 事件，不会重复追加 */
+function onCopy(e: ClipboardEvent) {
+  if (!e.clipboardData) return
+  const sel = window.getSelection()
+  const text = sel?.toString()
+  if (!text) return
+  const node = sel.anchorNode
+  const el = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement
+  if (el && (el.closest('input, textarea') || el.isContentEditable)) return
+  e.clipboardData.setData('text/plain', text + buildAttribution())
+  e.preventDefault()
+}
+
+onMounted(() => document.addEventListener('copy', onCopy))
+onBeforeUnmount(() => document.removeEventListener('copy', onCopy))
 </script>

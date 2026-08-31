@@ -2,16 +2,16 @@
 
 ## 专辑列表
 
+按专辑名排序的全量专辑列表。
+
 ```
 GET /v1/albums
 ```
 
-按专辑名排序的全量专辑列表。
-
-| 参数 | 默认 | 说明 |
-| --- | --- | --- |
-| `limit` | `20` | 每页数量，1 ~ 100 |
-| `offset` | `0` | 偏移量 |
+| 参数 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `limit` | 否 | number | 每页数量，1 ~ 100（默认 20） |
+| `offset` | 否 | number | 偏移量（默认 0） |
 
 ```json
 {
@@ -27,11 +27,17 @@ GET /v1/albums
 
 ## 专辑详情
 
+专辑信息 + 完整曲目表（按碟号、曲目号排序）。
+
 ```
 GET /v1/album/:id
 ```
 
-专辑信息 + 完整曲目表（按碟号、曲目号排序）。
+**URL 参数**
+
+| 参数 | 必填 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `id` | 是 | string | 专辑 ID（如 `alb_xxx`） |
 
 ```json
 {
@@ -57,9 +63,15 @@ GET /v1/album/:id
 }
 ```
 
-- `songs` 内每项为[歌曲摘要](/api/objects#song-summary) + `track`（曲目号）/ `disc`（碟号）——选中心仪曲目后用其 `id` 调 [/v1/song/:id](/api/songs#song-detail) 获取词曲编、歌词等全部数据
+- `songs` 内每项为[歌曲摘要](/api/objects#song-summary) + `track`（曲目号）/ `disc`（碟号）——选中心仪曲目后用其 `id` 调 [/v1/song/:id](/api/song#song-detail) 获取词曲编、歌词等全部数据
 - 多碟专辑按 `disc` 分组展示即可
-- `id` 不存在时返回 `404`
+
+**错误响应**
+
+```json
+// 专辑不存在或未发布
+{ "code": 404, "message": "album not found" }
+```
 
 ## 示例
 

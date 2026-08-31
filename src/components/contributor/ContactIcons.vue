@@ -107,7 +107,7 @@ function openCopy(link: { key: string; label: string; value: string }) {
 
 async function doCopy() {
   if (!copyModal.value) return
-  await copyText(copyModal.value.value)
+  await copyText(copyModal.value.value, { attribution: true })
   copied.value = true
   clearTimeout(copyTimer)
   copyTimer = setTimeout(() => {

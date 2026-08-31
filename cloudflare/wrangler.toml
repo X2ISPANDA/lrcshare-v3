@@ -1,0 +1,7 @@
+name = "lrcshare-open-api"
+main = "open-api.js"
+compatibility_date = "2024-09-01"
+
+# Secrets（部署前用 `wrangler secret put SUPABASE_URL` / `wrangler secret put SUPABASE_ANON_KEY` 设置，勿写进本文件）：
+#   SUPABASE_URL       形如 https://xxxx.supabase.co（不带尾斜杠）
+#   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）

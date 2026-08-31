@@ -18,20 +18,43 @@
             <span class="text-sm text-gray-400">({{ group.items.length }})</span>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <a
+            <el-tooltip
               v-for="item in group.items"
               :key="item.id"
-              :href="item.url"
-              target="_blank"
-              rel="noopener"
-              class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition"
+              placement="top"
+              :show-after="200"
+              :hide-after="0"
             >
-              <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
-              <div class="min-w-0 flex-1">
-                <div class="font-bold text-gray-800 mb-1 truncate">{{ item.name }}</div>
-                <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>
+              <template #content>
+                <div class="max-w-xs">
+                  <div class="font-bold">{{ item.name }}</div>
+                  <div v-if="item.descr" class="mt-1 text-sm text-gray-300">{{ item.descr }}</div>
+                </div>
+              </template>
+              <div class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition">
+                <a :href="item.url" target="_blank" rel="noopener" class="shrink-0">
+                  <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+                </a>
+                <div class="min-w-0 flex-1">
+                  <!-- 名称 + 附加链接图标同一行（不影响卡片高度） -->
+                  <div class="flex items-center gap-2 mb-1">
+                    <a :href="item.url" target="_blank" rel="noopener" class="font-bold text-gray-800 truncate hover:text-pink-500 transition-colors">{{ item.name }}</a>
+                    <a
+                      v-for="link in item.extra_links"
+                      :key="link.url"
+                      :href="link.url"
+                      target="_blank"
+                      rel="noopener"
+                      :title="contactLabel(link.label)"
+                      class="text-gray-400 hover:text-pink-500 transition-colors shrink-0"
+                    >
+                      <AppIcon :name="link.label" class="w-4 h-4" />
+                    </a>
+                  </div>
+                  <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>
+                </div>
               </div>
-            </a>
+            </el-tooltip>
           </div>
         </div>
 
@@ -43,20 +66,42 @@
             <span class="text-sm text-gray-400">({{ noCategory.length }})</span>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <a
+            <el-tooltip
               v-for="item in noCategory"
               :key="item.id"
-              :href="item.url"
-              target="_blank"
-              rel="noopener"
-              class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition"
+              placement="top"
+              :show-after="200"
+              :hide-after="0"
             >
-              <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 shrink-0 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
-              <div class="min-w-0 flex-1">
-                <div class="font-bold text-gray-800 mb-1 truncate">{{ item.name }}</div>
-                <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>
+              <template #content>
+                <div class="max-w-xs">
+                  <div class="font-bold">{{ item.name }}</div>
+                  <div v-if="item.descr" class="mt-1 text-sm text-gray-300">{{ item.descr }}</div>
+                </div>
+              </template>
+              <div class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition">
+                <a :href="item.url" target="_blank" rel="noopener" class="shrink-0">
+                  <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+                </a>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 mb-1">
+                    <a :href="item.url" target="_blank" rel="noopener" class="font-bold text-gray-800 truncate hover:text-pink-500 transition-colors">{{ item.name }}</a>
+                    <a
+                      v-for="link in item.extra_links"
+                      :key="link.url"
+                      :href="link.url"
+                      target="_blank"
+                      rel="noopener"
+                      :title="contactLabel(link.label)"
+                      class="text-gray-400 hover:text-pink-500 transition-colors shrink-0"
+                    >
+                      <AppIcon :name="link.label" class="w-4 h-4" />
+                    </a>
+                  </div>
+                  <div class="text-sm text-gray-500 line-clamp-2">{{ item.descr || '' }}</div>
+                </div>
               </div>
-            </a>
+            </el-tooltip>
           </div>
         </div>
       </template>
@@ -76,9 +121,10 @@
 import { computed } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
-import { LOGO_URL } from '@/lib/constants'
+import { LOGO_URL, contactLabel } from '@/lib/constants'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
+import AppIcon from '@/components/common/AppIcon.vue'
 import type { Friend, FriendCategory } from '@/lib/types'
 
 useHead({ title: '友情链接 - LrcShare' })

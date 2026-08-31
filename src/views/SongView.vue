@@ -157,12 +157,18 @@
           <button v-if="ttmlVersions.length" class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'ttml' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('ttml')">🎼 TTML</button>
         </div>
         <div class="p-6 md:p-8">
-          <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
-          <RichContentView
-            v-show="activeTab === 'text'"
-            :html="textLyricsHtml"
-            content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
-          />
+          <!-- 文本歌词 + 「全部复制」（移动端常显，桌面 Typora 式悬浮显隐；复制 lyrics_text 原文或 LRC 提取纯文本） -->
+          <div v-show="activeTab === 'text'" class="group relative">
+            <button
+              class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
+              @click="copyCurrentText"
+            >全部复制</button>
+            <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
+            <RichContentView
+              :html="textLyricsHtml"
+              content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
+            />
+          </div>
           <div v-show="activeTab === 'lrc'" class="text-left">
             <!-- 工具行：版本下拉（多版本时出现）+ 格式下拉 -->
             <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
@@ -185,27 +191,22 @@
                 class="format-select text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
               >
                 <option value="line">LRC</option>
-                <option value="enhanced" :disabled="!hasWordTiming">增强逐字 LRC（无词级数据）</option>
-                <option value="verbatim" :disabled="!hasWordTiming">逐字 LRC（无词级数据）</option>
+                <option value="enhanced" :disabled="!hasWordTiming">增强逐字 LRC{{ hasWordTiming ? '' : '（无词级数据）' }}</option>
+                <option value="verbatim" :disabled="!hasWordTiming">逐字 LRC{{ hasWordTiming ? '' : '（无词级数据）' }}</option>
                 <option value="ttml">TTML</option>
               </select>
             </div>
             <!-- 文本框 + Typora 式「全部复制」（悬浮出现） -->
             <div class="group relative">
               <button
-                class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
+                class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
                 @click="copyCurrentLrc"
               >全部复制</button>
               <pre class="lyric-code text-sm text-gray-600 whitespace-pre-wrap">{{ lrcText }}</pre>
             </div>
           </div>
           <!-- TTML 逐字/对唱视图：结构化渲染（声部分列 + 和声 + 翻译随行），渐进增强 -->
-          <div v-show="activeTab === 'ttml'" class="text-left group relative">
-            <!-- 悬浮「全部复制」：复制当前选中版本的 TTML 原文 -->
-            <button
-              class="absolute top-0 right-0 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
-              @click="copyCurrentTtml"
-            >全部复制</button>
+          <div v-show="activeTab === 'ttml'" class="text-left">
             <!-- 来源署名条（ttml-hub 导入版本）：LunaBeat logo + 双链接，尊重上游创作 -->
             <div v-if="selectedTtml?.source === 'ttml-hub'" class="mb-4 flex items-center justify-center gap-2.5 flex-wrap rounded-xl bg-gray-900 px-4 py-3 text-sm text-gray-300 shadow-md">
               <span class="w-7 h-7 rounded-full bg-white flex items-center justify-center flex-shrink-0">
@@ -224,9 +225,10 @@
               <a href="https://2755337087.github.io/ttml-hub/" target="_blank" rel="noopener noreferrer"
                 class="font-semibold text-white underline decoration-gray-500/60 underline-offset-4 transition-colors hover:text-pink-400 hover:decoration-pink-400">TTML 歌词站</a>
             </div>
-            <!-- 版本切换（多个 TTML 版本时） -->
-            <div v-if="ttmlVersions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <!-- 版本切换 + 行类型切换（多个 TTML 版本，或有译文/罗马音时） -->
+            <div v-if="ttmlVersions.length > 1 || ttmlKindOptions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <select
+                v-if="ttmlVersions.length > 1"
                 v-model="ttmlVersionId"
                 class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
               >
@@ -234,20 +236,36 @@
                   {{ ttmlVersionLabel(v) }}
                 </option>
               </select>
-            </div>
-            <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-3 py-2">
-              <div
-                v-for="(g, gi) in ttmlGroups"
-                :key="gi"
-                class="flex flex-col"
-                :class="ttmlGroupAlign(g)"
+              <select
+                v-if="ttmlKindOptions.length > 1"
+                v-model="ttmlKindFilter"
+                class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
               >
-                <p class="text-lg leading-relaxed text-gray-700 whitespace-pre-wrap">{{ g.line.text }}</p>
-                <p v-for="(b, bi) in g.line.bg" :key="`bg${bi}`" class="text-sm text-gray-400 italic leading-snug">{{ b }}</p>
-                <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
-              </div>
+                <option v-for="k in ttmlKindOptions" :key="k" :value="k">
+                  {{ k === 'all' ? '全部' : LYRIC_KIND_LABEL[k] }}
+                </option>
+              </select>
             </div>
-            <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
+            <!-- 歌词内容区：悬浮「全部复制」锚定内容本身（随内容出现在右上角）；移动端常显，桌面 Typora 式悬浮显隐 -->
+            <div class="group relative">
+              <button
+                class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
+                @click="copyCurrentTtml"
+              >全部复制</button>
+              <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-3 py-2">
+                <div
+                  v-for="(g, gi) in ttmlGroups"
+                  :key="gi"
+                  class="flex flex-col"
+                  :class="ttmlGroupAlign(g)"
+                >
+                  <p class="text-lg leading-relaxed text-gray-700 whitespace-pre-wrap">{{ g.line.text }}</p>
+                  <p v-for="(b, bi) in g.line.bg" :key="`bg${bi}`" class="text-sm text-gray-400 italic leading-snug">{{ b }}</p>
+                  <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
+                </div>
+              </div>
+              <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
+            </div>
             <p v-if="ttmlCredit" class="text-center text-xs text-gray-400 mt-4">{{ ttmlCredit }}</p>
           </div>
         </div>
@@ -591,29 +609,39 @@ onBeforeUnmount(() => {
 
 // ============ 歌词 ============
 // 歌词视图 tab 写入路由 query（?tab=lrc / ?tab=ttml），从歌手/专辑页返回时保持所在视图；
-// 有 TTML 版本且无歌词正文时默认落在 TTML tab（D2：TTML 优先）
+// 默认 tab 优先级：URL ?tab= > LRC（有 lrc_text）> TTML（有版本）> 文本
 const routeHasTab = (t: string) => ['text', 'lrc', 'ttml'].includes(t)
 const activeTab = ref<'text' | 'lrc' | 'ttml'>(routeHasTab(route.query.tab as string) ? (route.query.tab as any) : 'text')
+/** 用户手动切过 tab 后不再自动改写默认（解锁重拉 watch 会再触发，不能覆盖用户选择） */
+let tabTouched = false
 
 function switchLyricsTab(key: 'text' | 'lrc' | 'ttml') {
+  tabTouched = true
   activeTab.value = key
   router.replace({ query: key === 'text' ? { ...route.query, tab: undefined } : { ...route.query, tab: key } })
 }
 
-/** 文本歌词：lyrics_text（Markdown + 内嵌 HTML）优先，否则从 LRC 提取纯文本。
- *  lyrics_text 走 marked 解析（支持 md 语法 + 工具栏生成的内嵌 HTML 标注）；
- *  marked 默认不换行，歌词逐行内容用 breaks 选项把 \n 渲染成 <br> */
-const textLyricsHtml = computed(() => {
+/** 文本歌词源文：lyrics_text（Markdown + 内嵌 HTML）优先，否则从 LRC 提取纯文本（渲染与复制共用） */
+const textLyricsSource = computed(() => {
   const s = song.value
   if (!s) return ''
-  if (s.lyrics_text) return mdToHtml(s.lyrics_text)
+  if (s.lyrics_text) return s.lyrics_text
   const text = (s.lrc_text || '')
     .replace(/\[.*?\]/g, '')
     .split('\n')
     .map(line => line.trim())
     .filter(line => line)
     .join('\n')
-  return text.split('\n').map(line => line || '&nbsp;').join('<br>')
+  return text
+})
+
+/** 文本歌词：lyrics_text 走 marked 解析（支持 md 语法 + 工具栏生成的内嵌 HTML 标注）；
+ *  marked 默认不换行，歌词逐行内容用 breaks 选项把 \n 渲染成 <br> */
+const textLyricsHtml = computed(() => {
+  const src = textLyricsSource.value
+  if (!src) return ''
+  if (song.value?.lyrics_text) return mdToHtml(src)
+  return src.split('\n').map(line => line || '&nbsp;').join('<br>')
 })
 
 // ============ 多语言歌词（LRC tab：行表 → 版本/格式切换） ============
@@ -623,6 +651,8 @@ const lrcVersionKey = ref<string>('all')
 // TTML 逐字/对唱 tab（声明在 watch 之前：immediate 回调首轮即会写入）
 const ttmlVersions = ref<LyricVersionMeta[]>([])
 const ttmlVersionId = ref('')
+// TTML 行类型切换：全部 / 仅原文 / 仅翻译 / 仅罗马音
+const ttmlKindFilter = ref<'all' | 'original' | 'translation' | 'romanization'>('all')
 
 /** 行表加载：song 就绪且非隐藏（或已解锁）时拉取；解锁重拉（song 对象被整体替换） */
 let linesLoadedFor = ''
@@ -646,12 +676,14 @@ watch(
       const metas = await loadLyricVersionMetas(id, true)
       ttmlVersions.value = metas.filter(v => v.format === 'ttml' && v.ttml_text)
       ttmlVersionId.value = ttmlVersions.value[0]?.id || ''
-      // 白板歌（ttml-hub 导入）无文本歌词正文 → 默认展示 TTML tab
-      if (ttmlVersions.value.length && !routeHasTab(route.query.tab as string) && !song.value?.lyrics_text && !song.value?.lrc_text) {
-        activeTab.value = 'ttml'
-      }
     } catch {
       ttmlVersions.value = []
+    }
+    // 默认 tab 优先级：有 LRC → LRC tab；无 LRC 有 TTML 版本 → TTML tab（白板歌默认归入此链）。
+    // 用户手动切过 tab 或 URL 带 ?tab= 时不干预
+    if (!tabTouched && !routeHasTab(route.query.tab as string)) {
+      if (song.value?.lrc_text) activeTab.value = 'lrc'
+      else if (ttmlVersions.value.length) activeTab.value = 'ttml'
     }
   },
   { immediate: true },
@@ -683,20 +715,42 @@ function ttmlVersionLabel(v: LyricVersionMeta): string {
   return langs ? `${src} · ${langs}` : src
 }
 
-/** 渲染分组：同 begin 的跨语言行合并为一组（第 1 行主歌词，其余作翻译随行） */
+/** 可用的行类型（供切换下拉；无翻译/罗马音时不显示对应选项） */
+const ttmlKindOptions = computed(() => {
+  const st = ttmlStructure.value
+  if (!st) return []
+  const kinds = new Set(st.lines.map(l => l.kind))
+  const all = ['all', 'original', 'translation', 'romanization'] as const
+  return all.filter(k => k === 'all' || kinds.has(k))
+})
+
+/** 渲染分组：original 为一行，translation/romanization 作随行（同 begin 关联） */
 interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[] }
 const ttmlGroups = computed<TtmlGroup[]>(() => {
   const st = ttmlStructure.value
   if (!st) return []
+  const filter = ttmlKindFilter.value
   const groups: TtmlGroup[] = []
   const beginIndex = new Map<number, number>()
   for (const l of st.lines) {
-    const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
-    if (gi != null && groups[gi].line.lang !== l.lang && l.lang !== null) {
-      groups[gi].translations.push(l)
+    if (filter !== 'all' && l.kind !== filter) continue
+    if (l.kind === 'original') {
+      // original：同 begin 的第二个 original（多语言原文）→ 随行；否则新组
+      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
+      if (gi != null) {
+        groups[gi].translations.push(l)
+      } else {
+        if (l.begin != null && !beginIndex.has(l.begin)) beginIndex.set(l.begin, groups.length)
+        groups.push({ line: l, translations: [] })
+      }
     } else {
-      if (l.begin != null && !beginIndex.has(l.begin)) beginIndex.set(l.begin, groups.length)
-      groups.push({ line: l, translations: [] })
+      // translation/romanization：关联同 begin 的 original；孤立则独立成组
+      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
+      if (gi != null) {
+        groups[gi].translations.push(l)
+      } else {
+        groups.push({ line: l, translations: [] })
+      }
     }
   }
   return groups
@@ -761,14 +815,20 @@ const songCredit = computed(() =>
 
 function copyCurrentLrc() {
   if (!lrcText.value) return
-  copyText(lrcText.value).then(() => ElMessage.success('歌词已复制到剪贴板！'))
+  copyText(lrcText.value, { attribution: true }).then(() => ElMessage.success('歌词已复制到剪贴板！'))
+}
+
+/** 文本歌词复制：lyrics_text 原文（或 LRC 提取纯文本），与页面显示同源 */
+function copyCurrentText() {
+  if (!textLyricsSource.value) return
+  copyText(textLyricsSource.value, { attribution: true }).then(() => ElMessage.success('歌词已复制到剪贴板！'))
 }
 
 /** TTML 视图悬浮复制：当前选中版本的 TTML 原文 */
 function copyCurrentTtml() {
   const t = selectedTtml.value?.ttml_text
   if (!t) return
-  copyText(t).then(() => ElMessage.success('TTML 已复制到剪贴板！'))
+  copyText(t, { attribution: true }).then(() => ElMessage.success('TTML 已复制到剪贴板！'))
 }
 
 // ============ 操作 ============

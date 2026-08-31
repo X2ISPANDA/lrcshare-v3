@@ -18,10 +18,19 @@
         <el-button link type="danger" size="small" @click="removeVersion(i)">删除</el-button>
       </div>
       <el-input
+        v-if="showFormat && v.format === 'ttml'"
+        v-model="v.ttml"
+        type="textarea"
+        :rows="5"
+        placeholder="粘贴 TTML 歌词..."
+        class="font-mono!"
+      />
+      <el-input
+        v-else
         v-model="v.lrc"
         type="textarea"
         :rows="5"
-        :placeholder="showFormat && v.format === 'ttml' ? '粘贴 TTML 歌词...' : '粘贴 LRC 歌词...'"
+        placeholder="粘贴 LRC 歌词..."
         class="font-mono!"
       />
     </div>
@@ -32,11 +41,12 @@
 <script setup lang="ts">
 import { LYRIC_LANG_OPTIONS, langLabel, type LyricKind } from '@/lib/lyricLines'
 
-/** 单个歌词版本（lang/kind 明确，lrc 为该版本 LRC 文本；format 仅后台导入 TTML 时用） */
+/** 单个歌词版本（lang/kind 明确；lrc/ttml 为该版本两种格式的文本，format 决定当前展示哪个） */
 export interface LyricVersionForm {
   lang: string
   kind: LyricKind
   lrc: string
+  ttml: string
   format?: 'lrc' | 'ttml'
 }
 
@@ -59,7 +69,7 @@ const props = withDefaults(defineProps<{
 const model = defineModel<LyricVersionForm[]>({ required: true })
 
 function addVersion() {
-  model.value.push({ lang: props.addDefaultLang, kind: props.addDefaultKind, lrc: '', format: 'lrc' })
+  model.value.push({ lang: props.addDefaultLang, kind: props.addDefaultKind, lrc: '', ttml: '', format: 'lrc' })
 }
 function removeVersion(i: number) {
   model.value.splice(i, 1)

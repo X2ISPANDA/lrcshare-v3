@@ -50,6 +50,7 @@
 | 文档 | VitePress 1.6 |
 | 邮件 | Netlify Functions · Nodemailer 7 |
 | 其他 | marked 18（Markdown 渲染）· pinyin-pro 3.29（拼音分组）· fflate 0.8（ZIP 解压）· @vueuse/core 14 |
+| TTML 解析 | [@applemusic-like-lyrics/ttml](https://github.com/amll-dev/applemusic-like-lyrics)（AMLL 官方，AGPL-3.0）· @xmldom/xmldom |
 
 ## 快速开始
 
@@ -79,7 +80,7 @@ npm run docs:dev       # API 文档站（可选）
 ## 部署
 
 - **前台主站**：GitHub Pages（lrcshare.com），构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
-- **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js)，需在 Worker 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
+- **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js) + [cloudflare/wrangler.toml](cloudflare/wrangler.toml)，`wrangler deploy` 部署（依赖打包进 bundle），需用 `wrangler secret put` 配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
 - **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
 - **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃

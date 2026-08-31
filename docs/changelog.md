@@ -9,7 +9,7 @@
 
 ## v1.3.0 - 2026-08-30
 
-- **多语言歌词开放**：歌曲详情新增歌词参数 `lyric_lang`（原文语言）/ `lyric_translation_lang`（译文语言，逗号分隔或 `all`）/ `lyric_format`（`line` / `enhanced` / `verbatim` / `ttml`）/ `lyric_lines=1`（结构化行）。歌词以版本为单位组织——`original` 原文 / `translation` 译文 / `romanization` 罗马音，详见[多语言歌词](/api/songs#multi-lang-lyrics)
+- **多语言歌词开放**：歌曲详情新增歌词参数 `lyric_lang`（原文语言）/ `lyric_translation_lang`（译文语言，逗号分隔或 `all`）/ `lyric_format`（`line` / `enhanced` / `verbatim` / `ttml`）/ `lyric_lines=1`（结构化行）。歌词以版本为单位组织——`original` 原文 / `translation` 译文 / `romanization` 罗马音，详见[获取歌词](/api/lyric#get-lyric)
 - 新增 `lyric_lines` 结构化响应：`{primary_lang, versions[]}`，`rows[]` 带毫秒时间戳与逐字 `end_ms`，自绘歌词 UI 无需解析 LRC 文本
 - 新增 `lyrics` 数组：每个选中版本一份独立完整文本（含公共行补齐，译文版本完整可独立渲染）
 - 语言支持扩展至 29 种（新增粤语对译、法语、泰语、藏语、蒙语、俄语等），自动检测覆盖 15 种独立文字系统

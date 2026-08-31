@@ -117,6 +117,18 @@
         <el-form-item label="链接" required><el-input v-model="form.url" placeholder="https://..." /></el-form-item>
         <el-form-item label="头像 URL"><el-input v-model="form.avatar" placeholder="留空显示首字符" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="form.descr" type="textarea" :rows="2" placeholder="站点描述" /></el-form-item>
+        <el-form-item label="附加链接">
+          <div class="w-full space-y-2">
+            <div v-for="(row, idx) in form.extraLinks" :key="idx" class="flex items-center gap-2">
+              <el-select v-model="row.label" filterable size="small" class="!w-36 flex-shrink-0" placeholder="类型">
+                <el-option v-for="t in FRIEND_LINK_TYPES" :key="t" :label="contactLabel(t)" :value="t" />
+              </el-select>
+              <el-input v-model="row.url" placeholder="https://..." size="small" />
+              <el-button size="small" type="danger" text @click="form.extraLinks.splice(idx, 1)">删</el-button>
+            </div>
+            <el-button size="small" @click="form.extraLinks.push({ label: 'github', url: '' })">+ 添加链接</el-button>
+          </div>
+        </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="分类">
@@ -170,10 +182,14 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
+import { contactLabel } from '@/lib/constants'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { Friend, FriendCategory } from '@/lib/types'
 
 /** 友链管理：分类（emoji+颜色，可点筛选）+ 友链 CRUD */
+
+/** 附加链接类型预设（与 AppIcon ICON_MAP 键名对齐，取适合做站点链接的平台） */
+const FRIEND_LINK_TYPES = ['github', 'bilibili', 'blog', 'twitter', 'weibo', 'homepage', 'instagram', 'spotify', 'netease', 'youtube', 'douyin', 'xiaohongshu']
 
 const friends = ref<Friend[]>([])
 const categories = ref<FriendCategory[]>([])
@@ -235,11 +251,12 @@ const form = reactive({
   descr: '',
   category_id: null as string | null,
   sort: 0,
+  extraLinks: [] as { label: string; url: string }[],
 })
 
 function openNew() {
   editing.value = null
-  Object.assign(form, { name: '', url: '', avatar: '', descr: '', category_id: catFilter.value && catFilter.value !== '__none__' ? catFilter.value : null, sort: friends.value.length })
+  Object.assign(form, { name: '', url: '', avatar: '', descr: '', category_id: catFilter.value && catFilter.value !== '__none__' ? catFilter.value : null, sort: friends.value.length, extraLinks: [] })
   showDialog.value = true
 }
 
@@ -252,6 +269,7 @@ function openEdit(row: Friend) {
     descr: row.descr || '',
     category_id: row.category_id || null,
     sort: row.sort ?? 0,
+    extraLinks: (row.extra_links || []).map(l => ({ label: l.label, url: l.url })),
   })
   showDialog.value = true
 }
@@ -270,6 +288,12 @@ async function save() {
       descr: form.descr.trim() || null,
       category_id: form.category_id,
       sort: form.sort || 0,
+      // 过滤空 url 行，空则存 null（与 descr 等可空字段一致）
+      extra_links: form.extraLinks.filter(l => l.url.trim()).length
+        ? form.extraLinks
+            .filter(l => l.url.trim())
+            .map(l => ({ label: l.label, url: l.url.trim() }))
+        : null,
     }
     if (editing.value) {
       await adminApi.update('friends', editing.value.id, payload)

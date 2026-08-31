@@ -22,6 +22,11 @@
  *   /docs 前缀反代 Pages 源站，源站内容仍在根路径）
  */
 
+// TTML 解析采用 AMLL 官方库 @applemusic-like-lyrics/ttml（AGPL-3.0）。
+// Worker 无 DOMParser，注入 @xmldom/xmldom 供其解析。
+import { TTMLParser } from '@applemusic-like-lyrics/ttml'
+import { DOMParser } from '@xmldom/xmldom'
+
 // ============ 常量 ============
 
 const SITE_DOMAIN = 'lrcshare.com'
@@ -339,6 +344,7 @@ function apiIndex() {
       catalog: '/v1/catalog',
       songs: '/v1/songs?limit=&offset=',
       song: '/v1/song/:id',
+      lyric: '/v1/lyric/:id',
       albums: '/v1/albums?limit=&offset=',
       album: '/v1/album/:id',
       artists: '/v1/artists?limit=&offset=',
@@ -760,14 +766,224 @@ function composeTtml(versions, credit) {
   return `<tt xmlns="http://www.w3.org/ns/ttml">${meta}<body><div>${ps.join('')}${creditP}</div></body></tt>`
 }
 
-async function handleSong(env, id, url) {
+// ---------- TTML 原文 → 多语言版本（AMLL 官方库解析） ----------
+
+/** 复用的 AMLL 解析器（Worker 无 DOMParser，注入 xmldom） */
+const amllParser = new TTMLParser({ domParser: new DOMParser() })
+
+/** 逐字音节 → text（词标签 <偏移毫秒>；endsWithSpace 补空格） */
+function syllablesToText(words, lineStart) {
+  return words.map(w => {
+    const wordText = w.endsWithSpace ? w.text + ' ' : w.text
+    const off = w.startTime - lineStart
+    return off === 0 ? wordText : `<${off}>${wordText}`
+  }).join('')
+}
+
+/** 排序 + 分配 seq */
+function finalizeTtmlRows(rows) {
+  rows.sort((a, b) => a.time_ms - b.time_ms)
+  return rows.map((r, i) => ({ ...r, seq: i + 1 }))
+}
+
+/**
+ * TTML 原文 → 多语言版本数组（每个 (lang, kind) 一个版本）。
+ * AMLL 官方库解析：original = 主歌词行；translation/romanization = 行内翻译/音译（含 sidecar）。
+ */
+/** TTML xml:lang → 项目语言代码（zh-Hans→zh、zh-Hant→zh-Hant、ja-Latn→ja） */
+function normalizeLang(code) {
+  const c = String(code || '').trim()
+  if (!c) return ''
+  const low = c.toLowerCase()
+  if (['zh-hans', 'zh-cn', 'zh-sg'].includes(low)) return 'zh'
+  if (['zh-hant', 'zh-tw', 'zh-hk', 'zh-mo'].includes(low)) return 'zh-Hant'
+  if (low.endsWith('-latn')) return low.split('-')[0]
+  return c
+}
+
+function parseTtmlVersionsWorker(xml) {
+  let result
+  try {
+    result = amllParser.parse(String(xml || ''))
+  } catch {
+    return []
+  }
+  const rootLang = normalizeLang(result.metadata.language) || 'und'
+
+  const versions = []
+
+  // original
+  const originalRows = result.lines
+    .filter(l => l.text.trim())
+    .map(l => ({
+      seq: 0,
+      time_ms: l.startTime,
+      end_ms: l.endTime,
+      text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
+    }))
+  if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
+
+  // translation / romanization：按语言分组
+  const transMap = new Map()
+  const romanMap = new Map()
+  for (const l of result.lines) {
+    for (const t of l.translations || []) {
+      const lang = normalizeLang(t.language) || rootLang
+      const rows = transMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: t.words?.length ? syllablesToText(t.words, l.startTime) : t.text })
+      transMap.set(lang, rows)
+    }
+    for (const r of l.romanizations || []) {
+      const lang = normalizeLang(r.language) || rootLang
+      const rows = romanMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: r.words?.length ? syllablesToText(r.words, l.startTime) : r.text })
+      romanMap.set(lang, rows)
+    }
+  }
+  for (const [lang, rows] of transMap) versions.push({ lang, kind: 'translation', rows: finalizeTtmlRows(rows) })
+  for (const [lang, rows] of romanMap) versions.push({ lang, kind: 'romanization', rows: finalizeTtmlRows(rows) })
+
+  return versions
+}
+
+/** 计算歌词字段（lyric_versions/lrc/lyric_lines/lyrics），供 handleSong 与 handleLyric 复用。
+ *  输入已查好的 versionMetas 与 contributorNames，避免重复查询。 */
+async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
   const q = url ? url.searchParams : new URLSearchParams()
   const lyricLang = (q.get('lyric_lang') || '').trim()
   const translationRaw = (q.get('lyric_translation_lang') || '').trim()
   const translationLangs = translationRaw ? translationRaw.split(',').map(s => s.trim()).filter(Boolean) : []
-  const lyricFormat = q.get('lyric_format') || 'line'
+  const lyricFormatRaw = q.get('lyric_format')
+  const lyricFormat = lyricFormatRaw || 'line'
   const wantLines = q.get('lyric_lines') === '1'
-  const hasLyricParam = !!(lyricLang || translationLangs.length || wantLines)
+  // 显式指定格式 = 只要歌词，不带 lyric_versions
+  const explicitFormat = lyricFormatRaw != null
+  // 需要合成歌词文本（lrc/lyrics）
+  const needCompose = explicitFormat || !!lyricLang || translationLangs.length > 0
+
+  // 读行表 + TTML 拆行（无条件：全开时 lyric_versions 附完整内容、指定格式时合成 lrc 都需要）
+  const linesByVersion = new Map()
+  {
+    const lineRows = await getLyricVersions(env, id)
+    for (const [vid, vs] of groupLinesByVersion(lineRows || [])) linesByVersion.set(vid, vs)
+    // TTML 版本拆行：参与 lang/kind 切片与格式合成（原 agent/样式仍在 ttml_text 保留）
+    for (const v of versionMetas) {
+      if (v.format === 'ttml' && v.ttml_text) {
+        const vs = parseTtmlVersionsWorker(v.ttml_text)
+        if (vs.length) linesByVersion.set(v.id, vs)
+      }
+    }
+  }
+
+  const versionCredits = new Map()
+  for (const v of versionMetas) {
+    versionCredits.set(v.id, versionCreditOf(v, contributorNames))
+  }
+  const defaultComment = versionMetas.length > 0 ? (versionCredits.get(versionMetas[0].id) || null) : null
+
+  const fields = {}
+
+  // lyric_versions：不带 lyric_format（全开）时返回，每版本给对应格式的文本（lrc 合并文本 / ttml 原文），
+  // 并从 ttml 动态降级出 enhanced / verbatim；结构化行（lines）走 lyric_lines=1 开关，默认不附
+  if (!explicitFormat) {
+    fields.lyricVersions = []
+
+    // 数据库版本：lrc/enhanced 给合并 LRC 文本，ttml 给原文
+    for (const v of versionMetas) {
+      const credit = versionCredits.get(v.id)
+      const out = {
+        id: v.id,
+        format: v.format,
+        source: v.source,
+        langs: v.langs || [],
+        is_primary: v.is_primary,
+        comment: credit,
+      }
+      if (v.source === 'ttml-hub') out.external_id = v.external_id
+      if (v.format === 'ttml') {
+        out.ttml_text = v.ttml_text || null
+      } else {
+        const vs = linesByVersion.get(v.id) || []
+        const composed = composeLrc(vs, v.format === 'enhanced' ? 'enhanced' : 'line')
+        out.lrc = composed ? `${composed}\n[419:19.999]${credit}` : null
+      }
+      fields.lyricVersions.push(out)
+    }
+
+    // 从 ttml 动态降级 enhanced / verbatim（不落库，仅导出视图）
+    for (const v of versionMetas) {
+      if (v.format !== 'ttml' || !v.ttml_text) continue
+      const ttmlVersions = parseTtmlVersionsWorker(v.ttml_text)
+      const original = ttmlVersions.filter(x => x.kind === 'original')
+      if (!original.length) continue
+      const credit = versionCredits.get(v.id)
+      const langs = [...new Set(original.map(x => x.lang))]
+      for (const fmt of ['enhanced', 'verbatim']) {
+        const composed = composeLrc(original, fmt)
+        if (composed) {
+          fields.lyricVersions.push({
+            format: fmt,
+            source: v.source,
+            langs,
+            is_primary: false,
+            comment: credit,
+            lrc: `${composed}\n[419:19.999]${credit}`,
+          })
+        }
+      }
+    }
+  }
+
+  // 合成歌词：指定格式 / 语言切片 / 结构化行
+  if (needCompose || wantLines) {
+    // 优先 lrc/enhanced 版本（保持既有行为）；纯 ttml 歌回退到 ttml 拆行
+    const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || versionMetas[0] || {}).id
+    const versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
+    if (versions.length > 0) {
+      const primaryLang = derivePrimaryLang(versions)
+      const effLyricLang = lyricLang || primaryLang || ''
+      const selected = selectVersions(versions, effLyricLang, translationLangs)
+
+      // lyric_lines 结构化行（指定了 lang 参数则只返回选中，否则返回全部版本；非 original 版本补齐公共行）
+      if (wantLines) {
+        const filled = fillCommonRows(versions)
+        const outVersions = (lyricLang || translationLangs.length ? selectVersions(filled, effLyricLang, translationLangs) : filled)
+          .map(v => ({ lang: v.lang, kind: v.kind, rows: v.rows }))
+        fields.lyricLines = { primary_lang: primaryLang, versions: outVersions }
+      }
+
+      // 合成 lrc + lyrics 数组（显式指定格式或语言切片）
+      if (needCompose) {
+        if (selected.length === 0) {
+          // 匹配不到任何版本 → 空 lrc（显式圈定语义，不 fallback 原始 lrc_text）
+          fields.lrc = null
+        } else if (lyricFormat === 'ttml') {
+          // 资格规则：逐行数据（无词标签）没资格升 ttml → null；逐字/ttml 才合成
+          const hasWord = selected.some(v => (v.rows || []).some(r => /<\d{1,6}>/.test(String(r.text))))
+          fields.lrc = hasWord ? composeTtml(selected, defaultComment) : null
+        } else {
+          const composed = composeLrc(selected, lyricFormat)
+          if (composed) {
+            fields.lrc = `${composed}\n[419:19.999]${defaultComment}`
+          }
+        }
+        // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行；line/enhanced 带署名，ttml 纯 XML 不带）
+        if (selected.length > 0) {
+          const filled = fillCommonRows(selected)
+          fields.lyrics = filled.map(v => {
+            const text = lyricFormat === 'ttml' ? composeTtml([v], defaultComment) : composeLrc([v], lyricFormat)
+            const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${defaultComment}` : null)
+            return { lang: v.lang, kind: v.kind, format: lyricFormat, lrc }
+          })
+        }
+      }
+    }
+  }
+
+  return { fields, versionCredits, defaultComment, linesByVersion }
+}
+
+async function handleSong(env, id, url) {
   // song_contributors 嵌套（FK song_id）：贡献关系唯一数据源（含歌手/词/曲/编）
   const select = SONG_DETAIL_SELECT
   const row = await pgOne(env, 'songs', select, { id: `eq.${id}`, status: 'eq.published' })
@@ -802,88 +1018,57 @@ async function handleSong(env, id, url) {
     arranger: idsToNames(creditIds.arranger),
   }
 
-  // 歌词版本数组（phase5）：摘要总是返回；带 lyric 参数时 TTML 附原文 / lrc·enhanced 附结构化行。
-  // 默认版本 = 排序首位（tab 优先级），顶层 comment 跟随默认版本署名
-  const linesByVersion = new Map()
-  if (hasLyricParam) {
-    const lineRows = await getLyricVersions(env, id)
-    for (const [vid, vs] of groupLinesByVersion(lineRows || [])) linesByVersion.set(vid, vs)
-  }
-  const versionCredits = new Map()
-  base.lyric_versions = versionMetas.map(v => {
-    const credit = versionCreditOf(v, contributorNames)
-    versionCredits.set(v.id, credit)
-    const out = {
-      id: v.id,
-      format: v.format,
-      source: v.source,
-      langs: v.langs || [],
-      is_primary: v.is_primary,
-      comment: credit,
-    }
-    if (v.source === 'ttml-hub') out.external_id = v.external_id
-    if (hasLyricParam) {
-      if (v.format === 'ttml') {
-        out.ttml_text = v.ttml_text || null
-      } else {
-        const vs = linesByVersion.get(v.id) || []
-        out.lines = {
-          primary_lang: derivePrimaryLang(vs),
-          versions: fillCommonRows(vs).map(x => ({ lang: x.lang, kind: x.kind, rows: x.rows })),
-        }
-      }
-    }
-    return out
-  })
+  const { fields, versionCredits } = await buildLyricFields(env, id, url, versionMetas, contributorNames)
+
+  // 顶层 comment（默认版本署名）
   if (versionMetas.length > 0) {
     base.comment = versionCredits.get(versionMetas[0].id) || base.comment
   }
 
-  // 带 lyric 参数：用默认 lrc/enhanced 版本的行合成（不带参数 = 存量 lrc_text 原样，零改动）
-  if (hasLyricParam) {
-    const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || {}).id
-    const versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
-    if (versions.length > 0) {
-      const primaryLang = derivePrimaryLang(versions)
-      const effLyricLang = lyricLang || primaryLang || ''
-      const selected = selectVersions(versions, effLyricLang, translationLangs)
+  // lyric_versions（不带 lyric_format 时）
+  if (fields.lyricVersions) base.lyric_versions = fields.lyricVersions
 
-      // lyric_lines 结构化行（指定了 lang 参数则只返回选中，否则返回全部版本；非 original 版本补齐公共行）
-      if (wantLines) {
-        const filled = fillCommonRows(versions)
-        const outVersions = (lyricLang || translationLangs.length ? selectVersions(filled, effLyricLang, translationLangs) : filled)
-          .map(v => ({ lang: v.lang, kind: v.kind, rows: v.rows }))
-        base.lyric_lines = { primary_lang: primaryLang, versions: outVersions }
-      }
-
-      // 合成 lrc + lyrics 数组（带语言参数时）
-      if (lyricLang || translationLangs.length) {
-        if (selected.length === 0) {
-          // 匹配不到任何版本 → 空 lrc（显式圈定语义，不 fallback 原始 lrc_text）
-          base.lrc = null
-        } else if (lyricFormat === 'ttml') {
-          const ttml = composeTtml(selected, base.comment)
-          if (ttml) base.lrc = ttml
-        } else {
-          const composed = composeLrc(selected, lyricFormat)
-          if (composed) {
-            base.lrc = `${composed}\n[419:19.999]${base.comment}`
-          }
-        }
-        // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行；line/enhanced 带署名，ttml 纯 XML 不带）
-        if (selected.length > 0) {
-          const filled = fillCommonRows(selected)
-          base.lyrics = filled.map(v => {
-            const text = lyricFormat === 'ttml' ? composeTtml([v], base.comment) : composeLrc([v], lyricFormat)
-            const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${base.comment}` : null)
-            return { lang: v.lang, kind: v.kind, format: lyricFormat, lrc }
-          })
-        }
+  // 纯 ttml 歌（无 lrc_text）：顶层 lrc 从 ttml 降级成 line LRC，
+  // 保证老客户端 / Lyrico 插件能拿到歌词（否则 lrc 为 null）
+  if (!base.lrc && versionMetas.length > 0) {
+    const ttmlVer = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
+    if (ttmlVer) {
+      const ttmlVersions = parseTtmlVersionsWorker(ttmlVer.ttml_text)
+      const original = ttmlVersions.filter(v => v.kind === 'original')
+      if (original.length) {
+        const composed = composeLrc(original, 'line')
+        if (composed) base.lrc = `${composed}\n[419:19.999]${base.comment}`
       }
     }
   }
 
+  // 合成结果覆盖（带参数时）
+  if ('lrc' in fields) base.lrc = fields.lrc
+  if (fields.lyricLines) base.lyric_lines = fields.lyricLines
+  if (fields.lyrics) base.lyrics = fields.lyrics
+
   return jsonOk(base, TTL_DETAIL)
+}
+
+/** 纯歌词接口：只返回歌词（不带任何歌曲标签字段）。 */
+async function handleLyric(env, id, url) {
+  // 只确认歌曲存在（RLS 只放行 published），标签字段一律不返回
+  const row = await pgOne(env, 'songs', 'id', { id: `eq.${id}`, status: 'eq.published' })
+  if (!row) return jsonError(404, 'lyric not found')
+
+  const versionMetas = sortLyricVersions(await getSongLyricVersionMetas(env, id))
+  const contributorIds = [...new Set(versionMetas.map(v => v.contributor_id).filter(Boolean))]
+  const contributorNames = contributorIds.length ? await getContributorNameMap(env, contributorIds) : new Map()
+
+  const { fields } = await buildLyricFields(env, id, url, versionMetas, contributorNames)
+
+  const data = {}
+  if (fields.lyricVersions) data.lyric_versions = fields.lyricVersions
+  if ('lrc' in fields) data.lrc = fields.lrc
+  if (fields.lyricLines) data.lyric_lines = fields.lyricLines
+  if (fields.lyrics) data.lyrics = fields.lyrics
+
+  return jsonOk(data, TTL_DETAIL)
 }
 
 /** 详情装配的公共部分（lyricist/composer/arranger 由调用方按角色结果传入覆盖） */
@@ -1063,10 +1248,12 @@ export default {
         res = await handleArtists(env, url)
       } else {
         const m = path.match(/^\/v1\/song\/([^/]+)$/)
+        const ml = path.match(/^\/v1\/lyric\/([^/]+)$/)
         const ma = path.match(/^\/v1\/album\/([^/]+)$/)
         const mar = path.match(/^\/v1\/artist\/([^/]+)$/)
         const mars = path.match(/^\/v1\/artist\/([^/]+)\/songs$/)
         if (m) res = await handleSong(env, decodeURIComponent(m[1]), url)
+        else if (ml) res = await handleLyric(env, decodeURIComponent(ml[1]), url)
         else if (ma) res = await handleAlbum(env, decodeURIComponent(ma[1]))
         else if (mars) res = await handleArtistSongs(env, decodeURIComponent(mars[1]), url)
         else if (mar) res = await handleArtist(env, decodeURIComponent(mar[1]))

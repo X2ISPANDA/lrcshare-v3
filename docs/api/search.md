@@ -8,14 +8,14 @@ GET /v1/search
 
 ## 参数
 
-| 参数 | 必填 | 默认 | 说明 |
+| 参数 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| `keyword` | 与 `title`/`artist` 二选一 | — | 模糊搜索关键词（整串匹配，适合网站式搜索） |
-| `title` | 与 `keyword` 二选一 | — | 结构化查询：歌名（`type=song`）或专辑名（`type=album`），模糊匹配含别名/译名 |
-| `artist` | 与 `keyword` 二选一 | — | 结构化查询：演唱者（`type=song`，TPE1/ARTIST）或专辑艺术家（`type=album`，TPE2/ALBUMARTIST），模糊匹配含别名 |
-| `type` | 否 | `song` | 搜索维度：`song` 单曲 / `album` 专辑 / `artist` 艺术家 / `lyric` 歌词 |
-| `limit` | 否 | `20` | 每页数量，1 ~ 100 |
-| `offset` | 否 | `0` | 偏移量 |
+| `keyword` | 与 `title`/`artist` 二选一 | string | 模糊搜索关键词（整串匹配，适合网站式搜索） |
+| `title` | 与 `keyword` 二选一 | string | 结构化查询：歌名（`type=song`）或专辑名（`type=album`），模糊匹配含别名/译名 |
+| `artist` | 与 `keyword` 二选一 | string | 结构化查询：演唱者（`type=song`，TPE1/ARTIST）或专辑艺术家（`type=album`，TPE2/ALBUMARTIST），模糊匹配含别名 |
+| `type` | 否 | string | 搜索维度：`song` 单曲 / `album` 专辑 / `artist` 艺术家 / `lyric` 歌词（默认 `song`） |
+| `limit` | 否 | number | 每页数量，1 ~ 100（默认 20） |
+| `offset` | 否 | number | 偏移量（默认 0） |
 
 ## 各维度行为
 
@@ -26,7 +26,7 @@ GET /v1/search
 | `artist` | 艺术家名（含 `is_show=true` 的展示艺术家） | [Artist 对象](/api/objects#artist)数组 |
 | `lyric` | 歌词内容，返回命中歌曲 | [歌曲摘要](/api/objects#song-summary)数组 |
 
-`type=song` / `lyric` 返回的是**轻量摘要**（歌名/歌手/专辑名+年份/风格/封面），渲染选择列表用；用户确认目标后用 `id` 调 [/v1/song/:id](/api/songs#song-detail) 获取全部数据。
+`type=song` / `lyric` 返回的是**轻量摘要**（歌名/歌手/专辑名+年份/风格/封面），渲染选择列表用；用户确认目标后用 `id` 调 [/v1/song/:id](/api/song#song-detail) 获取全部数据。
 
 批量匹配场景请先看 [目录快照](/api/catalog)：查询词不在目录文本中即可直接跳过，不必发搜索请求。
 
@@ -114,6 +114,13 @@ GET /v1/search
 ```
 
 - 所有搜索（含结构化查询）均返回 `total`（命中总数，用于分页）；上游计数不可用时为 `null`
+
+**错误响应**
+
+```json
+// keyword 与 title/artist 同传，或两者都缺
+{ "code": 400, "message": "keyword 与 title/artist 互斥" }
+```
 
 ## 示例
 

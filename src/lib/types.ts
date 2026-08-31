@@ -213,6 +213,8 @@ export interface Friend {
   avatar: string | null
   descr: string | null
   category_id: string | null
+  /** 附加链接数组：label 为平台英文键（与 AppIcon ICON_MAP 对齐），url 为链接 */
+  extra_links: { label: string; url: string }[] | null
   sort: number
   created_at: string
   category?: FriendCategory | null

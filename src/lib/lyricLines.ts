@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { TTMLParser, type TTMLResult, type Syllable } from '@applemusic-like-lyrics/ttml'
 
 /**
  * 多语言歌词行表（song_lyric_lines）前端工具。
@@ -314,22 +315,6 @@ function escapeXml(s: string): string {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c] as string))
 }
 
-function unescapeXml(s: string): string {
-  return String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-}
-
-/** clock-time HH:MM:SS.mmm → 毫秒 */
-function parseTtmlTime(t: string): number {
-  const m = String(t || '').match(/^(\d{2,}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/)
-  if (!m) return NaN
-  const hh = parseInt(m[1], 10)
-  const mm = parseInt(m[2], 10)
-  const ss = parseInt(m[3], 10)
-  const frac = m[4] || '0'
-  const ms = parseInt(frac.padEnd(3, '0'), 10)
-  return hh * 3600000 + mm * 60000 + ss * 1000 + ms
-}
-
 function formatTtmlTime(ms: number): string {
   const hh = Math.floor(ms / 3600000)
   const mm = Math.floor((ms % 3600000) / 60000)
@@ -386,31 +371,87 @@ function parseWordTags(text: string): { text: string; offset_ms: number }[] {
  * 只支持 clock-time HH:MM:SS.mmm，遇非 clock-time 返回空数组（由调用方提示）。
  */
 export function parseTtmlToRows(xml: string): LyricRow[] {
-  const doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
-  if (doc.querySelector('parsererror')) return []
-  const ps = Array.from(doc.querySelectorAll('p'))
-  const rows: LyricRow[] = []
-  for (const p of ps) {
-    const begin = parseTtmlTime(p.getAttribute('begin') || '')
-    if (Number.isNaN(begin)) return [] // 非 clock-time：不硬解析
-    // span 词标签：绝对时间 − 行 begin = 偏移；无 span 则整行文本
-    const spans = Array.from(p.querySelectorAll('span'))
-    let text: string
-    if (spans.length) {
-      text = spans.map(sp => {
-        const wAbs = parseTtmlTime(sp.getAttribute('begin') || '')
-        const wText = unescapeXml(sp.textContent || '')
-        if (Number.isNaN(wAbs)) return wText
-        const off = wAbs - begin
-        return off === 0 ? wText : `<${off}>${wText}`
-      }).join('')
-    } else {
-      text = unescapeXml(p.textContent || '')
-    }
-    rows.push({ seq: 0, time_ms: begin, end_ms: null, text })
+  const result = parseTtmlWithAmll(xml)
+  if (!result) return []
+  const rows = result.lines
+    .filter(l => l.text.trim())
+    .map(l => ({
+      seq: 0,
+      time_ms: l.startTime,
+      end_ms: l.endTime,
+      text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
+    }))
+  return finalizeTtmlRows(rows)
+}
+
+/** 逐字音节 → text（词标签 <偏移毫秒>；endsWithSpace 补空格） */
+function syllablesToText(words: Syllable[], lineStart: number): string {
+  return words.map(w => {
+    const wordText = w.endsWithSpace ? w.text + ' ' : w.text
+    const off = w.startTime - lineStart
+    return off === 0 ? wordText : `<${off}>${wordText}`
+  }).join('')
+}
+
+/** 调 AMLL 官方库解析 TTML（浏览器环境；SSG/Node 无 DOMParser 返回 null） */
+function parseTtmlWithAmll(xml: string): TTMLResult | null {
+  if (typeof DOMParser === 'undefined') return null
+  try {
+    return TTMLParser.parse(String(xml || ''))
+  } catch {
+    return null
   }
+}
+
+/** 排序 + 分配 seq */
+function finalizeTtmlRows(rows: LyricRow[]): LyricRow[] {
   rows.sort((a, b) => a.time_ms! - b.time_ms!)
   return rows.map((r, i) => ({ ...r, seq: i + 1 }))
+}
+
+/**
+ * TTML → 多语言版本数组（每个 (lang, kind) 一个版本，与行表 LyricVersion 同构）。
+ * 官方库解析：original = 主歌词行；translation/romanization = 行内翻译/音译（含 sidecar），按语言分组。
+ */
+export function parseTtmlVersions(xml: string): LyricVersion[] {
+  const result = parseTtmlWithAmll(xml)
+  if (!result) return []
+  const rootLang = result.metadata.language || 'und'
+
+  const versions: LyricVersion[] = []
+
+  // original
+  const originalRows = result.lines
+    .filter(l => l.text.trim())
+    .map(l => ({
+      seq: 0,
+      time_ms: l.startTime,
+      end_ms: l.endTime,
+      text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
+    }))
+  if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
+
+  // translation / romanization：按语言分组
+  const transMap = new Map<string, LyricRow[]>()
+  const romanMap = new Map<string, LyricRow[]>()
+  for (const l of result.lines) {
+    for (const t of l.translations || []) {
+      const lang = t.language || rootLang
+      const rows = transMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: t.words?.length ? syllablesToText(t.words, l.startTime) : t.text })
+      transMap.set(lang, rows)
+    }
+    for (const r of l.romanizations || []) {
+      const lang = r.language || rootLang
+      const rows = romanMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: r.words?.length ? syllablesToText(r.words, l.startTime) : r.text })
+      romanMap.set(lang, rows)
+    }
+  }
+  for (const [lang, rows] of transMap) versions.push({ lang, kind: 'translation', rows: finalizeTtmlRows(rows) })
+  for (const [lang, rows] of romanMap) versions.push({ lang, kind: 'romanization', rows: finalizeTtmlRows(rows) })
+
+  return versions
 }
 
 // ---------- TTML 结构化渲染（phase5 阶段 F：对唱/和声/语言 渐进增强） ----------
@@ -426,6 +467,8 @@ export interface TtmlRenderLine {
   bg: string[]
   /** 行语言（继承 div/p 的 xml:lang） */
   lang: string | null
+  /** 行类型：original（正文）/ translation（<translation>）/ romanization（<transliteration>） */
+  kind: LyricKind
 }
 
 /** TTML 结构化解析结果 */
@@ -447,54 +490,52 @@ export interface TtmlStructure {
  * 与 parseTtmlToRows（严格拆行表）不同：本函数为展示服务，解析不出就降级纯文本行。
  */
 export function parseTtmlStructure(xml: string): TtmlStructure {
+  const empty: TtmlStructure = { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false, hasRuby: false }
   // SSG 构建期（Node）无 DOMParser：返回空结构，内容由客户端水合后重新解析
-  if (typeof DOMParser === 'undefined') return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false, hasRuby: false }
-  const doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
-  if (doc.querySelector('parsererror')) return { lines: [], agentMeta: {}, hasAgent: false, hasWordTiming: false, hasRuby: false }
+  if (typeof DOMParser === 'undefined') return empty
+  let result: TTMLResult
+  try {
+    result = TTMLParser.parse(String(xml || ''))
+  } catch {
+    return empty
+  }
 
-  // 注音（Apple/AMLL TTML：span[ttm:role=x-ruby]，或原生 <ruby> 元素）
-  const hasRuby = !!doc.querySelector('ruby') ||
-    Array.from(doc.querySelectorAll('span')).some(el => (el.getAttribute('ttm:role') || '') === 'x-ruby')
+  const rootLang = result.metadata.language || null
 
-  // 声部定义
+  // 声部定义（xml:id → type）
   const agentMeta: Record<string, string | null> = {}
-  doc.querySelectorAll('agent').forEach(a => {
-    const id = a.getAttribute('xml:id') || a.getAttribute('id')
-    if (id) agentMeta[id] = a.getAttribute('ttm:type') || a.getAttribute('type')
-  })
+  for (const [id, agent] of Object.entries(result.metadata.agents || {})) {
+    agentMeta[id] = agent.type || null
+  }
 
   const lines: TtmlRenderLine[] = []
   let hasAgent = false
   let hasWordTiming = false
-  doc.querySelectorAll('p').forEach(p => {
-    const begin = parseTtmlTime(p.getAttribute('begin') || '')
-    const agent = p.getAttribute('ttm:agent')
-    if (agent) hasAgent = true
-    const divLang = p.closest('div')?.getAttribute('xml:lang') || null
-    const lang = p.getAttribute('xml:lang') || divLang
+  let hasRuby = false
 
-    // 子节点拆分：x-bg span → 和声；其余（文本节点 + 无角色 span）→ 主文本
+  for (const l of result.lines) {
+    if (l.agentId) hasAgent = true
+    if (l.words?.length) hasWordTiming = true
+    if (l.words?.some(w => w.ruby?.length)) hasRuby = true
+
+    // 和声（backgroundVocal）
     const bg: string[] = []
-    let main = ''
-    p.childNodes.forEach(node => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const el = node as Element
-        if (el.getAttribute('ttm:role') === 'x-bg') {
-          const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-          if (t) bg.push(t)
-          if (el.querySelector('span')) hasWordTiming = true
-          return
-        }
-        if (el.tagName.toLowerCase() === 'span' && el.getAttribute('begin')) hasWordTiming = true
-        main += el.textContent || ''
-      } else if (node.nodeType === Node.TEXT_NODE) {
-        main += node.textContent || ''
-      }
-    })
-    const text = main.replace(/\s+/g, ' ').trim()
-    if (!text && !bg.length) return
-    lines.push({ begin: Number.isNaN(begin) ? null : begin, agent: agent || null, text, bg, lang })
-  })
+    if (l.backgroundVocal) {
+      const bgText = (l.backgroundVocal.text || '').trim()
+      if (bgText) bg.push(bgText)
+    }
+
+    // original 行
+    lines.push({ begin: l.startTime, agent: l.agentId || null, text: l.text, bg, lang: rootLang, kind: 'original' })
+
+    // 翻译 / 音译（作为随行）
+    for (const t of l.translations || []) {
+      lines.push({ begin: l.startTime, agent: null, text: t.text, bg: [], lang: t.language || null, kind: 'translation' })
+    }
+    for (const r of l.romanizations || []) {
+      lines.push({ begin: l.startTime, agent: null, text: r.text, bg: [], lang: r.language || null, kind: 'romanization' })
+    }
+  }
 
   return { lines, agentMeta, hasAgent, hasWordTiming, hasRuby }
 }

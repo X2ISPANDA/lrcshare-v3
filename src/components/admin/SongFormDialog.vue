@@ -142,8 +142,18 @@
       <el-form-item v-if="requireLyrics" label="歌词" required>
         <el-tabs v-model="lyricsTab" type="card" class="w-full">
           <el-tab-pane label="LRC 歌词" name="lrc">
-            <el-input v-model="form.lrc_text" type="textarea" :rows="8" placeholder="粘贴完整的 LRC 格式歌词..." class="font-mono!" />
-            <div class="text-xs text-gray-400 mt-1">双语混排（同时间戳两行）粘贴后由系统自动拆分为多语言版本；编辑已有歌曲也可切到「多语言版本」精细管理。</div>
+            <el-input v-model="form.lrc_text" type="textarea" :rows="8" placeholder="粘贴 LRC 歌词..." class="font-mono!" @paste="onLrcPaste" />
+            <div class="flex items-center gap-2 mt-1">
+              <div class="text-xs text-gray-400 flex-1">粘贴 LRC 原文，系统自动拆分多语言版本。</div>
+              <el-button size="small" @click="lrcToTtml">转为 TTML</el-button>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="TTML 原文" name="ttml">
+            <el-input v-model="form.ttmlText" type="textarea" :rows="8" placeholder="粘贴 TTML 原文（对唱/分屏/样式零丢失）" class="font-mono!" @paste="onTtmlPaste" />
+            <div class="flex items-center gap-2 mt-1">
+              <div class="text-xs text-gray-400 flex-1">粘贴 TTML 原文，系统自动拆分多语言版本到「多语言版本」tab。</div>
+              <el-button size="small" @click="ttmlToLrc">转为 LRC</el-button>
+            </div>
           </el-tab-pane>
           <el-tab-pane label="多语言版本" name="versions">
             <div class="space-y-3">
@@ -215,7 +225,8 @@ import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { GENRE_OPTIONS, TIP_ICONS } from '@/lib/constants'
-import { loadLyricLines, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, rebuildLyricLines, type LyricVersion } from '@/lib/lyricLines'
+import { loadLyricLines, loadLyricVersionMetas, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, parseTtmlVersions, versionsToTtml, composeMixedLrc, saveLyricLines, rebuildLyricLines, splitLrcToVersions, detectLang, type LyricVersion } from '@/lib/lyricLines'
+import { supabase } from '@/lib/supabase'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
 /**
@@ -282,6 +293,66 @@ const editing = computed(() => !!props.editSongId)
 const saving = ref(false)
 const lyricsTab = ref('lrc')
 const lyricsTextRef = ref<any>(null)
+
+/** 从 LRC 原文 + TTML 原文分别拆分多语言，按 lang|kind 合并到 versionForms（各自独立，互不覆盖） */
+function syncVersions() {
+  const lrcVersions = form.lrc_text.trim() ? splitLrcToVersions(form.lrc_text) : []
+  const ttmlVersions = form.ttmlText?.trim() ? parseTtmlVersions(form.ttmlText) : []
+  if (!lrcVersions.length && !ttmlVersions.length) return
+
+  const map = new Map<string, LyricVersionForm>()
+  for (const v of lrcVersions) {
+    const key = `${v.lang}|${v.kind}`
+    map.set(key, { lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced'), ttml: '', format: 'lrc' })
+  }
+  for (const v of ttmlVersions) {
+    const key = `${v.lang}|${v.kind}`
+    const existing = map.get(key)
+    if (existing) {
+      existing.ttml = versionsToTtml([v])
+    } else {
+      map.set(key, { lang: v.lang, kind: v.kind, lrc: '', ttml: versionsToTtml([v]), format: 'lrc' })
+    }
+  }
+  setVersionForms([...map.values()])
+}
+
+/** LRC 原文粘贴后：拆分多语言到「多语言版本」tab */
+function onLrcPaste() {
+  nextTick(() => syncVersions())
+}
+
+/** TTML 原文粘贴后：拆分多语言到「多语言版本」tab */
+function onTtmlPaste() {
+  nextTick(() => syncVersions())
+}
+
+/** TTML → 逐字 LRC（降级到 LRC 框） */
+function ttmlToLrc() {
+  const text = form.ttmlText?.trim()
+  if (!text) { ElMessage.warning('TTML 原文为空'); return }
+  const rows = parseTtmlToRows(text)
+  if (!rows.length) { ElMessage.warning('TTML 解析失败'); return }
+  form.lrc_text = rowsToLrcText(rows, 'enhanced')
+  ElMessage.success('已转为逐字 LRC')
+}
+
+/** LRC → TTML（仅逐字 LRC 可转；逐行无词级时间禁止） */
+function lrcToTtml() {
+  const text = form.lrc_text?.trim()
+  if (!text) { ElMessage.warning('LRC 歌词为空'); return }
+  const rows = parseLrcToRows(text)
+  if (!rows.length) { ElMessage.warning('LRC 解析失败'); return }
+  const hasWord = rows.some(r => /<\d{1,6}>/.test(String(r.text)))
+  if (!hasWord) {
+    ElMessage.warning('逐行 LRC 无词级时间，无法生成 TTML（请先使用逐字/增强 LRC）')
+    return
+  }
+  const lang = detectLang(rows.map(r => r.text).join(' ')) || 'zh'
+  form.ttmlText = versionsToTtml([{ lang, kind: 'original', rows }])
+  ElMessage.success('已生成 TTML')
+}
+
 const albumDropdownOpen = ref(false)
 
 const artistMap = computed(() => new Map(props.artists.map(a => [a.id, a])))
@@ -306,6 +377,8 @@ const form = reactive({
   description: '',
   lrc_text: '',
   lyrics_text: '',
+  /** TTML 原文（含对唱/分屏/样式；保存时独立落盘 lyric_versions.ttml_text） */
+  ttmlText: '',
   is_hidden: false,
   unlock_code: '',
 })
@@ -330,10 +403,73 @@ async function loadVersions(songId: string) {
   try {
     const rows = await loadLyricLines(songId)
     const vers = groupVersions(rows)
-    setVersionForms(vers.map(v => ({ lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: rowsToLrcText(v.rows) })))
+    setVersionForms(vers.map(v => ({ lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: rowsToLrcText(v.rows, 'enhanced'), ttml: versionsToTtml([v]) })))
   } catch (e: any) {
     setVersionForms([])
     console.warn('[歌词版本加载失败]', songId, e?.message)
+  }
+}
+
+/** 编辑模式：加载库内已有的 TTML 版本原文回填（保存时 UPDATE 而非重复 INSERT） */
+const ttmlVersionId = ref<string | null>(null)
+async function loadTtmlVersion(songId: string) {
+  try {
+    const metas = await loadLyricVersionMetas(songId, true)
+    const ttmlVer = metas.find(v => v.format === 'ttml' && v.ttml_text)
+    form.ttmlText = ttmlVer?.ttml_text || ''
+    ttmlVersionId.value = ttmlVer?.id || null
+  } catch (e: any) {
+    console.warn('[TTML 版本加载失败]', songId, e?.message)
+  }
+}
+
+/** 改语言后：同步 ttml_text 原文里的 xml:lang（只改语言标签，对唱/和声/样式原样保留） */
+function syncTtmlLangs() {
+  if (!form.ttmlText?.trim()) return
+  const originalVersions = parseTtmlVersions(form.ttmlText)
+  if (!originalVersions.length) return
+  let text = form.ttmlText
+  for (const v of versionForms.value) {
+    if (!v.lang) continue
+    const orig = originalVersions.find(o => o.kind === v.kind && o.lang !== v.lang)
+    if (!orig) continue
+    text = text.split(`xml:lang="${orig.lang}"`).join(`xml:lang="${v.lang}"`)
+    text = text.split(`xml:lang='${orig.lang}'`).join(`xml:lang='${v.lang}'`)
+  }
+  form.ttmlText = text
+}
+
+/** TTML 版本落盘：有原文 → INSERT/UPDATE；原文被清空且之前有版本 → DELETE（与发布链同逻辑） */
+async function upsertTtmlVersion(songId: string) {
+  syncTtmlLangs()
+  const text = form.ttmlText?.trim()
+  if (!text) {
+    // 原文被清空：删除已有 TTML 版本（编辑场景：用户删掉了 TTML 原文）
+    if (ttmlVersionId.value) {
+      const { error } = await supabase.from('lyric_versions').delete().eq('id', ttmlVersionId.value)
+      if (error) console.warn('[TTML 版本删除失败]', error.message)
+      ttmlVersionId.value = null
+    }
+    return
+  }
+  const ttmlRows = parseTtmlToRows(text)
+  const langs = [...new Set(ttmlRows.map(r => detectLang(r.text)).filter(l => l && l !== 'unknown'))]
+  if (ttmlVersionId.value) {
+    // 编辑模式 UPDATE
+    const { error } = await supabase.from('lyric_versions').update({
+      ttml_text: text, langs,
+    }).eq('id', ttmlVersionId.value)
+    if (error) throw new Error(`TTML 版本更新失败（${error.message}）`)
+  } else {
+    // 新增 INSERT（与发布链 L1281-L1291 同结构）
+    const newId = 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+    const { error } = await supabase.from('lyric_versions').insert({
+      id: newId, song_id: songId, format: 'ttml', source: 'user',
+      ttml_text: text, langs, status: 'published', is_primary: false,
+      contributor_id: form.contributor_id || null,
+    })
+    if (error) throw new Error(`TTML 版本写入失败（${error.message}）`)
+    ttmlVersionId.value = newId
   }
 }
 
@@ -352,11 +488,15 @@ function resetForm() {
   editingBasedInit()
   lyricsTab.value = 'lrc'
   setVersionForms([])
-  if (props.editSongId) loadVersions(props.editSongId)
+  ttmlVersionId.value = null
+  if (props.editSongId) {
+    loadVersions(props.editSongId)
+    loadTtmlVersion(props.editSongId)
+  }
   // review 模式（投稿审核）：无库内 songId，投稿自带的多语言版本直接预填
   else if (props.mode === 'review' && Array.isArray((props.initial as any)?.versions)) {
     setVersionForms((props.initial as any).versions.map((v: any) => ({
-      lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: v.lrc,
+      lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: v.lrc, ttml: '',
     })))
   }
 }
@@ -393,6 +533,8 @@ function editingBasedInit() {
     description: init.description || '',
     lrc_text: init.lrc_text || '',
     lyrics_text: init.lyrics_text || '',
+    // 审核模式：投稿自带的 ttml_text 直接回填；编辑模式由 loadTtmlVersion 单独加载
+    ttmlText: init.ttml_text || '',
     is_hidden: !!init.is_hidden,
     unlock_code: init.unlock_code || '',
   })
@@ -402,7 +544,7 @@ function baseEmpty() {
   return {
     title: '', aliases: [], duration: '', track: 0, artists: [], albumId: '', albumName: '', albumArtists: [], year: '',
     lyricists: [], composers: [], arrangers: [], contributor_id: '', genres: [], video_url: '', description: '',
-    lrc_text: '', lyrics_text: '', is_hidden: false, unlock_code: '',
+    lrc_text: '', lyrics_text: '', ttmlText: '', is_hidden: false, unlock_code: '',
   }
 }
 
@@ -613,15 +755,16 @@ async function save() {
 
     let finalLrcText = form.lrc_text.trim()
     if (versionsDirty.value && editing.value) {
+      // 行表只存 LRC 拆分的版本（lrc 字段有值）；TTML 拆分不进行表（在 ttml_text 原文里，由后端动态拆分）
       const versions: LyricVersion[] = versionForms.value
         .filter(v => v.lrc.trim())
         .map(v => ({
           lang: v.lang?.trim() || 'zh',
           kind: v.kind,
-          rows: v.format === 'ttml' ? parseTtmlToRows(v.lrc) : parseLrcToRows(v.lrc),
+          rows: parseLrcToRows(v.lrc),
         }))
       await saveLyricLines(props.editSongId!, versions)
-      finalLrcText = composeMixedLrc(versions, 'line')
+      finalLrcText = composeMixedLrc(versions, 'enhanced')
     }
 
     const payload: Record<string, unknown> = {
@@ -644,6 +787,8 @@ async function save() {
       await adminApi.update('songs', id, payload)
       // 歌词行表：版本管理脏 → 上面已写行表；否则整体 lrc_text 改动后重拆（触发器仅 INSERT，不会自动重拆 UPDATE）
       if (!versionsDirty.value) await rebuildLyricLines(id)
+      // TTML 版本：有原文 → UPDATE 或 INSERT；原文被清空且之前有版本 → DELETE
+      await upsertTtmlVersion(id)
       await syncSongSecrets(id, form.unlock_code.trim())
       await syncSongContributors(id, {
         singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,
@@ -666,6 +811,8 @@ async function save() {
       payload.id = 's' + Date.now()
       payload.status = 'published'
       await adminApi.insert('songs', payload)
+      // TTML 版本：新增模式只有 INSERT（ttmlVersionId 此时为 null）
+      await upsertTtmlVersion(payload.id as string)
       await syncSongSecrets(payload.id as string, form.unlock_code.trim())
       await syncSongContributors(payload.id as string, {
         singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,

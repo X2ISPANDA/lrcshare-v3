@@ -13,9 +13,11 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
+    "@applemusic-like-lyrics/ttml": "^1.0.1",
     "@element-plus/icons-vue": "^2.3.2",
     "@supabase/supabase-js": "^2.112.3",
     "@vueuse/core": "^14.4.0",
+    "@xmldom/xmldom": "^0.9.12",
     "element-plus": "^2.14.5",
     "fflate": "^0.8.3",
     "marked": "^18.0.9",
