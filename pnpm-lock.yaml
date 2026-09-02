@@ -8,15 +8,24 @@ importers:
 
   .:
     dependencies:
+      '@applemusic-like-lyrics/ttml':
+        specifier: ^1.0.1
+        version: 1.0.1
       '@element-plus/icons-vue':
         specifier: ^2.3.2
         version: 2.3.2(vue@3.5.42(typescript@5.9.3))
       '@supabase/supabase-js':
         specifier: ^2.112.3
         version: 2.112.4
+      '@unhead/vue':
+        specifier: ^2.1.17
+        version: 2.1.17(vue@3.5.42(typescript@5.9.3))
       '@vueuse/core':
         specifier: ^14.4.0
         version: 14.4.0(vue@3.5.42(typescript@5.9.3))
+      '@xmldom/xmldom':
+        specifier: ^0.9.12
+        version: 0.9.12
       element-plus:
         specifier: ^2.14.5
         version: 2.14.5(vue@3.5.42(typescript@5.9.3))
@@ -45,9 +54,6 @@ importers:
         specifier: ^5.2.0
         version: 5.3.0(@vue/compiler-sfc@3.5.42)(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@5.9.3)(vue@3.5.42(typescript@5.9.3)))(rolldown@1.2.6)(rollup@4.63.1)(vite@8.2.2(jiti@2.7.0)(terser@5.51.2))(vue@3.5.42(typescript@5.9.3))
     devDependencies:
-      '@iconify/json':
-        specifier: ^2.2.516
-        version: 2.2.521
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(jiti@2.7.0)(terser@5.51.2))
@@ -162,6 +168,9 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
+
+  '@applemusic-like-lyrics/ttml@1.0.1':
+    resolution: {integrity: sha512-xhLajMI9Jm+Etv99GbK5Fx8wqa5m9wnS3kCqOTBUy9imjsah2PrV1XyCc6LBssPhEFcQt2SrFNQlwT6GZwpY7A==}
 
   '@asamuzakjp/css-color@5.1.11':
     resolution: {integrity: sha512-KVw6qIiCTUQhByfTd78h2yD1/00waTmm9uy/R7Ck/ctUyAPj+AEDLkQIdJW0T8+qGgj3j5bpNKK7Q3G+LedJWg==}
@@ -424,9 +433,6 @@ packages:
 
   '@iconify-json/simple-icons@1.2.93':
     resolution: {integrity: sha512-/XhANjfGYOuqvSR3TmUnkQkINvQ4GVjVuukvymRbxtVFBvIq/yiXJqCDycKcQPT401OYT9H2vIY6ihAlz1QIAw==}
-
-  '@iconify/json@2.2.521':
-    resolution: {integrity: sha512-A28AxL35ElpaZg1vk6tPf4/nJ/6KX+HGYVznyzaNYip0as9KTPfdqKxDI7A5mN4RXedxVOOugHN+nofxkUoEEQ==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -1038,6 +1044,10 @@ packages:
     resolution: {integrity: sha512-JRgY90Sz8DDtPMsaDflvPMp9xYk69JZAmbuDvAquUVXKr2gEjqtzGNTTthLfckH0BzBqvnu31gb4a8TGLRe79g==}
     peerDependencies:
       vue: ^3.5.0
+
+  '@xmldom/xmldom@0.9.12':
+    resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
+    engines: {node: '>=14.6'}
 
   acorn@8.18.0:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
@@ -2161,6 +2171,8 @@ snapshots:
       package-manager-detector: 1.8.0
       tinyexec: 1.3.0
 
+  '@applemusic-like-lyrics/ttml@1.0.1': {}
+
   '@asamuzakjp/css-color@5.1.11':
     dependencies:
       '@asamuzakjp/generational-cache': 1.0.1
@@ -2338,11 +2350,6 @@ snapshots:
   '@iconify-json/simple-icons@1.2.93':
     dependencies:
       '@iconify/types': 2.0.0
-
-  '@iconify/json@2.2.521':
-    dependencies:
-      '@iconify/types': 2.0.0
-      pathe: 2.0.3
 
   '@iconify/types@2.0.0': {}
 
@@ -2854,6 +2861,8 @@ snapshots:
   '@vueuse/shared@14.4.0(vue@3.5.42(typescript@5.9.3))':
     dependencies:
       vue: 3.5.42(typescript@5.9.3)
+
+  '@xmldom/xmldom@0.9.12': {}
 
   acorn@8.18.0: {}
 
