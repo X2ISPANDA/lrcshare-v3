@@ -13,7 +13,29 @@
         </div>
       </div>
 
-      <div v-show="!submitted" class="space-y-6">
+      <!-- 投稿模式切换：新歌曲 / 为已有歌曲补充版本 -->
+      <div v-show="!submitted" class="flex rounded-lg border border-gray-200 p-1 mb-6 text-sm">
+        <button
+          type="button"
+          class="flex-1 py-2 rounded-md transition-colors cursor-pointer"
+          :class="submitMode === 'song' ? 'bg-pink-500 text-white font-medium' : 'text-gray-500 hover:text-gray-700'"
+          @click="submitMode = 'song'"
+        >🎵 投稿新歌曲</button>
+        <button
+          type="button"
+          class="flex-1 py-2 rounded-md transition-colors cursor-pointer"
+          :class="submitMode === 'version' ? 'bg-pink-500 text-white font-medium' : 'text-gray-500 hover:text-gray-700'"
+          @click="submitMode = 'version'"
+        >➕ 为已有歌曲补充版本</button>
+      </div>
+
+      <div v-show="!submitted && submitMode === 'version'">
+        <h2 class="text-lg font-semibold text-gray-700 mb-1">🎶 补充歌词版本</h2>
+        <p class="text-sm text-gray-500 mb-5">为站内已有的歌曲补充 TTML 或逐字 LRC 歌词版本，审核通过后将挂到该歌曲下。</p>
+        <VersionSubmitPanel @submitted="onVersionSubmitted" />
+      </div>
+
+      <div v-show="!submitted && submitMode === 'song'" class="space-y-6">
         <!-- ===== 你的信息 ===== -->
         <div class="border-b pb-6">
           <h2 class="text-lg font-semibold text-gray-700 mb-4">👤 你的信息</h2>
@@ -421,6 +443,7 @@ import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import BatchSubmitPanel from '@/components/submit/BatchSubmitPanel.vue'
+import VersionSubmitPanel from '@/components/submit/VersionSubmitPanel.vue'
 import type { AlbumWithArtists } from '@/lib/types'
 
 useHead({ title: '投稿歌词 - LrcShare' })
@@ -656,6 +679,14 @@ function selectAlbum(a: AlbumWithArtists) {
 const submitted = ref(false)
 const submittedType = ref<'song' | 'profile'>('song')
 const submitting = ref(false)
+/** 投稿模式：新歌曲 / 为已有歌曲补充版本（VersionSubmitPanel 独立处理表单与提交） */
+const submitMode = ref<'song' | 'version'>('song')
+
+/** 补充版本面板提交成功：复用同一成功页 */
+function onVersionSubmitted() {
+  submitted.value = true
+  submittedType.value = 'song'
+}
 
 async function handleSubmit() {
   const name = (userForm.name || '').trim()

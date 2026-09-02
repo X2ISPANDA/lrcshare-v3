@@ -604,8 +604,25 @@ function composeEnhancedText(text, timeMs, endMs) {
   const s = String(text || '')
   if (!/<\d{1,6}>/.test(s)) return s // 无词标签 → 降级为 line（原样）
   const converted = s.replace(/<(\d{1,6})>/g, (_, off) => `<${formatLyricTime(timeMs + Number(off))}>`)
-  let out = `<${formatLyricTime(timeMs)}>${converted}`
-  if (endMs != null) out += `<${formatLyricTime(endMs)}>`
+  // 首词绝对时间=行首时不重复前置行时间标签（与前端 lyricLines.ts 同逻辑，往返幂等）
+  const firstTag = converted.match(/^<(\d{1,3}):(\d{2})[.:](\d{2,3})>/)
+  let noDupHead = false
+  if (firstTag) {
+    const frac = firstTag[3]
+    const msPart = frac.length === 2 ? parseInt(frac, 10) * 10 : parseInt(frac, 10)
+    const firstMs = parseInt(firstTag[1], 10) * 60000 + parseInt(firstTag[2], 10) * 1000 + msPart
+    noDupHead = firstMs === timeMs
+  }
+  // 尾随标签已是行结束时间时不重复追加（往返幂等，避免 …<end><end> 叠加）
+  const endTag = endMs != null ? `<${formatLyricTime(endMs)}>` : ''
+  const appendEnd = !!endTag && !converted.endsWith(endTag)
+  const headTag = `<${formatLyricTime(timeMs)}>`
+  let out = noDupHead ? converted : `${headTag}${converted}`
+  if (appendEnd) out += endTag
+  // 收缩存量重复（旧数据自愈，与前端 lyricLines.ts 同逻辑）：行首连续相同的行时间标签、行尾连续相同的 end 标签各只留 1 个
+  const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  out = out.replace(new RegExp(`^(?:${esc(headTag)})+`), headTag)
+  if (endTag) out = out.replace(new RegExp(`(?:${esc(endTag)})+$`), endTag)
   return out
 }
 

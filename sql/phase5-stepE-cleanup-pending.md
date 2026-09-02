@@ -21,12 +21,15 @@ WHERE p.resolution IS NULL
 
 ## 预期结果
 
-- 删除约 **2687** 行（dry-run 遗留噪音）
-- 保留 **63** 行真实待确认（`external_id` 未命中 = 未导入）
-- 已人工处理（`resolution` 非 NULL）的行一律不动
+* 删除约 **2687** 行（dry-run 遗留噪音）
+
+* 保留 **63** 行真实待确认（`external_id` 未命中 = 未导入）
+
+* 已人工处理（`resolution` 非 NULL）的行一律不动
 
 ## 验证
 
 ```sql
 SELECT count(*) FROM public.ttml_hub_pending WHERE resolution IS NULL;  -- 预期 63
 ```
+

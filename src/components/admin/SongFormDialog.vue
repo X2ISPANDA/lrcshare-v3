@@ -142,26 +142,146 @@
       <el-form-item v-if="requireLyrics" label="歌词" required>
         <el-tabs v-model="lyricsTab" type="card" class="w-full">
           <el-tab-pane label="LRC 歌词" name="lrc">
-            <el-input v-model="form.lrc_text" type="textarea" :rows="8" placeholder="粘贴 LRC 歌词..." class="font-mono!" @paste="onLrcPaste" />
-            <div class="flex items-center gap-2 mt-1">
-              <div class="text-xs text-gray-400 flex-1">粘贴 LRC 原文，系统自动拆分多语言版本。</div>
-              <el-button size="small" @click="lrcToTtml">转为 TTML</el-button>
+            <!-- 版本管理：多 LRC 版本并存（同语言变体如简/繁体），写法对齐 TTML tab -->
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <el-select v-if="versionForms.length > 1" v-model="activeLrcIdx" size="small" class="!w-48">
+                <el-option v-for="(v, i) in versionForms" :key="i" :label="`版本 ${i + 1} · ${LYRIC_KIND_LABEL[v.kind]} · ${langLabel(v.lang)}`" :value="i" />
+              </el-select>
+              <span class="text-xs text-gray-500 shrink-0">语言</span>
+              <el-select v-model="activeLrcLang" filterable allow-create default-first-option size="small" class="!w-32">
+                <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+              </el-select>
+              <span class="text-xs text-gray-500 shrink-0">类型</span>
+              <el-select v-model="activeLrcKind" size="small" class="!w-28">
+                <el-option v-for="(label, k) in LYRIC_KIND_LABEL" :key="k" :label="label" :value="k" />
+              </el-select>
+              <div class="flex-1"></div>
+              <el-button size="small" @click="addLrcVersion">+ 添加版本</el-button>
+              <el-button link type="danger" size="small" @click="removeLrcVersion(activeLrcIdx)">删除此版本</el-button>
             </div>
+            <!-- 双区：左 LRC 源码（当前版本，可编辑），右 纯文本（按行对应生成/更新变体）；两侧同步滚动 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <div class="text-xs text-gray-500 mb-1">LRC 源码（当前版本）</div>
+                <el-input :ref="el => bindSyncScroll(el, 'lrc')" v-model="activeLrcSource" type="textarea" :rows="10" placeholder="粘贴当前版本的 LRC；粘贴整体多语言 LRC 会自动拆分替换全部版本" class="font-mono!" />
+              </div>
+              <div>
+                <div class="text-xs text-gray-500 mb-1">纯文本歌词</div>
+                <el-input :ref="el => bindSyncScroll(el, 'lrcPlain')" v-model="activeLrcPlain" type="textarea" :rows="10" placeholder="粘贴纯文本歌词：本版本有 LRC 则原位更新文字（改错字），否则以原文版本为模板生成变体（简↔繁等，时间戳/词级结构照抄；行数词数需一致）" class="font-mono!" />
+              </div>
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+              <div class="text-xs text-gray-400 flex-1">两侧内容永久保留，随时修改；下方预览为最终入库的合成 LRC。</div>
+            </div>
+            <details open class="mt-2">
+              <summary class="cursor-pointer text-xs text-blue-600 select-none">预览（最终入库 LRC，只读）</summary>
+              <pre class="mt-1 max-h-56 overflow-y-auto bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap font-mono text-[11px]">{{ lrcPreview }}</pre>
+            </details>
           </el-tab-pane>
           <el-tab-pane label="TTML 原文" name="ttml">
-            <el-input v-model="form.ttmlText" type="textarea" :rows="8" placeholder="粘贴 TTML 原文（对唱/分屏/样式零丢失）" class="font-mono!" @paste="onTtmlPaste" />
-            <div class="flex items-center gap-2 mt-1">
-              <div class="text-xs text-gray-400 flex-1">粘贴 TTML 原文，系统自动拆分多语言版本到「多语言版本」tab。</div>
-              <el-button size="small" @click="ttmlToLrc">转为 LRC</el-button>
+            <!-- 版本管理：多 TTML 版本并存（同语言变体如简/繁体）+ 正文语言标注（入库 langs 首位，替代盲猜） -->
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <el-select v-if="ttmlVersions.length > 1" v-model="activeTtmlIdx" size="small" class="!w-44">
+                <el-option v-for="(v, i) in ttmlVersions" :key="i" :label="`版本 ${i + 1} · ${langLabel(v.model.bodyLang || 'zh')}`" :value="i" />
+              </el-select>
+              <span class="text-xs text-gray-500 shrink-0">正文语言</span>
+              <el-select v-model="activeTtmlBodyLang" filterable allow-create default-first-option size="small" class="!w-36">
+                <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+              </el-select>
+              <div class="flex-1"></div>
+              <el-button size="small" @click="addTtmlVersion">+ 添加版本</el-button>
+              <el-button link type="danger" size="small" @click="removeTtmlVersion(activeTtmlIdx)">删除此版本</el-button>
             </div>
-          </el-tab-pane>
-          <el-tab-pane label="多语言版本" name="versions">
-            <div class="space-y-3">
-              <div v-if="!editing" class="text-xs text-amber-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                新增歌曲请先在「LRC 歌词」粘贴整体歌词（保存后自动拆分）；本 tab 用于编辑已有歌曲的多语言版本。
+            <!-- 双区：左 TTML 源码（可编辑），右 纯文本（按行对应生成/更新正文）；两侧同步滚动 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <div class="text-xs text-gray-500 mb-1">TTML 源码</div>
+                <el-input :ref="el => bindSyncScroll(el, 'ttml')" v-model="activeTtmlSource" type="textarea" :rows="10" placeholder="粘贴完整 TTML（对唱/分屏/样式零丢失，翻译/音译自动提取到表格）" class="font-mono!" />
               </div>
-              <LyricVersionsEditor v-model="versionForms" show-format :add-disabled="!editing" />
-              <div class="text-xs text-gray-400">每个版本独立维护语言与类型；保存后自动合成回「LRC 歌词」。</div>
+              <div>
+                <div class="text-xs text-gray-500 mb-1">纯文本歌词</div>
+                <el-input :ref="el => bindSyncScroll(el, 'ttmlPlain')" v-model="activeTtmlPlain" type="textarea" :rows="10" placeholder="粘贴纯文本歌词：本版本有结构则原位更新文字（改错字），否则以另一版本为模板生成变体（简↔繁逐字对应，词级时间照抄；行数词数需一致）" class="font-mono!" />
+              </div>
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+              <div class="text-xs text-gray-400 flex-1">两侧内容永久保留，随时修改；下方预览为最终入库的完整 TTML。</div>
+            </div>
+            <details open class="mt-2">
+              <summary class="cursor-pointer text-xs text-blue-600 select-none">预览（最终入库 TTML，只读）</summary>
+              <pre class="mt-1 max-h-56 overflow-y-auto bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap font-mono text-[11px]">{{ ttmlPreview }}</pre>
+            </details>
+
+            <!-- 翻译表格：L1~LN 每行一格（留空=未翻译），按 itunes:key 与正文行一一对应 -->
+            <div v-if="ttmlEdit.lines.length" class="mt-3">
+              <div v-for="(t, ti) in ttmlEdit.translations" :key="ti" class="border border-gray-200 rounded-lg p-3 mb-2">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-xs text-gray-500">翻译</span>
+                  <el-select v-model="t.lrcLang" filterable allow-create default-first-option size="small" class="!w-40">
+                    <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+                  </el-select>
+                  <span v-if="t.ttmlLang && t.ttmlLang !== t.lrcLang" class="text-xs text-gray-400">xml:lang={{ t.ttmlLang }}</span>
+                  <div class="flex-1"></div>
+                  <el-button link type="danger" size="small" @click="ttmlEdit.translations.splice(ti, 1); batchPaste.trans.splice(ti, 1)">删除</el-button>
+                </div>
+                <div class="max-h-60 overflow-y-auto">
+                  <div v-for="ln in t.lines" :key="ln.for" class="flex items-center gap-2 py-1 border-b border-gray-100 last:border-0">
+                    <span class="w-9 shrink-0 text-xs text-gray-400 pt-0.5">{{ ln.for }}</span>
+                    <span class="w-2/5 shrink-0 text-xs text-gray-500 pt-0.5 truncate" :title="ttmlLineText(ln.for)">{{ ttmlLineText(ln.for) }}</span>
+                    <el-input v-model="ln.text" size="small" placeholder="该行翻译（留空=未翻译）" class="flex-1" />
+                  </div>
+                </div>
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-xs text-blue-600 select-none">批量粘贴</summary>
+                  <div class="mt-1.5">
+                    <el-input v-model="batchPaste.trans[ti]" type="textarea" :rows="6" placeholder="整块粘贴：每行按顺序对应 L1~LN 翻译；某行没有翻译就空一行（补回车对齐）" class="font-mono!" />
+                    <div class="flex items-center gap-2 mt-1">
+                      <span class="text-xs flex-1" :class="batchCount(batchPaste.trans[ti]) === t.lines.length ? 'text-green-600' : 'text-red-500'">
+                        已粘贴 {{ batchCount(batchPaste.trans[ti]) }} 行 / 表格 {{ t.lines.length }} 行{{ batchCount(batchPaste.trans[ti]) === t.lines.length ? '（可填入）' : '（行数需一致：多删少补空行）' }}
+                      </span>
+                      <el-button size="small" @click="fillBatch('trans', ti)">按行填入</el-button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <el-button size="small" @click="addTtmlTrack('translation')">+ 添加翻译语言</el-button>
+            </div>
+
+            <!-- 音译表格：空格分词、{LSU,词 组} 多字并位、{LSJ,原词,N} 跳词；行下显示词级对应预览 -->
+            <div v-if="ttmlEdit.lines.length" class="mt-3">
+              <div v-for="(tr, ri) in ttmlEdit.transliterations" :key="ri" class="border border-gray-200 rounded-lg p-3 mb-2">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-xs text-gray-500">音译</span>
+                  <el-select v-model="tr.lrcLang" filterable allow-create default-first-option size="small" class="!w-40">
+                    <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+                  </el-select>
+                  <span v-if="tr.ttmlLang && tr.ttmlLang !== tr.lrcLang" class="text-xs text-gray-400">xml:lang={{ tr.ttmlLang }}</span>
+                  <div class="flex-1"></div>
+                  <el-button link type="danger" size="small" @click="ttmlEdit.transliterations.splice(ri, 1); batchPaste.roman.splice(ri, 1)">删除</el-button>
+                </div>
+                <div class="max-h-60 overflow-y-auto">
+                  <div v-for="ln in tr.lines" :key="ln.for" class="py-1 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-2">
+                      <span class="w-9 shrink-0 text-xs text-gray-400 pt-0.5">{{ ln.for }}</span>
+                      <span class="w-2/5 shrink-0 text-xs text-gray-500 pt-0.5 truncate" :title="ttmlLineText(ln.for)">{{ ttmlLineText(ln.for) }}</span>
+                      <el-input v-model="ln.text" size="small" placeholder="空格分词；{LSU,词 组} 多字并位；{LSJ,原词,N} 跳到第 N 个原词（N 可省略）" class="flex-1 font-mono!" />
+                    </div>
+                    <div v-if="ln.text.trim()" class="text-[11px] text-gray-400 mt-0.5 break-all">{{ romanPreview(ln) }}</div>
+                  </div>
+                </div>
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-xs text-blue-600 select-none">批量粘贴</summary>
+                  <div class="mt-1.5">
+                    <el-input v-model="batchPaste.roman[ri]" type="textarea" :rows="6" placeholder="整块粘贴：每行按顺序对应 L1~LN 音译；某行没有音译就空一行（补回车对齐）；{LSU,}/{LSJ,} 语法照常生效" class="font-mono!" />
+                    <div class="flex items-center gap-2 mt-1">
+                      <span class="text-xs flex-1" :class="batchCount(batchPaste.roman[ri]) === tr.lines.length ? 'text-green-600' : 'text-red-500'">
+                        已粘贴 {{ batchCount(batchPaste.roman[ri]) }} 行 / 表格 {{ tr.lines.length }} 行{{ batchCount(batchPaste.roman[ri]) === tr.lines.length ? '（可填入）' : '（行数需一致：多删少补空行）' }}
+                      </span>
+                      <el-button size="small" @click="fillBatch('roman', ri)">按行填入</el-button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+              <el-button size="small" @click="addTtmlTrack('romanization')">+ 添加音译语言</el-button>
             </div>
           </el-tab-pane>
           <el-tab-pane label="文本歌词 (Markdown/HTML)" name="text">
@@ -223,9 +343,9 @@ import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
-import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
+import type { LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { GENRE_OPTIONS, TIP_ICONS } from '@/lib/constants'
-import { loadLyricLines, loadLyricVersionMetas, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, parseTtmlVersions, versionsToTtml, composeMixedLrc, saveLyricLines, rebuildLyricLines, splitLrcToVersions, detectLang, type LyricVersion } from '@/lib/lyricLines'
+import { loadLyricLines, loadLyricVersionMetas, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, rebuildLyricLines, splitLrcToVersions, detectLang, detectTtmlLangs, LYRIC_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, parseTtmlForEdit, composeTtml, emptyTtmlEditModel, parseTranslitTokens, alignTranslitTokens, generateTtmlVariant, generateLrcVariant, expandRomanSyntax, prettifyTtml, stripWordTags, type LyricKind, type LyricVersion, type TtmlEditModel } from '@/lib/lyricLines'
 import { supabase } from '@/lib/supabase'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
@@ -289,68 +409,474 @@ const visible = computed({
   set: v => emit('update:modelValue', v),
 })
 
+// ===== 双区同步滚动（LRC 源码 ↔ 纯文本 / TTML 源码 ↔ 纯文本）：按滚动比例联动 =====
+const syncScrollGroups: Record<string, { els: HTMLElement[]; lock: boolean }> = {
+  lrc: { els: [], lock: false },
+  lrcPlain: { els: [], lock: false },
+  ttml: { els: [], lock: false },
+  ttmlPlain: { els: [], lock: false },
+}
+/** el-input ref 回调 → 取内部 textarea 按组注册（内联函数 ref 每次渲染重触发，采用覆盖式重绑；
+ *  组内任一滚动 → 配对组同步同比例位置） */
+function bindSyncScroll(el: unknown, group: 'lrc' | 'lrcPlain' | 'ttml' | 'ttmlPlain') {
+  const root = (el as any)?.$el ?? el
+  const textarea = root?.querySelector?.('textarea')
+  const g = syncScrollGroups[group]
+  if (!(textarea instanceof HTMLElement)) { g.els = []; return } // 卸载/重渲染 null 阶段
+  if (g.els[0] === textarea) return // 已绑定，避免重复挂监听
+  g.els = [textarea]
+  textarea.addEventListener('scroll', () => {
+    const pair = group === 'lrc' ? 'lrcPlain' : group === 'lrcPlain' ? 'lrc'
+      : group === 'ttml' ? 'ttmlPlain' : 'ttml'
+    const dst = syncScrollGroups[pair]
+    if (g.lock) { g.lock = false; return }
+    const srcMax = textarea.scrollHeight - textarea.clientHeight
+    if (srcMax <= 0) return
+    const ratio = textarea.scrollTop / srcMax
+    for (const t of dst.els) {
+      const tMax = t.scrollHeight - t.clientHeight
+      if (tMax > 0) t.scrollTop = ratio * tMax
+    }
+    dst.lock = true
+  })
+}
+
 const editing = computed(() => !!props.editSongId)
 const saving = ref(false)
 const lyricsTab = ref('lrc')
 const lyricsTextRef = ref<any>(null)
 
-/** 从 LRC 原文 + TTML 原文分别拆分多语言，按 lang|kind 合并到 versionForms（各自独立，互不覆盖） */
-function syncVersions() {
-  const lrcVersions = form.lrc_text.trim() ? splitLrcToVersions(form.lrc_text) : []
-  const ttmlVersions = form.ttmlText?.trim() ? parseTtmlVersions(form.ttmlText) : []
-  if (!lrcVersions.length && !ttmlVersions.length) return
+// ===== 多语言版本管理（LRC 版本列表 = versionForms；加载/拆分统一走 setLrcVersions） =====
+// 声明必须先于下方 LRC 版本管理区（watch 注册即读取 getter，TDZ 防护）
+const versionForms = ref<LrcVersionEntry[]>([])
+const versionsDirty = ref(false)
+let suppressDirty = false
+watch(versionForms, vs => {
+  if (suppressDirty) return
+  versionsDirty.value = true
+  // 版本内容变化 → 合成 form.lrc_text（保持与预览/落库一致；清空全部版本即清空 LRC）
+  form.lrc_text = composeLrcTextOf(vs)
+}, { deep: true })
 
-  const map = new Map<string, LyricVersionForm>()
-  for (const v of lrcVersions) {
-    const key = `${v.lang}|${v.kind}`
-    map.set(key, { lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced'), ttml: '', format: 'lrc' })
-  }
-  for (const v of ttmlVersions) {
-    const key = `${v.lang}|${v.kind}`
-    const existing = map.get(key)
-    if (existing) {
-      existing.ttml = versionsToTtml([v])
-    } else {
-      map.set(key, { lang: v.lang, kind: v.kind, lrc: '', ttml: versionsToTtml([v]), format: 'lrc' })
-    }
-  }
-  setVersionForms([...map.values()])
+// ===== LRC 版本管理（对齐 TTML tab：版本下拉 + 语言/类型标注 + 添加/删除；双区编辑，预览只读） =====
+
+/** LRC 版本条目：多版本并存（同语言变体如简/繁体）；plain = 纯文本区内容 */
+interface LrcVersionEntry extends LyricVersionForm {
+  /** 纯文本区内容（从本版本行文本回填；编辑后反向派生回 lrc） */
+  plain: string
+  /** 上次派生用的纯文本（幂等：切版本/程序化回填不重复派生） */
+  lastPlain: string
+  /** 上次派生用的 LRC 源码（幂等：切版本/程序化赋值不重复派生） */
+  lastDerived: string
 }
 
-/** LRC 原文粘贴后：拆分多语言到「多语言版本」tab */
-function onLrcPaste() {
-  nextTick(() => syncVersions())
+const activeLrcIdx = ref(0)
+const activeLrc = computed(() => versionForms.value[activeLrcIdx.value] || null)
+
+/** LRC 源码区双向代理（当前版本 lrc） */
+const activeLrcSource = computed({
+  get: () => activeLrc.value?.lrc ?? '',
+  set: v => { if (activeLrc.value) activeLrc.value.lrc = v },
+})
+/** 纯文本区双向代理（当前版本 plain） */
+const activeLrcPlain = computed({
+  get: () => activeLrc.value?.plain ?? '',
+  set: v => { if (activeLrc.value) activeLrc.value.plain = v },
+})
+/** 语言/类型双向代理（当前版本） */
+const activeLrcLang = computed({
+  get: () => activeLrc.value?.lang || 'zh',
+  set: v => { if (activeLrc.value) activeLrc.value.lang = v },
+})
+const activeLrcKind = computed({
+  get: () => activeLrc.value?.kind || 'original',
+  set: v => { if (activeLrc.value) activeLrc.value.kind = v as LyricKind },
+})
+
+/** 版本 lrc → 纯文本（行主文本，剥词级标签） */
+function plainOfLrc(lrc: string): string {
+  if (!lrc.trim()) return ''
+  return parseLrcToRows(lrc).filter(r => r.time_ms != null).map(r => stripWordTags(r.text)).join('\n')
 }
 
-/** TTML 原文粘贴后：拆分多语言到「多语言版本」tab */
-function onTtmlPaste() {
-  nextTick(() => syncVersions())
+/** 程序化回填纯文本区（不触发派生） */
+function syncPlainOf(e: LrcVersionEntry) {
+  e.plain = plainOfLrc(e.lrc)
+  e.lastPlain = e.plain
 }
 
-/** TTML → 逐字 LRC（降级到 LRC 框） */
-function ttmlToLrc() {
-  const text = form.ttmlText?.trim()
-  if (!text) { ElMessage.warning('TTML 原文为空'); return }
-  const rows = parseTtmlToRows(text)
-  if (!rows.length) { ElMessage.warning('TTML 解析失败'); return }
-  form.lrc_text = rowsToLrcText(rows, 'enhanced')
-  ElMessage.success('已转为逐字 LRC')
+function toLrcEntry(v: LyricVersionForm): LrcVersionEntry {
+  const plain = plainOfLrc(v.lrc)
+  return { lang: v.lang?.trim() || 'zh', kind: v.kind, lrc: v.lrc, plain, lastPlain: plain, lastDerived: v.lrc.trim() }
 }
 
-/** LRC → TTML（仅逐字 LRC 可转；逐行无词级时间禁止） */
-function lrcToTtml() {
-  const text = form.lrc_text?.trim()
-  if (!text) { ElMessage.warning('LRC 歌词为空'); return }
-  const rows = parseLrcToRows(text)
-  if (!rows.length) { ElMessage.warning('LRC 解析失败'); return }
-  const hasWord = rows.some(r => /<\d{1,6}>/.test(String(r.text)))
-  if (!hasWord) {
-    ElMessage.warning('逐行 LRC 无词级时间，无法生成 TTML（请先使用逐字/增强 LRC）')
+/** 版本列表 → 合成 LRC（空 = 空串；与预览/落库同源） */
+function composeLrcTextOf(entries: LrcVersionEntry[]): string {
+  const vs = buildVersions(entries)
+  return vs.length ? composeMixedLrc(vs, 'enhanced') : ''
+}
+
+/** 设置 LRC 版本列表（加载/拆分/合并统一入口；回填纯文本区并合成 form.lrc_text） */
+function setLrcVersions(list: LyricVersionForm[]) {
+  const entries = (list.length ? list : [{ lang: 'zh', kind: 'original' as const, lrc: '' }]).map(toLrcEntry)
+  suppressDirty = true
+  versionForms.value = entries
+  activeLrcIdx.value = 0
+  form.lrc_text = composeLrcTextOf(entries)
+  nextTick(() => {
+    suppressDirty = false
+    versionsDirty.value = false
+  })
+}
+
+/** 添加版本（空白；纯文本区以原文版本为模板生成变体，或直接粘贴该版本 LRC） */
+function addLrcVersion() {
+  versionForms.value.push({ lang: 'zh', kind: 'original', lrc: '', plain: '', lastPlain: '', lastDerived: '' })
+  activeLrcIdx.value = versionForms.value.length - 1
+}
+
+/** 删除版本（删最后一个留一个空白，保持 ≥1 不变量） */
+function removeLrcVersion(idx: number) {
+  if (!versionForms.value[idx]) return
+  versionForms.value.splice(idx, 1)
+  if (!versionForms.value.length) addLrcVersion()
+  activeLrcIdx.value = Math.min(activeLrcIdx.value, versionForms.value.length - 1)
+}
+
+/** LRC 源码区变化（防抖后）：单语言原位更新；整体多语言 LRC 拆分替换全部版本 */
+let lrcSourceTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => activeLrc.value?.lrc, () => {
+  if (lrcSourceTimer) clearTimeout(lrcSourceTimer)
+  lrcSourceTimer = setTimeout(deriveActiveLrcSource, 400)
+})
+
+function deriveActiveLrcSource() {
+  const e = activeLrc.value
+  if (!e) return
+  const raw = e.lrc.trim()
+  if (raw === e.lastDerived) return
+  e.lastDerived = raw
+  if (!raw) { e.plain = ''; e.lastPlain = ''; return }
+  if (!/^\[\d{1,3}:\d{2}/m.test(raw)) {
+    ElMessage.warning('未检测到时间戳：LRC 代码请粘贴到左侧「LRC 源码」框；纯文本歌词请粘贴到右侧「纯文本」框')
     return
   }
-  const lang = detectLang(rows.map(r => r.text).join(' ')) || 'zh'
-  form.ttmlText = versionsToTtml([{ lang, kind: 'original', rows }])
-  ElMessage.success('已生成 TTML')
+  const lrcVersions = splitLrcToVersions(e.lrc)
+  if (!lrcVersions.length) return
+  if (lrcVersions.length > 1) {
+    // 整体多语言 LRC：拆分替换全部版本（原「多语言版本」tab 的粘贴入口）
+    setLrcVersions(lrcVersions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') })))
+    ElMessage.success(`已拆分为 ${lrcVersions.length} 个语言版本`)
+    return
+  }
+  // 单语言：原位更新当前版本，纯文本区回填
+  syncPlainOf(e)
+}
+
+/** 纯文本区变化（防抖后）：本版本有 LRC → 以自身行为模板原位更新文字；空版本 → 以原文版本为模板生成变体 */
+let lrcPlainTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => activeLrc.value?.plain, () => {
+  if (lrcPlainTimer) clearTimeout(lrcPlainTimer)
+  lrcPlainTimer = setTimeout(() => {
+    const e = activeLrc.value
+    if (e && e.plain !== e.lastPlain) deriveActiveLrcPlain(e)
+  }, 400)
+})
+
+function deriveActiveLrcPlain(e: LrcVersionEntry) {
+  const raw = e.plain.trim()
+  e.lastPlain = e.plain
+  if (!raw) return // 纯文本区清空不动作（删除版本请用「删除此版本」）
+  const isNew = !e.lrc.trim()
+  const base = isNew ? versionForms.value.find(v => v.kind === 'original' && v.lrc.trim()) : e
+  if (!base) {
+    ElMessage.warning('纯文本生成变体需要先在「LRC 源码」框粘贴 LRC（拆分出原文行版本后才能做模板）')
+    return
+  }
+  const errors: { line: string; expect: number; got: number }[] = []
+  const variant = generateLrcVariant(base.lrc, raw, errors)
+  if (!variant) {
+    if (errors.length) {
+      const detail = errors.slice(0, 5).map(x => x.line ? `${x.line}需 ${x.expect} 词，实际 ${x.got} 词` : `行数不匹配：原文 ${x.expect} 行，粘贴 ${x.got} 行`).join('；')
+      ElMessage.error(`变体生成失败：${detail}${errors.length > 5 ? ` 等 ${errors.length} 处` : ''}。规则：含空格按空格分词，无空格按单字`)
+    } else {
+      ElMessage.error('变体生成失败（原文版本解析异常）')
+    }
+    return
+  }
+  e.lrc = variant
+  e.lastDerived = variant.trim()
+  if (isNew) {
+    const detected = detectLang(raw)
+    e.lang = detected === 'unknown' ? 'zh' : detected
+  }
+  ElMessage.success(isNew ? '已生成变体（模板：原文行；语言可在上方修改）' : '已按纯文本更新歌词（时间戳照抄）')
+}
+
+/** 表格 → 合成版本数组（音译 {LSU,}/{LSJ,} 语法在此展开对齐原文行词级时间；预览与落库共用同一构造，保证所见即所存） */
+function buildVersions(forms: LyricVersionForm[]): LyricVersion[] {
+  const origLrc = forms.find(v => v.kind === 'original' && v.lrc.trim())?.lrc || ''
+  return forms.filter(v => v.lrc.trim()).map(v => ({
+    lang: v.lang?.trim() || 'zh',
+    kind: v.kind,
+    rows: parseLrcToRows(v.kind === 'romanization' && /\{LS[UJ]/.test(v.lrc) ? expandRomanSyntax(v.lrc, origLrc) : v.lrc),
+  }))
+}
+
+/** LRC 预览（只读）：最终入库的合成 LRC（多语言版本合成；无版本时 = 原文 LRC） */
+const lrcPreview = computed(() => composeLrcTextOf(versionForms.value))
+
+// ===== TTML 编辑模型（正文原文 + 翻译/音译表格；保存时 composeTtml 合成回完整原文） =====
+
+/** TTML 版本条目：多版本并存（同语言变体如简/繁体）；id=lyric_versions 行 id（null=新增未落盘） */
+interface TtmlVersionEntry {
+  id: string | null
+  /** TTML 源码区内容（完整 TTML，随时可改） */
+  source: string
+  /** 纯文本区内容（按行对应正文；编辑后以 TTML 结构为模板重新生成正文文字） */
+  plain: string
+  /** 版本来源（编辑模式读库保留；新增/审核固定 user） */
+  origin: string
+  /** 上次派生用的 TTML 源码（幂等：切版本/程序化赋值不重复派生） */
+  lastDerived: string
+  /** 上次派生用的纯文本（幂等：切版本/程序化同步不重复派生） */
+  lastPlain: string
+  model: TtmlEditModel
+}
+const ttmlVersions = ref<TtmlVersionEntry[]>([])
+const activeTtmlIdx = ref(0)
+const activeTtml = computed(() => ttmlVersions.value[activeTtmlIdx.value] || null)
+/** 兜底空模型（不变量：列表恒 ≥1 条，正常不触达） */
+const EMPTY_TTML = emptyTtmlEditModel()
+/** 编辑代理：模板/脚本统一经此读写当前版本（属性突变落到 entry.model 上） */
+const ttmlEdit = computed<TtmlEditModel>(() => activeTtml.value?.model || EMPTY_TTML)
+/** 正文语言（权威来源在 model.bodyLang；保存时 composeTtml 写回 body xml:lang） */
+const activeTtmlBodyLang = computed({
+  get: () => activeTtml.value?.model.bodyLang || 'zh',
+  set: v => { if (activeTtml.value) activeTtml.value.model.bodyLang = v },
+})
+
+/** 模型正文行 → 纯文本（每行主歌词，不含和声括号后缀） */
+function modelPlainText(model: TtmlEditModel): string {
+  return model.lines.map(l => l.plain).join('\n')
+}
+
+/** 程序化同步纯文本区（模型变化后回填，不触发派生） */
+function syncPlainFromModel(e: TtmlVersionEntry) {
+  e.plain = modelPlainText(e.model)
+  e.lastPlain = e.plain
+}
+
+/** 正文语言猜测（解析出的行文本检测；无行时默认 zh） */
+function guessBodyLang(model: TtmlEditModel): string {
+  const d = detectLang(model.lines.map(l => l.text).join(' '))
+  return d === 'unknown' ? 'zh' : d
+}
+
+/** 重置为单个版本（新建/审核回填投稿原文/清空） */
+function initTtmlVersions(raw: string, opts: { id?: string | null; origin?: string } = {}) {
+  // 先格式化再解析：源码区展示与模型 bodyRaw 均为格式化后的 TTML（保存输出保持可读）
+  const source = raw.trim() ? prettifyTtml(raw) : ''
+  const model = source
+    ? (parseTtmlForEdit(source) || { bodyRaw: source, bodyLang: '', origBodyLang: '', origBodyTtmlLang: '', lines: [], translations: [], transliterations: [] })
+    : emptyTtmlEditModel()
+  // 原文无 xml:lang 标注 → 按内容猜测填默认（用户可改；改动会写回 body xml:lang）
+  if (!model.bodyLang) model.bodyLang = guessBodyLang(model)
+  const plain = modelPlainText(model)
+  ttmlVersions.value = [{ id: opts.id ?? null, source, plain, origin: opts.origin || 'user', lastDerived: source.trim(), lastPlain: plain, model }]
+  activeTtmlIdx.value = 0
+  batchPaste.trans = []
+  batchPaste.roman = []
+}
+
+/** 添加版本（空白，粘贴另一语言变体如简/繁体 TTML 或纯文本） */
+function addTtmlVersion() {
+  const model = emptyTtmlEditModel()
+  model.bodyLang = 'zh'
+  ttmlVersions.value.push({ id: null, source: '', plain: '', origin: 'user', lastDerived: '', lastPlain: '', model })
+  activeTtmlIdx.value = ttmlVersions.value.length - 1
+}
+
+/** 删除版本（删最后一个留一个空白，保持 ≥1 不变量；库内 id 的行在保存时删除） */
+function removeTtmlVersion(idx: number) {
+  const e = ttmlVersions.value[idx]
+  if (!e) return
+  if (e.id) ElMessage.info('库内版本将在保存时删除')
+  ttmlVersions.value.splice(idx, 1)
+  if (!ttmlVersions.value.length) addTtmlVersion()
+  activeTtmlIdx.value = Math.min(activeTtmlIdx.value, ttmlVersions.value.length - 1)
+}
+
+/** 切换版本：清空批量粘贴草稿（行数按版本不同，避免错位） */
+watch(activeTtmlIdx, () => {
+  batchPaste.trans = []
+  batchPaste.roman = []
+})
+
+/** 翻译/音译批量粘贴草稿（按轨下标；行数与表格严格一致才允许填入） */
+const batchPaste = reactive<{ trans: string[]; roman: string[] }>({ trans: [], roman: [] })
+
+/** 批量粘贴 → 行数组（统一换行符；剥掉末尾一个换行，整块复制语义） */
+function batchToLines(raw: string): string[] {
+  const s = String(raw || '')
+  if (!s) return []
+  return s.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n')
+}
+
+/** 粘贴行数（实时校验提示用） */
+function batchCount(raw: string | undefined): number {
+  return batchToLines(raw || '').length
+}
+
+/** 按行填入：第 i 行 → 该轨第 i 行（L1~LN 顺序对应；行数不一致拒绝填入） */
+function fillBatch(target: 'trans' | 'roman', idx: number) {
+  const lines = target === 'trans' ? ttmlEdit.value.translations[idx]?.lines : ttmlEdit.value.transliterations[idx]?.lines
+  if (!lines) return
+  const raw = (target === 'trans' ? batchPaste.trans : batchPaste.roman)[idx] || ''
+  const list = batchToLines(raw)
+  if (list.length !== lines.length) {
+    ElMessage.warning(`行数不一致：粘贴 ${list.length} 行，表格 ${lines.length} 行；某行没有内容就补一个空行（回车）对齐`)
+    return
+  }
+  list.forEach((txt, i) => { lines[i].text = txt.trim() })
+  ElMessage.success(`已填入 ${list.length} 行`)
+}
+
+/** 原文区双向代理（当前版本 source） */
+const activeTtmlSource = computed({
+  get: () => activeTtml.value?.source ?? '',
+  set: v => { if (activeTtml.value) activeTtml.value.source = v },
+})
+
+/** 纯文本区双向代理（当前版本 plain） */
+const activeTtmlPlain = computed({
+  get: () => activeTtml.value?.plain ?? '',
+  set: v => { if (activeTtml.value) activeTtml.value.plain = v },
+})
+
+/** TTML 预览（只读）：最终入库的完整 TTML（原文派生 + 翻译/音译表格合成） */
+const ttmlPreview = computed(() =>
+  activeTtml.value?.model.bodyRaw.trim() ? composeTtml(activeTtml.value.model) : '')
+
+/** TTML 源码区变化（防抖后派生）：解析提取正文/翻译/音译表格 */
+let suppressTtmlDerive = false
+let ttmlDeriveTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => activeTtml.value?.source, () => {
+  if (suppressTtmlDerive) return
+  if (ttmlDeriveTimer) clearTimeout(ttmlDeriveTimer)
+  ttmlDeriveTimer = setTimeout(() => {
+    const e = activeTtml.value
+    if (e) deriveTtmlModel(e)
+  }, 500)
+})
+
+/** 纯文本区变化（防抖后派生）：以 TTML 结构为模板重新生成正文文字（本版本有结构用本版本，否则用其他版本） */
+let ttmlPlainTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => activeTtml.value?.plain, () => {
+  if (ttmlPlainTimer) clearTimeout(ttmlPlainTimer)
+  ttmlPlainTimer = setTimeout(() => {
+    const e = activeTtml.value
+    if (e && e.plain !== e.lastPlain) deriveTtmlPlain(e)
+  }, 500)
+})
+
+/** 派生入口（幂等：lastDerived 相同直接跳过，切版本/程序化赋值不重复派生） */
+function deriveTtmlModel(e: TtmlVersionEntry) {
+  const raw = e.source.trim()
+  if (raw === e.lastDerived) return
+  e.lastDerived = raw
+  if (!raw) {
+    // 清空源码 = 清空该版本（保存时删除库内行/跳过空白新增条目）
+    e.model = emptyTtmlEditModel()
+    batchPaste.trans = []
+    batchPaste.roman = []
+    syncPlainFromModel(e)
+    return
+  }
+  // 完整 TTML → 现有解析链（语言标注尊重人工选择，不重猜）
+  const prevLang = e.model.bodyLang
+  const model = parseTtmlForEdit(raw)
+  if (!model) return
+  // 新原文无 xml:lang 标注时沿用此前的手动选择，否则按新标注
+  if (!model.bodyLang) model.bodyLang = prevLang || guessBodyLang(model)
+  e.model = model
+  batchPaste.trans = []
+  batchPaste.roman = []
+  syncPlainFromModel(e)
+  if (model.translations.length || model.transliterations.length) {
+    ElMessage.success(`已提取翻译 ${model.translations.length} 种 / 音译 ${model.transliterations.length} 种`)
+  }
+}
+
+/** 纯文本派生：以 TTML 结构为模板替换正文文字（时间戳/对唱/结构照抄；严格对齐报错） */
+function deriveTtmlPlain(e: TtmlVersionEntry) {
+  const raw = e.plain.trim()
+  e.lastPlain = e.plain
+  if (!raw) return // 纯文本区清空不动作（清空版本请用 TTML 源码区或「删除此版本」）
+  // 模板：本版本已有结构 → 原位更新文字；否则用第一个有正文的版本（新建变体）
+  const base = e.model.bodyRaw.trim() ? e : ttmlVersions.value.find(v => v.model.bodyRaw.trim() && v !== e)
+  if (!base) {
+    ElMessage.warning('纯文本生成需要先在「TTML 源码」框粘贴完整 TTML 做模板')
+    return
+  }
+  const errors: { line: string; expect: number; got: number }[] = []
+  const variant = generateTtmlVariant(base.model, raw, errors)
+  if (!variant) {
+    if (errors.length) {
+      const detail = errors.slice(0, 5).map(x => x.line ? `L「${x.line}」需 ${x.expect} 词，实际 ${x.got} 词` : `行数不匹配：模板 ${x.expect} 行，粘贴 ${x.got} 行`).join('；')
+      ElMessage.error(`正文生成失败：${detail}${errors.length > 5 ? ` 等 ${errors.length} 处` : ''}。规则：含空格按空格分词，无空格按单字`)
+    } else {
+      ElMessage.error('正文生成失败（模板解析异常）')
+    }
+    return
+  }
+  // 本版本已编辑过翻译/音译表格 → 保留（纯文本改动只重新生成正文；行 key 不变，对应关系不受影响）
+  if (base === e && (e.model.translations.length || e.model.transliterations.length)) {
+    variant.translations = e.model.translations
+    variant.transliterations = e.model.transliterations
+  }
+  // 语言：沿用用户此前标注，再按新文本内容猜测修正（简↔繁 detectLang 可区分时生效）
+  const prevLang = e.model.bodyLang
+  variant.bodyLang = prevLang
+  e.model = variant
+  const guessed = guessBodyLang(variant)
+  if (guessed !== 'zh' || !prevLang || prevLang === 'zh') e.model.bodyLang = guessed
+  ElMessage.success(base === e ? '已按纯文本更新正文（结构/时间照抄）' : `已生成变体（模板：${langLabel(base.model.bodyLang || 'zh')}，翻译/音译轨道已复制）`)
+}
+
+/** 行文本预览（正文行 → 表格对应列） */
+function ttmlLineText(key: string): string {
+  return ttmlEdit.value.lines.find(l => l.key === key)?.text || ''
+}
+
+/** 音译对应预览：原词→音译 逐词展示；未命中的锚点/多余词提示 */
+function romanPreview(ln: { for: string; text: string }): string {
+  const line = ttmlEdit.value.lines.find(l => l.key === ln.for)
+  if (!line) return ''
+  const { matched, extra, badAnchors } = alignTranslitTokens(parseTranslitTokens(ln.text), line.words)
+  const parts = line.words.map((w, i) => {
+    const m = matched.find(x => x.wordIdx === i)
+    return m ? `${w.text}→${m.text}` : w.text
+  })
+  let out = parts.join(' ')
+  if (extra.length) out += `（未对应：${extra.join(' ')}）`
+  if (badAnchors) out += `（${badAnchors} 个锚点未命中）`
+  return out
+}
+
+/** 新增翻译/音译语言（复制全部行 key，逐行填写） */
+function addTtmlTrack(kind: 'translation' | 'romanization') {
+  if (kind === 'translation') {
+    ttmlEdit.value.translations.push({
+      ttmlLang: '', lrcLang: 'en', origTtmlLang: '', origLrcLang: 'en', type: 'subtitle',
+      lines: ttmlEdit.value.lines.map(l => ({ for: l.key, text: '', bg: [] })),
+    })
+  } else {
+    ttmlEdit.value.transliterations.push({
+      ttmlLang: '', lrcLang: 'en', origTtmlLang: '', origLrcLang: 'en',
+      lines: ttmlEdit.value.lines.map(l => ({ for: l.key, text: '', bg: [] })),
+    })
+  }
 }
 
 const albumDropdownOpen = ref(false)
@@ -383,93 +909,93 @@ const form = reactive({
   unlock_code: '',
 })
 
-// ===== 多语言版本管理 =====
-const versionForms = ref<LyricVersionForm[]>([])
-const versionsDirty = ref(false)
-let suppressDirty = false
-function setVersionForms(v: LyricVersionForm[]) {
-  suppressDirty = true
-  versionForms.value = v
-  nextTick(() => {
-    suppressDirty = false
-    versionsDirty.value = false
-  })
-}
-watch(versionForms, () => {
-  if (!suppressDirty) versionsDirty.value = true
-}, { deep: true })
-
+// ===== 多语言版本管理（声明已上移至 LRC 版本管理区之前） =====
 async function loadVersions(songId: string) {
   try {
     const rows = await loadLyricLines(songId)
     const vers = groupVersions(rows)
-    setVersionForms(vers.map(v => ({ lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: rowsToLrcText(v.rows, 'enhanced'), ttml: versionsToTtml([v]) })))
+    // 行表为空：保留 lrc_text 拆分预填（保存走 rebuild 兜底）
+    if (vers.length) {
+      setLrcVersions(vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') })))
+    }
   } catch (e: any) {
-    setVersionForms([])
+    // 行表读失败保留预填版本（保存走 rebuild 兜底）
     console.warn('[歌词版本加载失败]', songId, e?.message)
   }
 }
 
-/** 编辑模式：加载库内已有的 TTML 版本原文回填（保存时 UPDATE 而非重复 INSERT） */
-const ttmlVersionId = ref<string | null>(null)
+/** 编辑模式：加载库内全部 TTML 版本（多版本并存，如简/繁体变体；保存时按 id UPDATE/INSERT/DELETE） */
 async function loadTtmlVersion(songId: string) {
   try {
     const metas = await loadLyricVersionMetas(songId, true)
-    const ttmlVer = metas.find(v => v.format === 'ttml' && v.ttml_text)
-    form.ttmlText = ttmlVer?.ttml_text || ''
-    ttmlVersionId.value = ttmlVer?.id || null
+    const vers = metas.filter(v => v.format === 'ttml' && v.ttml_text)
+    if (!vers.length) return
+    ttmlVersions.value = vers.map(v => {
+      // 展示前格式化（旧数据可能被挤成一行；下次保存即落盘格式化后的版本）
+      const source = prettifyTtml(v.ttml_text!)
+      const model = parseTtmlForEdit(source) || { bodyRaw: source, bodyLang: '', origBodyLang: '', origBodyTtmlLang: '', lines: [], translations: [], transliterations: [] }
+      // bodyLang 优先取入库 langs 首位（落盘时即正文语言）→ TTML xml:lang → 内容猜测
+      model.bodyLang = (v.langs || [])[0] || model.bodyLang || guessBodyLangTtml(v.ttml_text!)
+      const plain = modelPlainText(model)
+      return {
+        id: v.id,
+        source,
+        plain,
+        origin: v.source || 'user',
+        lastDerived: source.trim(),
+        lastPlain: plain,
+        model,
+      }
+    })
+    activeTtmlIdx.value = 0
   } catch (e: any) {
     console.warn('[TTML 版本加载失败]', songId, e?.message)
   }
 }
 
-/** 改语言后：同步 ttml_text 原文里的 xml:lang（只改语言标签，对唱/和声/样式原样保留） */
-function syncTtmlLangs() {
-  if (!form.ttmlText?.trim()) return
-  const originalVersions = parseTtmlVersions(form.ttmlText)
-  if (!originalVersions.length) return
-  let text = form.ttmlText
-  for (const v of versionForms.value) {
-    if (!v.lang) continue
-    const orig = originalVersions.find(o => o.kind === v.kind && o.lang !== v.lang)
-    if (!orig) continue
-    text = text.split(`xml:lang="${orig.lang}"`).join(`xml:lang="${v.lang}"`)
-    text = text.split(`xml:lang='${orig.lang}'`).join(`xml:lang='${v.lang}'`)
-  }
-  form.ttmlText = text
+/** TTML 原文行文本语言猜测（loadTtmlVersion 兜底用） */
+function guessBodyLangTtml(xml: string): string {
+  const rows = parseTtmlToRows(xml)
+  const d = detectLang(rows.map(r => r.text).join(' '))
+  return d === 'unknown' ? 'zh' : d
 }
 
-/** TTML 版本落盘：有原文 → INSERT/UPDATE；原文被清空且之前有版本 → DELETE（与发布链同逻辑） */
-async function upsertTtmlVersion(songId: string) {
-  syncTtmlLangs()
-  const text = form.ttmlText?.trim()
-  if (!text) {
-    // 原文被清空：删除已有 TTML 版本（编辑场景：用户删掉了 TTML 原文）
-    if (ttmlVersionId.value) {
-      const { error } = await supabase.from('lyric_versions').delete().eq('id', ttmlVersionId.value)
-      if (error) console.warn('[TTML 版本删除失败]', error.message)
-      ttmlVersionId.value = null
+/** TTML 多版本落盘：逐条 INSERT/UPDATE；被清空/删除的库内版本 → DELETE（与发布链同逻辑） */
+async function upsertTtmlVersions(songId: string) {
+  for (const e of ttmlVersions.value) {
+    const text = e.model.bodyRaw.trim() ? composeTtml(e.model) : ''
+    if (!text && !e.id) continue // 空白新增条目：跳过
+    // langs：正文语言（人工标注）+ 翻译/音译轨语言；空则回退内容检测
+    let langs = [...new Set([
+      e.model.bodyLang,
+      ...e.model.translations.map(t => t.lrcLang),
+      ...e.model.transliterations.map(t => t.lrcLang),
+    ].filter(l => l && l !== 'und'))]
+    if (!langs.length) {
+      // 兜底（无人工标注/翻译轨）：整体判定，根 xml:lang 优先、正文众数兜底
+      langs = detectTtmlLangs(text)
     }
-    return
-  }
-  const ttmlRows = parseTtmlToRows(text)
-  const langs = [...new Set(ttmlRows.map(r => detectLang(r.text)).filter(l => l && l !== 'unknown'))]
-  if (ttmlVersionId.value) {
-    // 编辑模式 UPDATE
-    const { error } = await supabase.from('lyric_versions').update({
-      ttml_text: text, langs,
-    }).eq('id', ttmlVersionId.value)
-    if (error) throw new Error(`TTML 版本更新失败（${error.message}）`)
-  } else {
-    // 新增 INSERT（与发布链 L1281-L1291 同结构）
-    const newId = 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-    const { error } = await supabase.from('lyric_versions').insert({
-      id: newId, song_id: songId, format: 'ttml', source: 'user',
-      ttml_text: text, langs, status: 'published', is_primary: false,
-      contributor_id: form.contributor_id || null,
-    })
-    if (error) throw new Error(`TTML 版本写入失败（${error.message}）`)
-    ttmlVersionId.value = newId
+    if (text && e.id) {
+      const { error } = await supabase.from('lyric_versions').update({
+        ttml_text: text, langs,
+      }).eq('id', e.id)
+      if (error) throw new Error(`TTML 版本更新失败（${error.message}）`)
+    } else if (text) {
+      // 新增 INSERT（与发布链同结构）
+      const newId = 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      const { error } = await supabase.from('lyric_versions').insert({
+        id: newId, song_id: songId, format: 'ttml', source: e.origin || 'user',
+        ttml_text: text, langs, status: 'published', is_primary: false,
+        contributor_id: form.contributor_id || null,
+      })
+      if (error) throw new Error(`TTML 版本写入失败（${error.message}）`)
+      e.id = newId
+    } else if (e.id) {
+      // 原文被清空/版本被删：删除库内行（编辑场景）
+      const { error } = await supabase.from('lyric_versions').delete().eq('id', e.id)
+      if (error) console.warn('[TTML 版本删除失败]', error.message)
+      else e.id = null
+    }
   }
 }
 
@@ -487,16 +1013,19 @@ onMounted(() => watch(() => props.modelValue, (open) => {
 function resetForm() {
   editingBasedInit()
   lyricsTab.value = 'lrc'
-  setVersionForms([])
-  ttmlVersionId.value = null
+  // LRC 版本：lrc_text 预拆分预填（编辑模式随后由行表加载覆盖；review 模式由投稿 versions 覆盖）
+  setLrcVersions(form.lrc_text.trim()
+    ? splitLrcToVersions(form.lrc_text).map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
+    : [])
+  initTtmlVersions(form.ttmlText)
   if (props.editSongId) {
     loadVersions(props.editSongId)
     loadTtmlVersion(props.editSongId)
   }
   // review 模式（投稿审核）：无库内 songId，投稿自带的多语言版本直接预填
   else if (props.mode === 'review' && Array.isArray((props.initial as any)?.versions)) {
-    setVersionForms((props.initial as any).versions.map((v: any) => ({
-      lang: v.lang, kind: v.kind, format: 'lrc' as const, lrc: v.lrc, ttml: '',
+    setLrcVersions((props.initial as any).versions.map((v: any) => ({
+      lang: v.lang, kind: v.kind, lrc: v.lrc,
     })))
   }
 }
@@ -702,7 +1231,9 @@ async function save() {
       return
     }
   }
-  if (props.requireLyrics && !form.lrc_text.trim()) {
+  // 歌词必填：LRC 或 TTML 任一有内容即可（只有 TTML 版本的歌不再强制填 LRC）
+  const hasTtmlContent = ttmlVersions.value.some(e => e.model.bodyRaw.trim())
+  if (props.requireLyrics && !lrcPreview.value.trim() && !hasTtmlContent) {
     ElMessage.warning('请填写必填字段：LRC 歌词')
     return
   }
@@ -732,9 +1263,27 @@ async function save() {
       genres: form.genres,
       video_url: form.video_url.trim(),
       description: form.description || null,
-      lrc_text: form.lrc_text.trim(),
+      lrc_text: lrcPreview.value.trim(),
       lyrics_text: form.lyrics_text || null,
-      versions: versionForms.value.map(v => ({ lang: v.lang, kind: v.kind, lrc: v.lrc })),
+      versions: versionForms.value.filter(v => v.lrc.trim()).map(v => ({
+        lang: v.lang, kind: v.kind,
+        // 音译 {LSU,}/{LSJ,} 语法展开对齐原文行词级时间（与预览/落库同构造）
+        lrc: v.kind === 'romanization' && /\{LS[UJ]/.test(v.lrc)
+          ? expandRomanSyntax(v.lrc, versionForms.value.find(o => o.kind === 'original' && o.lrc.trim())?.lrc || '')
+          : v.lrc,
+      })),
+      // TTML 多版本（审核可编辑：语言标注/简繁变体一气呵成；空数组=审核员清空了全部 TTML）
+      ttml_versions: ttmlVersions.value
+        .filter(e => e.model.bodyRaw.trim())
+        .map(e => ({
+          lang: e.model.bodyLang,
+          langs: [...new Set([
+            e.model.bodyLang,
+            ...e.model.translations.map(t => t.lrcLang),
+            ...e.model.transliterations.map(t => t.lrcLang),
+          ].filter(l => l && l !== 'und'))],
+          text: composeTtml(e.model),
+        })),
       is_hidden: !!form.is_hidden,
       unlock_code: form.unlock_code.trim(),
     })
@@ -742,6 +1291,9 @@ async function save() {
   }
   saving.value = true
   try {
+    // TTML 多版本合成落盘在 upsertTtmlVersions（表单 ttmlText 仅作 L→T 转换的回退源）
+    form.ttmlText = ttmlVersions.value.map(e => (e.model.bodyRaw.trim() ? composeTtml(e.model) : '')).find(Boolean) || ''
+
     const [artistIds, lyricistIds, composerIds, arrangerIds, albumArtistIds] = await Promise.all([
       resolveArtists(form.artists, 'singer'),
       resolveArtists(form.lyricists, 'lyricist'),
@@ -753,16 +1305,12 @@ async function save() {
     // 专辑由 AlbumInfoDialog 保存即入库/写回；这里只取表单关联的 albumId 绑定到歌
     const albumId = form.albumId || null
 
-    let finalLrcText = form.lrc_text.trim()
+    // 最终入库 LRC 与预览一致（所见即所存）：多语言版本表格优先合成，无表格时用原文
+    let finalLrcText = lrcPreview.value.trim()
     if (versionsDirty.value && editing.value) {
       // 行表只存 LRC 拆分的版本（lrc 字段有值）；TTML 拆分不进行表（在 ttml_text 原文里，由后端动态拆分）
-      const versions: LyricVersion[] = versionForms.value
-        .filter(v => v.lrc.trim())
-        .map(v => ({
-          lang: v.lang?.trim() || 'zh',
-          kind: v.kind,
-          rows: parseLrcToRows(v.lrc),
-        }))
+      // 音译 {LSU,}/{LSJ,} 语法在 buildVersions 展开对齐原文行词级时间
+      const versions = buildVersions(versionForms.value)
       await saveLyricLines(props.editSongId!, versions)
       finalLrcText = composeMixedLrc(versions, 'enhanced')
     }
@@ -787,8 +1335,8 @@ async function save() {
       await adminApi.update('songs', id, payload)
       // 歌词行表：版本管理脏 → 上面已写行表；否则整体 lrc_text 改动后重拆（触发器仅 INSERT，不会自动重拆 UPDATE）
       if (!versionsDirty.value) await rebuildLyricLines(id)
-      // TTML 版本：有原文 → UPDATE 或 INSERT；原文被清空且之前有版本 → DELETE
-      await upsertTtmlVersion(id)
+      // TTML 多版本：逐条 UPDATE/INSERT；被清空/删除的 → DELETE
+      await upsertTtmlVersions(id)
       await syncSongSecrets(id, form.unlock_code.trim())
       await syncSongContributors(id, {
         singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,
@@ -811,8 +1359,8 @@ async function save() {
       payload.id = 's' + Date.now()
       payload.status = 'published'
       await adminApi.insert('songs', payload)
-      // TTML 版本：新增模式只有 INSERT（ttmlVersionId 此时为 null）
-      await upsertTtmlVersion(payload.id as string)
+      // TTML 多版本：新增模式只有 INSERT
+      await upsertTtmlVersions(payload.id as string)
       await syncSongSecrets(payload.id as string, form.unlock_code.trim())
       await syncSongContributors(payload.id as string, {
         singer: artistIds, lyricist: lyricistIds, composer: composerIds, arranger: arrangerIds,

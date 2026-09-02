@@ -35,7 +35,8 @@
             </template>
             <template v-else>
               <el-tag v-if="row.row.song_data?.type === 'profile'" type="warning" size="small">资料更新</el-tag>
-              <template v-else>{{ row.row.song_data?.title || '—' }}</template>
+              <el-tag v-else-if="row.row.song_data?.type === 'song_version'" type="success" size="small" class="mr-1">补充版本</el-tag>
+              <template v-if="row.row.song_data?.type !== 'profile'">{{ row.row.song_data?.title || '—' }}</template>
             </template>
           </template>
         </el-table-column>
@@ -82,7 +83,8 @@
                 </template>
                 <template v-else>
                   <el-tag v-if="row.row.song_data?.type === 'profile'" type="warning" size="small">资料更新</el-tag>
-                  <template v-else>{{ row.row.song_data?.title || '—' }}</template>
+                  <el-tag v-else-if="row.row.song_data?.type === 'song_version'" type="success" size="small" class="mr-1">补充版本</el-tag>
+                  <template v-if="row.row.song_data?.type !== 'profile'">{{ row.row.song_data?.title || '—' }}</template>
                 </template>
               </div>
               <div class="text-xs text-gray-400 truncate mt-0.5">{{ row.row.user_name }}<template v-if="artistNamesOf(row.row.song_data)"> · {{ artistNamesOf(row.row.song_data) }}</template></div>
@@ -156,9 +158,43 @@
       </template>
     </el-dialog>
 
+    <!-- 审核：补充歌词版本（song_version：只挂版本到已有歌曲，弹窗精简为信息+歌词只读预览） -->
+    <el-dialog v-else-if="isVersionReview" v-model="showReview" title="投稿审核（补充歌词版本）" width="760px" :close-on-click-modal="false">
+      <template v-if="review">
+        <!-- 投稿人信息 -->
+        <div class="bg-gray-50 rounded-lg p-3 mb-3 text-sm text-gray-600">
+          <span class="font-medium text-gray-800">{{ review.user_name }}</span>
+          <span class="mx-2 text-gray-300">|</span>
+          <span>{{ formatTime(review.created_at) }}</span>
+          <el-tag size="small" class="ml-2" type="success">补充版本</el-tag>
+          <el-tag v-if="review.contributor_id" size="small" class="ml-2" type="info">已关联贡献者</el-tag>
+        </div>
+
+        <!-- 目标歌曲 + 格式 -->
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3 text-sm text-gray-700">
+          <div><span class="text-gray-400">目标歌曲：</span><b>{{ review.edited_data?.song_title || review.edited_data?.title }}</b></div>
+          <div class="mt-1">
+            <span class="text-gray-400">歌词格式：</span>
+            <el-tag v-if="review.edited_data?.ttml_text?.trim()" size="small" type="warning">TTML 源代码</el-tag>
+            <el-tag v-else size="small" type="primary">逐字/逐行 LRC（{{ review.edited_data?.versions?.length || 1 }} 个语言版本）</el-tag>
+          </div>
+        </div>
+
+        <!-- 歌词只读预览（审核把关：不合格直接拒绝，不提供编辑） -->
+        <div class="text-xs text-gray-400 mb-1">{{ review.edited_data?.ttml_text?.trim() ? 'TTML 原文（对唱/样式数据完整保留，发布后运行时解析）' : 'LRC 歌词（发布后写入行表，独立成版本）' }}</div>
+        <pre class="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs leading-relaxed overflow-auto" style="max-height: 46vh; white-space: pre-wrap; word-break: break-all;">{{ review.edited_data?.ttml_text?.trim() ? review.edited_data.ttml_text : review.edited_data?.lrc_text }}</pre>
+      </template>
+
+      <template #footer>
+        <el-button @click="showReview = false">取消</el-button>
+        <el-button type="danger" plain @click="reject(review)">❌ 拒绝</el-button>
+        <el-button type="success" @click="approve(review)">✅ 通过并发布版本</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 审核：歌词类投稿（SongFormDialog review 模式：表单+投稿信息+歌词，通过发布/拒绝） -->
     <SongFormDialog
-      v-if="!isProfileReview"
+      v-if="!isProfileReview && !isVersionReview"
       v-model="showSongReview"
       mode="review"
       title="投稿审核"
@@ -549,7 +585,7 @@ import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
-import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, detectLang, saveLyricLines } from '@/lib/lyricLines'
+import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, detectTtmlLangs, saveLyricLines, rowsHaveWordTags } from '@/lib/lyricLines'
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
@@ -760,7 +796,8 @@ function openReview(row: any) {
     }
   }
   review.value = { ...row, edited_data: sd }
-  if (sd.type === 'profile') {
+  // 资料更新 / 补充版本：走精简 el-dialog（不走 SongFormDialog 歌曲表单）
+  if (sd.type === 'profile' || sd.type === 'song_version') {
     showReview.value = true
     return
   }
@@ -783,6 +820,8 @@ function openReview(row: any) {
     lrc_text: sd.lrc_text || '',
     lyrics_text: sd.lyrics_text || '',
     versions: (sd.versions || []).map((v: any) => ({ lang: v.lang, kind: v.kind, lrc: v.lrc })),
+    // 投稿 TTML 原文回填到编辑器（审核可改语言/加简繁变体，一气呵成）
+    ttml_text: sd.ttml_text || '',
   }
   showSongReview.value = true
 }
@@ -807,6 +846,8 @@ function onReviewReject() {
 
 /** 资料更新类投稿（song_data.type === 'profile'）：弹窗不显示歌曲表单，通过时只更新贡献者 */
 const isProfileReview = computed(() => review.value?.song_data?.type === 'profile')
+/** 补充歌词版本投稿（song_data.type === 'song_version'）：精简弹窗，通过时只写版本不建歌 */
+const isVersionReview = computed(() => review.value?.song_data?.type === 'song_version')
 
 /** contact_value（JSONB）→ 可展示的键值列表（过滤空值） */
 function contactEntries(row: any): { k: string; v: string }[] {
@@ -1071,9 +1112,11 @@ async function approve(sub: ReviewItem | null) {
 async function publishSubmission(sub: any, newList: { item: any; types: string[] }[], silent = false, skipMail = false): Promise<'ok' | 'missing' | 'error'> {
   const sd = sub.edited_data
   const isProfile = sd?.type === 'profile'
+  // 补充歌词版本：只挂版本到已有歌曲，全程跳过建艺术家/专辑/歌曲
+  const isVersion = sd?.type === 'song_version'
 
-  // 1. 校验新建艺术家必须填 ID（资料更新类无歌曲表单，跳过）；ID 在头像弹窗里填写
-  if (!isProfile) {
+  // 1. 校验新建艺术家必须填 ID（资料更新/补充版本无歌曲表单，跳过）；ID 在头像弹窗里填写
+  if (!isProfile && !isVersion) {
     const missing = newList.filter(e => !e.item.id || !String(e.item.id).trim())
     if (missing.length) {
       if (!silent) ElMessage.error(`有 ${missing.length} 位新建艺术家未填写 ID（${missing.map(e => e.item.name).join('、')}），请点击其头像补全`)
@@ -1093,8 +1136,9 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     }
   }
 
-  /** 本次发布新建的实体（删除已通过投稿时按引用检查级联回收）；声明在 try 外，供 catch 补偿回滚读取 */
-  const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string } = { artist_ids: [] }
+  /** 本次发布新建的实体（删除已通过投稿时按引用检查级联回收）；声明在 try 外，供 catch 补偿回滚读取。
+   *  注意：song_version 投稿只写 lyric_version_ids，绝不写 song_id——撤回链按 song_id 删歌，误写会删掉目标歌曲 */
+  const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string; lyric_version_ids?: string[] } = { artist_ids: [] }
 
   try {
     // 2. 更新投稿状态
@@ -1103,12 +1147,12 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
     if (!skipMail) {
       const to = await emailOf(sub)
-      notifyByEmail({ action: 'approve', to, user_name: sub.user_name, song_title: isProfile ? '资料更新' : sd.title }, '通过', sub.user_name)
+      notifyByEmail({ action: 'approve', to, user_name: sub.user_name, song_title: isProfile ? '资料更新' : isVersion ? ('补充版本：' + (sd.song_title || sd.title)) : sd.title }, '通过', sub.user_name)
     }
 
-    // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上（资料更新类跳过）
+    // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上（资料更新/补充版本跳过）
     const nameToId: Record<string, string> = {}
-    if (!isProfile) {
+    if (!isProfile && !isVersion) {
       for (const e of newList) {
         const id = String(e.item.id).trim()
         nameToId[e.item.name] = id
@@ -1199,8 +1243,8 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       action = 'new'
     }
 
-    // 6+7. 专辑沿用/新建 + 插入歌曲（资料更新类投稿无歌曲，跳过）
-    if (!isProfile) {
+    // 6+7. 专辑沿用/新建 + 插入歌曲（资料更新/补充版本无歌曲实体，跳过）
+    if (!isProfile && !isVersion) {
       let albumId: string | null = sd.album_id || null
       if (!albumId && sd.album) {
         albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
@@ -1272,18 +1316,25 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
           throw new Error(`歌曲已插入但多语言版本写入失败（${e?.message}），请撤回后重试`)
         }
       }
-      // TTML 原文版本：独立落盘 lyric_versions（对唱/分屏/样式零丢失；降级 LRC 已写 songs.lrc_text）。
+      // TTML 版本落盘：审核编辑器产出的 ttml_versions（多版本：同语言变体如简/繁体，一气呵成）；
+      // 未经审核编辑的旧投稿回退 ttml_text 单版本（langs 内容检测）。
       // is_primary 不设（legacy 版本占位），tab 排序按格式优先级 TTML 自然置顶
-      if (sd.ttml_text?.trim()) {
+      const ttmlVers: { lang: string; langs: string[]; text: string }[] = Array.isArray(sd.ttml_versions)
+        ? sd.ttml_versions
+        : (sd.ttml_text?.trim() ? [{ lang: '', langs: [], text: sd.ttml_text.trim() }] : [])
+      for (const v of ttmlVers) {
         try {
-          const ttmlRows = parseTtmlToRows(sd.ttml_text)
-          const langs = [...new Set(ttmlRows.map((r: any) => detectLang(r.text)).filter((l: string) => l && l !== 'unknown'))]
+          let langs = v.langs?.length ? v.langs : null
+          if (!langs) {
+            // 整体判定：根 xml:lang 优先、正文众数兜底；零星英文 punchline 不产生 en 标签
+            langs = detectTtmlLangs(v.text)
+          }
           const { error: ttmlErr } = await supabase.from('lyric_versions').insert({
             id: 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12),
             song_id: songId,
             format: 'ttml',
             source: 'user',
-            ttml_text: sd.ttml_text.trim(),
+            ttml_text: v.text,
             langs,
             status: 'published',
             is_primary: false,
@@ -1297,14 +1348,80 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       }
     }
 
+    // 7b. 补充歌词版本：只写 lyric_versions / 行表到已存在歌曲，跳过建歌/专辑/艺术家
+    if (isVersion) {
+      const targetSongId = sd.song_id
+      if (!targetSongId) throw new Error('投稿数据缺少目标歌曲 song_id，无法发布版本')
+      // 目标歌曲存在性预检（lyric_versions.song_id 有 FK，但提前给出可读报错）
+      const { data: songExists, error: songErr } = await supabase
+        .from('songs').select('id').eq('id', targetSongId).limit(1)
+      if (songErr) throw new Error(`目标歌曲校验失败：${songErr.message}`)
+      if (!songExists?.length) throw new Error(`目标歌曲 ${targetSongId} 不存在（可能已被删除），请拒绝该投稿`)
+
+      const newVersionIds: string[] = []
+      if (sd.ttml_text?.trim()) {
+        // TTML 版本：原文落盘，永不写行表（前台运行时解析）
+        const text = String(sd.ttml_text).trim()
+        // 整体判定：根 xml:lang 优先、正文众数兜底；零星英文 punchline 不产生 en 标签
+        let langs: string[] | null = detectTtmlLangs(text)
+        const vid = 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+        const { error: ttmlErr } = await supabase.from('lyric_versions').insert({
+          id: vid,
+          song_id: targetSongId,
+          format: 'ttml',
+          source: 'user',
+          ttml_text: text,
+          langs,
+          status: 'published',
+          is_primary: false,
+          contributor_id: contributorId,
+        })
+        if (ttmlErr) throw ttmlErr
+        newVersionIds.push(vid)
+      } else {
+        // LRC/逐字版本：新建 lrc/enhanced 容器版本（挂本次贡献者）→ 写行表；
+        // 显式传 versionId，目标歌只有 TTML 无 lrc 容器时也能建（不触发 resolveDefaultLinesVersionId 抛错）
+        const versions = (Array.isArray(sd.versions) ? sd.versions : [])
+          .filter((v: any) => v.lrc?.trim())
+          .map((v: any) => ({ lang: v.lang?.trim() || 'und', kind: v.kind, rows: parseLrcToRows(v.lrc) }))
+        if (!versions.length) throw new Error('LRC 版本解析为空（无有效歌词行），请拒绝该投稿')
+        const allRows = versions.flatMap((v: any) => v.rows)
+        const format = rowsHaveWordTags(allRows) ? 'enhanced' : 'lrc'
+        const langs = [...new Set(versions.map((v: any) => v.lang).filter(Boolean))]
+        const vid = 'lv_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+        const { error: lvErr } = await supabase.from('lyric_versions').insert({
+          id: vid,
+          song_id: targetSongId,
+          format,
+          source: 'user',
+          langs,
+          status: 'published',
+          is_primary: false,
+          contributor_id: contributorId,
+        })
+        if (lvErr) throw lvErr
+        try {
+          await saveLyricLines(targetSongId, versions, vid)
+        } catch (e: any) {
+          console.warn('[发布]补充版本行表写入失败:', e?.message)
+          throw new Error(`版本容器已创建但行表写入失败（${e?.message}），请撤回后重试`)
+        }
+        newVersionIds.push(vid)
+      }
+      // 只记录版本产物；song_id/album_id/artist_ids 刻意不写——撤回链按它们删歌/专辑/艺术家
+      refs.lyric_version_ids = newVersionIds
+    }
+
     // 8. 记录发布产物（删除已通过投稿时级联回收用；失败不阻塞主流程）
     adminApi.update('submissions', sub.id, { published_refs: refs }).catch(e => console.warn('记录发布产物失败:', e?.message))
 
     if (!silent) {
       const actionText = isProfile
         ? '（已更新贡献者资料）'
-        : { none: '（已关联贡献者）', new: '（已自动创建贡献者）', update: '（已更新贡献者资料）', clear: '（已清空贡献者资料）' }[action]
-      ElMessage.success(isProfile ? '已通过，贡献者资料已更新' : '审核通过，已发布' + actionText)
+        : isVersion
+          ? (action === 'new' ? '（已自动创建贡献者）' : '（已关联贡献者）')
+          : { none: '（已关联贡献者）', new: '（已自动创建贡献者）', update: '（已更新贡献者资料）', clear: '（已清空贡献者资料）' }[action]
+      ElMessage.success(isProfile ? '已通过，贡献者资料已更新' : isVersion ? '审核通过，歌词版本已发布' + actionText : '审核通过，已发布' + actionText)
     }
     return 'ok'
   } catch (e: any) {
@@ -1312,7 +1429,7 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     // 也不能拉回 pending（pending tab 无撤回按钮，重审会重复建歌）；
     // 留在已通过 tab + 保留 refs，让「撤回」走级联回收后可重审。无任何产物才拉回 pending。
     // 回滚用 fire-and-forget：回滚自身失败不能掩盖原始错误
-    const hasPartial = refs.artist_ids.length > 0 || !!refs.album_id || !!refs.song_id || !!refs.contributor_id
+    const hasPartial = refs.artist_ids.length > 0 || !!refs.album_id || !!refs.song_id || !!refs.contributor_id || (refs.lyric_version_ids?.length || 0) > 0
     const rollback: Record<string, any> = hasPartial
       ? { published_refs: refs }
       : { status: 'pending', approved_at: null, published_refs: null }
@@ -1402,9 +1519,10 @@ async function recallRejected(rows: any[]) {
 
 /**
  * 撤回投稿（回到待审核，测试 / 误发布用）：
- * - 先按 published_refs 回收发布产物——删歌曲 → 删本次新建的专辑（若无其他歌引用）→
- *   删本次新建的艺术家（若无其他歌/专辑引用）→ 删本次新建的贡献者（若无其他歌引用）；
- *   沿用的库内实体不删，只回收「本次发布新建的」。不清理的话再次通过会重复建歌
+ * - 先按 published_refs 回收发布产物——删本次新建的歌词版本（行表行 → lyric_versions）→
+ *   删歌曲 → 删本次新建的专辑（若无其他歌引用）→
+ *   删本次新建的艺术家（若无其他歌/专辑引用）→ 删本次新建的贡献者（若无其他歌/版本引用）；
+ *   沿用的库内实体不删，只回收「本次发布新建的」。不清理的话再次通过会重复建歌/建版本
  * - 投稿状态回 pending，清空 approved_at / published_refs
  */
 async function recallSubmissions(rows: any[]) {
@@ -1413,23 +1531,25 @@ async function recallSubmissions(rows: any[]) {
     return
   }
   const hint = rows.some(r => r.published_refs)
-    ? `将先回收其发布产物（歌曲/本次新建的专辑/艺术家/贡献者，被其他内容引用的保留），再回到待审核`
+    ? `将先回收其发布产物（歌词版本/歌曲/本次新建的专辑/艺术家/贡献者，被其他内容引用的保留），再回到待审核`
     : `将回到待审核`
   try {
     await ElMessageBox.confirm(`确定撤回 ${rows.length} 条已通过的投稿？${hint}`, '撤回投稿', { type: 'warning' })
   } catch { return }
 
-  // ===== 预读取阶段：引用判定数据批量拉取（约 7 个并行查询替代每行 5-6 个串行查询） =====
+  // ===== 预读取阶段：引用判定数据批量拉取（并行查询替代每行串行查询） =====
   const allRefs = rows.map(r => r.published_refs || {})
   const songIds = [...new Set(allRefs.map(f => f.song_id).filter(Boolean))] as string[]
   const directAlbumIds = [...new Set(allRefs.map(f => f.album_id).filter(Boolean))] as string[]
   const contributorIds = [...new Set(allRefs.map(f => f.contributor_id).filter(Boolean))] as string[]
+  /** 本次发布新建的歌词版本（song_version 投稿产物；撤回时先删行表行再删版本） */
+  const versionIds = [...new Set(allRefs.flatMap(f => f.lyric_version_ids || []))] as string[]
   /** 艺术家删除候选 = 各行显式记录的新建艺术家（关系行里的库内艺术家不在删除范围） */
   const artistDeleteIds = [...new Set(allRefs.flatMap(f => f.artist_ids || []))] as string[]
 
-  let contribRows: any[], songRows: any[], songsOfDirectAlbums: any[], albumContribDirect: any[], songsOfContributors: any[], usageSongRows: any[], usageArtistAlbumRows: any[]
+  let contribRows: any[], songRows: any[], songsOfDirectAlbums: any[], albumContribDirect: any[], songsOfContributors: any[], usageSongRows: any[], usageArtistAlbumRows: any[], versionsOfContributors: any[]
   try {
-    ;[contribRows, songRows, songsOfDirectAlbums, albumContribDirect, songsOfContributors, usageSongRows, usageArtistAlbumRows] = await Promise.all([
+    ;[contribRows, songRows, songsOfDirectAlbums, albumContribDirect, songsOfContributors, usageSongRows, usageArtistAlbumRows, versionsOfContributors] = await Promise.all([
     // 删歌牵涉的艺术家（幸存者重算 types 用）
     songIds.length ? adminApi.getAll('song_contributors', { select: 'song_id,artist_id', in: { song_id: songIds } }) : Promise.resolve([]),
     // 本次删的歌挂的专辑（refs 未直接记 album_id 时经此反查）
@@ -1444,6 +1564,8 @@ async function recallSubmissions(rows: any[]) {
     artistDeleteIds.length ? adminApi.getAll('song_contributors', { select: 'song_id,artist_id', in: { artist_id: artistDeleteIds } }) : Promise.resolve([]),
     // 艺术家删除候选的全部专辑关系行
     artistDeleteIds.length ? adminApi.getAll('album_contributors', { select: 'album_id,artist_id', in: { artist_id: artistDeleteIds } }) : Promise.resolve([]),
+    // 贡献者的残余歌词版本引用（版本级贡献者：歌曲没挂但版本挂着也算占用）
+    contributorIds.length ? adminApi.getAll('lyric_versions', { select: 'id,contributor_id', in: { contributor_id: contributorIds } }) : Promise.resolve([]),
     ])
   } catch (e: any) {
     ElMessage.error('撤回失败，预读取引用数据出错：' + (e?.message || e))
@@ -1472,6 +1594,8 @@ async function recallSubmissions(rows: any[]) {
   /** 行关联的专辑：refs 直接记录的，或经本次歌曲反查的 */
   const rowAlbumId = (f: any) => f.album_id || albumOfSong.get(f.song_id)
   const delSongIds = new Set(songIds)
+  /** 本次要删的歌词版本（行表行先删，版本本身随之删） */
+  const delVersionIds = new Set(versionIds)
   const delAlbumIds = new Set<string>()
   for (const aid of [...new Set([...directAlbumIds, ...songAlbumIds])]) {
     const stillUsed = allSongsByAlbum.some((s: any) => s.album_id === aid && !delSongIds.has(s.id))
@@ -1481,14 +1605,34 @@ async function recallSubmissions(rows: any[]) {
     usageSongRows.some((r: any) => r.artist_id === aid && !delSongIds.has(r.song_id)) ||
     usageArtistAlbumRows.some((r: any) => r.artist_id === aid && !delAlbumIds.has(r.album_id))
   const contributorStillUsed = (cid: string) =>
-    songsOfContributors.some((s: any) => s.contributor_id === cid && !delSongIds.has(s.id))
+    songsOfContributors.some((s: any) => s.contributor_id === cid && !delSongIds.has(s.id)) ||
+    // 版本级贡献者：名下还有未被本次撤回删除的歌词版本也算占用
+    versionsOfContributors.some((v: any) => v.contributor_id === cid && !delVersionIds.has(v.id))
 
-  // ===== 删除阶段：分相执行（歌 → 专辑 → 艺术家 → 贡献者），只做删除不再查库。
+  // ===== 删除阶段：分相执行（版本 → 歌 → 专辑 → 艺术家 → 贡献者），只做删除不再查库。
   // 分相的原因：跨行共享实体必须等全部歌曲删完再判删，否则 FK RESTRICT 会拦住先行删除的行
   const failed: string[] = []
   const rowFailed = new Set<number>()
   const titleOf = (r: any) => r.song_data?.title || r.user_name
   const deletedArtists = new Set<string>()
+
+  // 0) 歌词版本（song_version 投稿产物）：先删行表行，再删版本本身；失败归因到引用它的行
+  for (const vid of versionIds) {
+    try {
+      await adminApi.removeWhere('song_lyric_lines', 'version_id', vid)
+    } catch (e: any) {
+      allRefs.forEach((f, i) => { if ((f.lyric_version_ids || []).includes(vid)) rowFailed.add(i) })
+      failed.push(`歌词版本 ${vid} 行表回收失败：${e?.message || e}`)
+    }
+  }
+  for (const vid of versionIds) {
+    try {
+      await adminApi.remove('lyric_versions', vid)
+    } catch (e: any) {
+      allRefs.forEach((f, i) => { if ((f.lyric_version_ids || []).includes(vid)) rowFailed.add(i) })
+      failed.push(`歌词版本 ${vid} 回收失败：${e?.message || e}`)
+    }
+  }
 
   // 1) 歌曲（逐行定位失败行）；关系行随 FK CASCADE 自动清除
   for (let i = 0; i < rows.length; i++) {
@@ -1673,9 +1817,9 @@ function albumCoverOf(sd: any): string | undefined {
 const showAlbumDialog = ref(false)
 
 function openBatchReview() {
-  const rows = selected.value.filter(s => s.status === 'pending' && s.song_data?.type !== 'profile')
+  const rows = selected.value.filter(s => s.status === 'pending' && s.song_data?.type !== 'profile' && s.song_data?.type !== 'song_version')
   if (!rows.length) {
-    ElMessage.warning('选中中没有待审核的歌曲投稿（资料更新类请单曲审核）')
+    ElMessage.warning('选中中没有待审核的歌曲投稿（资料更新/补充版本类请单曲审核）')
     return
   }
   batchRows.value = rows.map(r => ({ row: r, sd: normalizeSubmission(r), decision: 'approve' as const }))
@@ -1686,7 +1830,7 @@ function openBatchReview() {
 
 /** 一键批量审核当前全部待审核歌曲（无需勾选；受搜索框过滤影响——搜了就只处理搜出来的） */
 function openBatchReviewAll() {
-  const rows = listSource.value.filter((s: any) => s.song_data?.type !== 'profile')
+  const rows = listSource.value.filter((s: any) => s.song_data?.type !== 'profile' && s.song_data?.type !== 'song_version')
   if (!rows.length) {
     ElMessage.warning('当前没有待审核的歌曲投稿')
     return

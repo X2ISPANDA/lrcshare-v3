@@ -49,15 +49,52 @@ function detectLang(text) {
   return null
 }
 
+/** TTML xml:lang（BCP47）→ 站内语言码（与前端 ttmlLangToLrc 对齐） */
+function normTtmlLang(raw) {
+  const v = String(raw || '').replace(/^xml:/, '').trim()
+  if (!v) return null
+  const lower = v.toLowerCase()
+  if (lower === 'zh-hans' || lower === 'zh-hans-cn') return 'zh'
+  if (/^zh-hant/.test(lower)) return 'zh-Hant'
+  if (lower === 'ja-latn') return 'en' // 日语音译轨，站内按拉丁系 en 归类
+  const base = v.split('-')[0]
+  return base || null
+}
+
+/** 从 TTML 提取语言集合（与前端 detectTtmlLangs 同规则，Worker 无 DOMParser 走正则）。
+ *  整体判定：根 xml:lang 优先 → 翻译/音译轨标注 → 全无标注时正文行众数；
+ *  零星外语 punchline / x-bg 和声不产生独立语言标签。 */
 function detectLangsFromTtml(xml) {
-  const texts = []
-  try {
-    const re = /<p\b[^>]*>([\s\S]*?)<\/p>/gi
-    let m
-    while ((m = re.exec(xml))) texts.push(m[1].replace(/<[^>]+>/g, ''))
-  } catch { /* 正则容错：提取不到就算了 */ }
+  const text = String(xml || '')
   const langs = new Set()
-  for (const t of texts) { const l = detectLang(t); if (l) langs.add(l) }
+  try {
+    // 主体：<tt>/<body> 根 xml:lang（tt 在 body 前，取第一个匹配）
+    const rootM = /<(?:tt|body)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(text)
+    const rootLang = rootM ? normTtmlLang(rootM[1]) : null
+    if (rootLang) langs.add(rootLang)
+    // 译文/音译轨：站内侧车标签 + div 级 xml:lang（与主体不同者）
+    const trRe = /<(?:translation|transliteration)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
+    let tm
+    while ((tm = trRe.exec(text))) { const k = normTtmlLang(tm[1]); if (k) langs.add(k) }
+    const divRe = /<div\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
+    while ((tm = divRe.exec(text))) { const k = normTtmlLang(tm[1]); if (k && k !== rootLang) langs.add(k) }
+    // 全无标注 → 正文行众数（x-bg 和声 span 先剔除）
+    if (!langs.size) {
+      const counts = new Map()
+      const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi
+      let m
+      while ((m = pRe.exec(text))) {
+        const plain = m[1]
+          .replace(/<span\b[^>]*\bttm:role\s*=\s*["']x-bg["'][^>]*>[\s\S]*?<\/span>(?:\s*<\/span>)?/gi, '')
+          .replace(/<[^>]+>/g, '')
+        if (!plain.trim()) continue
+        const l = detectLang(plain)
+        if (l) counts.set(l, (counts.get(l) || 0) + 1)
+      }
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+      if (top) langs.add(top[0])
+    }
+  } catch { /* 正则容错：提取不到就返回已收集到的 */ }
   return [...langs]
 }
 

@@ -155,36 +155,83 @@
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'text' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('text')">📖 文本歌词</button>
           <button class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'lrc' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('lrc')">⏱️ LRC 歌词</button>
           <button v-if="ttmlVersions.length" class="flex-1 py-4 font-medium tab-btn" :class="activeTab === 'ttml' ? 'tab-active' : 'tab-inactive'" @click="switchLyricsTab('ttml')">🎼 TTML</button>
+          <button class="px-3 sm:px-4 text-xs text-gray-400 hover:text-pink-600 whitespace-nowrap border-l border-gray-100 transition-colors cursor-pointer" @click="versionDialogOpen = true">＋ 补充版本</button>
         </div>
         <div class="p-6 md:p-8">
-          <!-- 文本歌词 + 「全部复制」（移动端常显，桌面 Typora 式悬浮显隐；复制 lyrics_text 原文或 LRC 提取纯文本） -->
+          <!-- 文本歌词（三层：1.人工美化文本 lyrics_text → 2.TTML 结构化渲染 → 3.LRC 提取纯文本） -->
           <div v-show="activeTab === 'text'" class="group relative">
             <button
               class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
               @click="copyCurrentText"
             >全部复制</button>
-            <!-- 译文语种按钮由 RichContentView 按内容自动生成 -->
+            <!-- 第一层：人工美化文本（Markdown，译文语种按钮由 RichContentView 自动生成） -->
             <RichContentView
+              v-if="song?.lyrics_text"
+              :html="textLyricsHtml"
+              content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
+            />
+            <!-- 第二层：TTML 结构化渲染（对唱分列 + 段落 + 和声斜体 + 翻译随行） -->
+            <div v-else-if="ttmlStructure" class="text-left">
+              <div v-if="ttmlVersions.length > 1 || ttmlKindOptions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                <select
+                  v-if="ttmlVersions.length > 1"
+                  v-model="ttmlVersionId"
+                  class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+                >
+                  <option v-for="v in ttmlVersions" :key="v.id" :value="v.id">
+                    {{ ttmlVersionLabel(v) }}
+                  </option>
+                </select>
+                <select
+                  v-if="ttmlKindOptions.length > 1"
+                  v-model="ttmlKindFilter"
+                  class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+                >
+                  <option v-for="k in ttmlKindOptions" :key="k" :value="k">
+                    {{ k === 'all' ? '全部' : LYRIC_KIND_LABEL[k] }}
+                  </option>
+                </select>
+              </div>
+              <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-4 py-2">
+                <div
+                  v-for="(g, gi) in ttmlGroups"
+                  :key="gi"
+                  class="flex flex-col"
+                  :class="ttmlGroupAlign(g)"
+                >
+                  <p
+                    class="text-lg leading-relaxed font-medium whitespace-pre-wrap"
+                    :style="{ color: ttmlAgentColor(g.line.agent) }"
+                  >{{ g.line.text }}</p>
+                  <p
+                    v-for="(b, bi) in g.line.bg"
+                    :key="`bg${bi}`"
+                    class="text-sm italic leading-snug"
+                    :style="{ color: BG_COLOR }"
+                  >（合）{{ b }}</p>
+                  <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
+                </div>
+              </div>
+              <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
+              <p v-if="ttmlCredit" class="text-center text-xs text-gray-400 mt-4">{{ ttmlCredit }}</p>
+            </div>
+            <!-- 第三层：LRC 提取纯文本（无标签，逐行） -->
+            <RichContentView
+              v-else
               :html="textLyricsHtml"
               content-class="rich-lyrics text-center leading-loose text-gray-700 text-lg"
             />
           </div>
           <div v-show="activeTab === 'lrc'" class="text-left">
-            <!-- 工具行：版本下拉（多版本时出现）+ 格式下拉 -->
+            <!-- 工具行：版本源下拉（贡献者-格式生成，永远下拉可选）+ 格式下拉 -->
             <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <select
-                v-if="lyricVersions.length > 1"
-                v-model="lrcVersionKey"
+                v-if="lrcSourceOptions.length"
+                v-model="lrcSourceKey"
                 class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
               >
-                <option value="all">全部版本（混合）</option>
-                <option v-for="v in lyricVersions" :key="`${v.lang}|${v.kind}`" :value="`${v.lang}|${v.kind}`">
-                  {{ LYRIC_KIND_LABEL[v.kind] }} · {{ langLabel(v.lang) }}
-                </option>
+                <option v-for="o in lrcSourceOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
               </select>
-              <span v-else-if="lyricVersions.length === 1" class="text-xs text-gray-400">
-                {{ LYRIC_KIND_LABEL[lyricVersions[0].kind] }} · {{ langLabel(lyricVersions[0].lang) }}
-              </span>
               <span v-else></span>
               <select
                 v-model="lrcFormat"
@@ -193,8 +240,19 @@
                 <option value="line">LRC</option>
                 <option value="enhanced" :disabled="!hasWordTiming">增强逐字 LRC{{ hasWordTiming ? '' : '（无词级数据）' }}</option>
                 <option value="verbatim" :disabled="!hasWordTiming">逐字 LRC{{ hasWordTiming ? '' : '（无词级数据）' }}</option>
-                <option value="ttml">TTML</option>
               </select>
+            </div>
+            <!-- 语言快速切换：完整版（该源全部语言混合）/ 单语言（快速复制） -->
+            <div v-if="lrcLangOptions.length > 1" class="flex items-center gap-1.5 mb-3 flex-wrap">
+              <button
+                v-for="o in lrcLangOptions"
+                :key="o.key"
+                class="px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer"
+                :class="lrcLangKey === o.key
+                  ? 'bg-pink-50 border-pink-300 text-pink-600'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-pink-200 hover:text-pink-500'"
+                @click="lrcLangKey = o.key"
+              >{{ o.label }}</button>
             </div>
             <!-- 文本框 + Typora 式「全部复制」（悬浮出现） -->
             <div class="group relative">
@@ -205,7 +263,7 @@
               <pre class="lyric-code text-sm text-gray-600 whitespace-pre-wrap">{{ lrcText }}</pre>
             </div>
           </div>
-          <!-- TTML 逐字/对唱视图：结构化渲染（声部分列 + 和声 + 翻译随行），渐进增强 -->
+          <!-- TTML 源码视图 -->
           <div v-show="activeTab === 'ttml'" class="text-left">
             <!-- 来源署名条（ttml-hub 导入版本）：LunaBeat logo + 双链接，尊重上游创作 -->
             <div v-if="selectedTtml?.source === 'ttml-hub'" class="mb-4 flex items-center justify-center gap-2.5 flex-wrap rounded-xl bg-gray-900 px-4 py-3 text-sm text-gray-300 shadow-md">
@@ -225,10 +283,9 @@
               <a href="https://2755337087.github.io/ttml-hub/" target="_blank" rel="noopener noreferrer"
                 class="font-semibold text-white underline decoration-gray-500/60 underline-offset-4 transition-colors hover:text-pink-400 hover:decoration-pink-400">TTML 歌词站</a>
             </div>
-            <!-- 版本切换 + 行类型切换（多个 TTML 版本，或有译文/罗马音时） -->
-            <div v-if="ttmlVersions.length > 1 || ttmlKindOptions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <!-- 版本切换（多个 TTML 版本时） -->
+            <div v-if="ttmlVersions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <select
-                v-if="ttmlVersions.length > 1"
                 v-model="ttmlVersionId"
                 class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
               >
@@ -236,35 +293,14 @@
                   {{ ttmlVersionLabel(v) }}
                 </option>
               </select>
-              <select
-                v-if="ttmlKindOptions.length > 1"
-                v-model="ttmlKindFilter"
-                class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
-              >
-                <option v-for="k in ttmlKindOptions" :key="k" :value="k">
-                  {{ k === 'all' ? '全部' : LYRIC_KIND_LABEL[k] }}
-                </option>
-              </select>
             </div>
-            <!-- 歌词内容区：悬浮「全部复制」锚定内容本身（随内容出现在右上角）；移动端常显，桌面 Typora 式悬浮显隐 -->
+            <!-- 源码内容区：悬浮「全部复制」锚定内容本身；移动端常显，桌面 Typora 式悬浮显隐 -->
             <div class="group relative">
               <button
                 class="absolute top-2 right-2 z-10 px-2.5 py-1 text-xs rounded-md bg-white/90 border border-gray-200 text-gray-500 shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-pink-600 hover:border-pink-200 cursor-pointer"
                 @click="copyCurrentTtml"
               >全部复制</button>
-              <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-3 py-2">
-                <div
-                  v-for="(g, gi) in ttmlGroups"
-                  :key="gi"
-                  class="flex flex-col"
-                  :class="ttmlGroupAlign(g)"
-                >
-                  <p class="text-lg leading-relaxed text-gray-700 whitespace-pre-wrap">{{ g.line.text }}</p>
-                  <p v-for="(b, bi) in g.line.bg" :key="`bg${bi}`" class="text-sm text-gray-400 italic leading-snug">{{ b }}</p>
-                  <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
-                </div>
-              </div>
-              <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
+              <pre class="lyric-code text-sm text-gray-600 whitespace-pre-wrap">{{ selectedTtml?.ttml_text }}</pre>
             </div>
             <p v-if="ttmlCredit" class="text-center text-xs text-gray-400 mt-4">{{ ttmlCredit }}</p>
           </div>
@@ -306,6 +342,21 @@
   </main>
 
   <RewardModal v-model="showReward" />
+
+  <!-- 补充歌词版本弹框（投稿进审核队列，通过后只写版本不建歌） -->
+  <el-dialog
+    v-model="versionDialogOpen"
+    title="为这首歌补充歌词版本"
+    width="640px"
+    append-to-body
+    class="version-submit-dialog"
+  >
+    <VersionSubmitPanel
+      v-if="versionDialogOpen && song"
+      :song="{ id: songId, title: song.title }"
+      @submitted="versionDialogOpen = false"
+    />
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -328,8 +379,9 @@ import {
   loadLyricLines,
   loadLyricVersionMetas,
   parseTtmlStructure,
+  parseTtmlToRows,
   composeMixedLrc,
-  versionsToTtml,
+  stripWordTags,
   fillCommonRows,
   rowsHaveWordTags,
   langLabel,
@@ -342,6 +394,7 @@ import {
 import RewardModal from '@/components/common/RewardModal.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import CreditLinks from '@/components/song/CreditLinks.vue'
+import VersionSubmitPanel from '@/components/submit/VersionSubmitPanel.vue'
 import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
 
 const route = useRoute()
@@ -621,13 +674,25 @@ function switchLyricsTab(key: 'text' | 'lrc' | 'ttml') {
   router.replace({ query: key === 'text' ? { ...route.query, tab: undefined } : { ...route.query, tab: key } })
 }
 
-/** 文本歌词源文：lyrics_text（Markdown + 内嵌 HTML）优先，否则从 LRC 提取纯文本（渲染与复制共用） */
+/** 文本歌词源文（渲染与复制共用），优先级：
+ *  1. lyrics_text（人工 Markdown）2. TTML 正文纯文本（首个 TTML 版本解析）
+ *  3. LRC 提取纯文本（剥行标签 + <mm:ss.xxx>/<偏移> 两类词级标签） */
 const textLyricsSource = computed(() => {
   const s = song.value
   if (!s) return ''
   if (s.lyrics_text) return s.lyrics_text
+  // TTML 正文纯文本：当前选中版本解析，剥词级时间标签（parseTtmlToRows 的 text 带 <偏移> 是 LRC 合成用途）
+  const ttml = selectedTtml.value?.ttml_text
+  if (ttml) {
+    const rows = parseTtmlToRows(ttml)
+    const text = rows.map(r => stripWordTags(r.text).trim()).filter(Boolean).join('\n')
+    if (text) return text
+  }
+  // LRC 提取：剥行时间标签 + 词级标签（<00:10.850> 绝对 / <123> 偏移）
   const text = (s.lrc_text || '')
-    .replace(/\[.*?\]/g, '')
+    .replace(/\[\d{1,2}:\d{1,2}(?:\.\d{1,3})?\]/g, '')
+    .replace(/<\/?\d{1,2}:\d{1,2}(?:\.\d{1,3})?>/g, '')
+    .replace(/<\d{1,6}>/g, '')
     .split('\n')
     .map(line => line.trim())
     .filter(line => line)
@@ -644,16 +709,17 @@ const textLyricsHtml = computed(() => {
   return src.split('\n').map(line => line || '&nbsp;').join('<br>')
 })
 
-// ============ 多语言歌词（LRC tab：行表 → 版本/格式切换） ============
+// ============ 多语言歌词（LRC tab：版本源 → 语言 tab → 格式切换） ============
 const lyricLineRows = ref<LyricLineRow[]>([])
-const lrcFormat = ref<'line' | 'enhanced' | 'verbatim' | 'ttml'>('line')
-const lrcVersionKey = ref<string>('all')
-// TTML 逐字/对唱 tab（声明在 watch 之前：immediate 回调首轮即会写入）
-const ttmlVersions = ref<LyricVersionMeta[]>([])
+const lrcFormat = ref<'line' | 'enhanced' | 'verbatim'>('line')
+/** LRC tab 版本源（谁的、什么格式生成的）+ 该源下的语言 tab（完整版/单语言） */
+const lrcSourceKey = ref('')
+const lrcLangKey = ref('full')
+// 全部已发布歌词版本元数据（含 ttml_text；TTML tab 与 LRC 源分组共用，声明在 watch 之前：immediate 回调首轮即会写入）
+const lyricMetas = ref<LyricVersionMeta[]>([])
+/** TTML 版本（对唱/逐字 tab + LRC 源下拉的 TTML 源） */
+const ttmlVersions = computed<LyricVersionMeta[]>(() => lyricMetas.value.filter(v => v.format === 'ttml' && v.ttml_text))
 const ttmlVersionId = ref('')
-// TTML 行类型切换：全部 / 仅原文 / 仅翻译 / 仅罗马音
-const ttmlKindFilter = ref<'all' | 'original' | 'translation' | 'romanization'>('all')
-
 /** 行表加载：song 就绪且非隐藏（或已解锁）时拉取；解锁重拉（song 对象被整体替换） */
 let linesLoadedFor = ''
 watch(
@@ -661,6 +727,8 @@ watch(
   async ([id, hidden]) => {
     if (!id || hidden) {
       lyricLineRows.value = []
+      lyricMetas.value = []
+      ttmlVersionId.value = ''
       linesLoadedFor = ''
       return
     }
@@ -671,13 +739,13 @@ watch(
     } catch {
       lyricLineRows.value = [] // 行表读失败回退 lrc_text
     }
-    // TTML 版本（对唱/逐字 tab）：与行表同生命周期（隐藏歌解锁后重拉）
+    // 全部版本元数据（含 TTML 原文）：与行表同生命周期（隐藏歌解锁后重拉）
     try {
-      const metas = await loadLyricVersionMetas(id, true)
-      ttmlVersions.value = metas.filter(v => v.format === 'ttml' && v.ttml_text)
+      lyricMetas.value = await loadLyricVersionMetas(id, true)
       ttmlVersionId.value = ttmlVersions.value[0]?.id || ''
     } catch {
-      ttmlVersions.value = []
+      lyricMetas.value = []
+      ttmlVersionId.value = ''
     }
     // 默认 tab 优先级：有 LRC → LRC tab；无 LRC 有 TTML 版本 → TTML tab（白板歌默认归入此链）。
     // 用户手动切过 tab 或 URL 带 ?tab= 时不干预
@@ -689,23 +757,16 @@ watch(
   { immediate: true },
 )
 
-// ============ TTML 逐字/对唱视图 ============
+// ============ TTML 源码视图 ============
 const selectedTtml = computed(() => ttmlVersions.value.find(v => v.id === ttmlVersionId.value) || null)
 
-/** 结构化解析（展示容错版：解析不出整体降级为提示，不丢数据） */
-const ttmlStructure = computed<TtmlStructure | null>(() => {
-  const text = selectedTtml.value?.ttml_text
-  if (!text) return null
-  const st = parseTtmlStructure(text)
-  return st.lines.length ? st : null
-})
-
-/** 署名：版本自带署名 > 贡献者署名（ttml-hub 来源署名由 TTML 视图顶部 info 条承担，不重复显示） */
+/** 署名：版本自带署名 > 版本级贡献者 > 歌曲级贡献者（ttml-hub 来源署名由 TTML 视图顶部 info 条承担，不重复显示） */
 const ttmlCredit = computed(() => {
   const v = selectedTtml.value
   if (!v) return ''
   if (v.source_credit) return v.source_credit
   if (v.source === 'ttml-hub') return ''
+  if (v.contributor_name) return `本歌词来自于:${v.contributor_name}@lrcshare.com`
   return songCredit.value
 })
 
@@ -715,7 +776,16 @@ function ttmlVersionLabel(v: LyricVersionMeta): string {
   return langs ? `${src} · ${langs}` : src
 }
 
-/** 可用的行类型（供切换下拉；无翻译/罗马音时不显示对应选项） */
+/** 结构化解析（文本歌词 tab 第二层：对唱分列/和声/翻译随行） */
+const ttmlStructure = computed<TtmlStructure | null>(() => {
+  const text = selectedTtml.value?.ttml_text
+  if (!text) return null
+  const st = parseTtmlStructure(text)
+  return st.lines.length ? st : null
+})
+
+/** 结构化视图行类型切换：全部 / 仅原文 / 仅翻译 / 仅罗马音 */
+const ttmlKindFilter = ref<'all' | 'original' | 'translation' | 'romanization'>('all')
 const ttmlKindOptions = computed(() => {
   const st = ttmlStructure.value
   if (!st) return []
@@ -735,7 +805,6 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
   for (const l of st.lines) {
     if (filter !== 'all' && l.kind !== filter) continue
     if (l.kind === 'original') {
-      // original：同 begin 的第二个 original（多语言原文）→ 随行；否则新组
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
         groups[gi].translations.push(l)
@@ -744,7 +813,6 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
         groups.push({ line: l, translations: [] })
       }
     } else {
-      // translation/romanization：关联同 begin 的 original；孤立则独立成组
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
         groups[gi].translations.push(l)
@@ -756,38 +824,150 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
   return groups
 })
 
-/** 声部 → 左右分列（按首次出现顺序：第 1 声部居左、第 2 居右、其余/无声部居中） */
-const ttmlAgentSides = computed(() => {
+/** 声部调色板（最多 10 个声部按首次出现取色；无 agent 的齐唱行用合唱灰） */
+const AGENT_COLORS = [
+  '#ec4899', // 粉（主唱）
+  '#3b82f6', // 蓝
+  '#10b981', // 绿
+  '#f59e0b', // 琥珀
+  '#8b5cf6', // 紫
+  '#06b6d4', // 青
+  '#f43f5e', // 玫红
+  '#14b8a6', // 松石
+  '#6366f1', // 靛蓝
+  '#f97316', // 橙
+]
+const CHORUS_COLOR = '#64748b' // 合唱/齐唱（无 ttm:agent）
+const BG_COLOR = '#94a3b8' // 和声（x-bg）
+
+/** 声部顺序（按首次出现）：奇数列居左、偶数列居右（Apple Music 式交替），齐唱居中 */
+const ttmlAgentOrder = computed<string[]>(() => {
   const st = ttmlStructure.value
-  const m = new Map<string, 'left' | 'right'>()
-  if (!st?.hasAgent) return m
-  for (const l of st.lines) {
-    if (l.agent && !m.has(l.agent)) m.set(l.agent, m.size === 0 ? 'left' : 'right')
+  const order: string[] = []
+  if (st) for (const l of st.lines) {
+    if (l.agent && !order.includes(l.agent)) order.push(l.agent)
   }
-  return m
+  return order
 })
 
-function ttmlGroupAlign(g: TtmlGroup): string {
-  const side = g.line.agent ? ttmlAgentSides.value.get(g.line.agent) : undefined
-  if (side === 'left') return 'items-start text-left self-start w-4/5'
-  if (side === 'right') return 'items-end text-right self-end w-4/5'
-  return 'items-center text-center self-center w-full'
+function ttmlAgentColor(agent: string | null): string {
+  if (!agent) return CHORUS_COLOR
+  const idx = ttmlAgentOrder.value.indexOf(agent)
+  return idx >= 0 ? AGENT_COLORS[idx % AGENT_COLORS.length] : CHORUS_COLOR
 }
 
-/** 行表 → 版本列表（每个 (lang,kind) 一个版本） */
-const lyricVersions = computed<LyricVersion[]>(() => groupVersions(lyricLineRows.value))
+function ttmlGroupAlign(g: TtmlGroup): string {
+  const agent = g.line.agent
+  if (!agent) return 'items-center text-center self-center w-full'
+  const idx = ttmlAgentOrder.value.indexOf(agent)
+  return idx % 2 === 0
+    ? 'items-start text-left self-start w-4/5'
+    : 'items-end text-right self-end w-4/5'
+}
 
-/** 是否有词级时间（无则增强逐字/逐字格式无从渲染，禁用选项） */
-const hasWordTiming = computed(() => rowsHaveWordTags(lyricLineRows.value))
-watch(hasWordTiming, ok => {
-  if (!ok && (lrcFormat.value === 'enhanced' || lrcFormat.value === 'verbatim')) lrcFormat.value = 'line'
+/** 行表按版本容器分桶（version_id → 行）；version_id 缺失或不属于任何已发布容器的行归入 '' 桶 */
+const rowsByVersion = computed<Map<string, LyricLineRow[]>>(() => {
+  const buckets = new Map<string, LyricLineRow[]>()
+  const metaIds = new Set(lyricMetas.value.map(m => m.id))
+  for (const r of lyricLineRows.value) {
+    const vid = r.version_id && metaIds.has(r.version_id) ? r.version_id : ''
+    if (!buckets.has(vid)) buckets.set(vid, [])
+    buckets.get(vid)!.push(r)
+  }
+  return buckets
 })
 
-/** 选中版本（下拉）：all = 全部混合；单选译文时补齐原文公共行（完整可独立渲染） */
+/** 行表容器（lrc/enhanced）→ 该容器的版本列表（每个 (lang,kind) 一个版本） */
+function versionsOfContainer(vid: string): LyricVersion[] {
+  return groupVersions(rowsByVersion.value.get(vid) || [])
+}
+
+/** LRC tab 版本源：TTML 源按贡献者分组（同人同格式一个源，语言 tab 区分简/繁等变体）
+ *  + 行表源按版本容器分组（每个 lrc/enhanced 容器一个源，label 体现贡献者）。
+ *  TTML 运行时解析转 LRC，不写行表。 */
+interface LrcSourceOption {
+  key: string
+  label: string
+  kind: 'ttml' | 'db'
+  /** ttml 源：TTML 版本元数据；db 源：容器版本 id（'' = 无容器兜底桶） */
+  entries: LyricVersionMeta[]
+  versionId?: string
+  /** 展示排序（取代表版本 sort_order；NULL/兜底桶排最后） */
+  sortOrder: number
+}
+const SORT_LAST = Number.MAX_SAFE_INTEGER
+const lrcSourceOptions = computed<LrcSourceOption[]>(() => {
+  const opts: LrcSourceOption[] = []
+  const byContributor = new Map<string, LyricVersionMeta[]>()
+  for (const v of ttmlVersions.value) {
+    const k = v.contributor_id || (v.source === 'ttml-hub' ? 'hub' : '')
+    if (!byContributor.has(k)) byContributor.set(k, [])
+    byContributor.get(k)!.push(v)
+  }
+  for (const [k, entries] of byContributor) {
+    const name = entries[0].contributor_name
+      || (entries[0].source === 'ttml-hub' ? 'LunaBeat' : '投稿')
+    // entries 沿自 metas（已按 sort_order 排序），组内第一个即最小序号
+    opts.push({ key: `src:ttml:${k}`, label: `${name}-TTML生成`, kind: 'ttml', entries, sortOrder: entries[0]?.sort_order ?? SORT_LAST })
+  }
+  // 行表源：按已发布 lrc/enhanced 容器逐个成源
+  for (const m of lyricMetas.value) {
+    if (m.format !== 'lrc' && m.format !== 'enhanced') continue
+    if (!versionsOfContainer(m.id).length) continue
+    const label = m.contributor_name ? `${m.contributor_name}-LRC` : '官方 LRC'
+    opts.push({ key: `src:db:${m.id}`, label, kind: 'db', entries: [], versionId: m.id, sortOrder: m.sort_order ?? SORT_LAST })
+  }
+  // 兜底：不属于任何已发布容器的行（异常/历史数据）合并为「官方 LRC」，不丢歌词
+  if (versionsOfContainer('').length) {
+    opts.push({ key: 'src:db', label: '官方 LRC', kind: 'db', entries: [], versionId: '', sortOrder: SORT_LAST })
+  }
+  // 统一按手动序号混排（TTML 源与 LRC 源的相对先后也由站长控制）
+  return opts.sort((a, b) => a.sortOrder - b.sortOrder)
+})
+const activeLrcSource = computed(() => lrcSourceOptions.value.find(o => o.key === lrcSourceKey.value) || null)
+watch(lrcSourceOptions, opts => {
+  if (!opts.some(o => o.key === lrcSourceKey.value)) {
+    lrcSourceKey.value = opts[0]?.key || ''
+    lrcLangKey.value = 'full'
+  }
+}, { immediate: true })
+
+/** 语言 tab：完整版（该源全部语言混合，同戳堆叠）+ 单语言（快速复制）；
+ *  zh 与 zh-Hant 并存时标「简体中文」以区分（全局 langLabel 的 zh=中文过于笼统） */
+const lrcLangLabel = (lang: string) => (lang === 'zh' ? '简体中文' : langLabel(lang))
+const lrcLangOptions = computed(() => {
+  const src = activeLrcSource.value
+  if (!src) return []
+  if (src.kind === 'db') {
+    return [
+      { key: 'full', label: '完整版' },
+      ...versionsOfContainer(src.versionId || '').map(v => ({ key: `${v.lang}|${v.kind}`, label: `${LYRIC_KIND_LABEL[v.kind]} · ${lrcLangLabel(v.lang)}` })),
+    ]
+  }
+  return [
+    { key: 'full', label: '完整版' },
+    ...src.entries.map(v => ({ key: `ttml:${v.id}`, label: lrcLangLabel(v.langs?.[0] || 'zh') })),
+  ]
+})
+watch(lrcLangOptions, opts => {
+  if (!opts.some(o => o.key === lrcLangKey.value)) lrcLangKey.value = 'full'
+})
+
+/** 选中版本（源 + 语言 tab）：完整版 = 该源全部语言；单语言 = 对应语言版本；
+ *  行表译文单选时补齐原文公共行（完整可独立渲染） */
 const selectedVersions = computed<LyricVersion[]>(() => {
-  const vs = lyricVersions.value
-  if (lrcVersionKey.value === 'all') return vs
-  const sel = vs.filter(v => `${v.lang}|${v.kind}` === lrcVersionKey.value)
+  const src = activeLrcSource.value
+  if (!src) return []
+  if (src.kind === 'ttml') {
+    const vs = src.entries
+      .filter(e => e.ttml_text)
+      .map(e => ({ lang: e.langs?.[0] || 'zh', kind: 'original' as const, rows: parseTtmlToRows(e.ttml_text!) }))
+    if (lrcLangKey.value === 'full') return vs
+    return vs.filter((_, i) => `ttml:${src.entries[i].id}` === lrcLangKey.value)
+  }
+  const vs = versionsOfContainer(src.versionId || '')
+  if (lrcLangKey.value === 'full') return vs
+  const sel = vs.filter(v => `${v.lang}|${v.kind}` === lrcLangKey.value)
   if (sel.length === 1 && sel[0].kind !== 'original') {
     const orig = vs.find(v => v.kind === 'original')
     if (orig) {
@@ -798,13 +978,26 @@ const selectedVersions = computed<LyricVersion[]>(() => {
   return sel
 })
 
-/** LRC tab 展示文本：行表优先，格式/版本可选；行表为空回退 lrc_text 原文 */
+/** 是否有词级时间（无则增强逐字/逐字格式无从渲染，禁用选项）：当前选中源的语言解析结果 */
+const hasWordTiming = computed(() => {
+  const rows = selectedVersions.value.flatMap(v => v.rows)
+  return rowsHaveWordTags(rows)
+})
+watch(hasWordTiming, ok => {
+  if (!ok) {
+    // 无词级数据：逐字类格式无从渲染，回退普通 LRC
+    if (lrcFormat.value === 'enhanced' || lrcFormat.value === 'verbatim') lrcFormat.value = 'line'
+  } else if (lrcFormat.value === 'line') {
+    // 有词级数据（首次加载/切到有逐字的源）：默认从普通 LRC 升到增强逐字 LRC。
+    // 用户手动选回 line 不会被抢——watch 仅在 hasWordTiming true/false 跳变时触发，同源内保持 true 不回调
+    lrcFormat.value = 'enhanced'
+  }
+})
+
+/** LRC tab 展示文本：源 + 语言 + 格式（LRC/增强逐字/逐字）；无版本时回退 lrc_text 原文 */
 const lrcText = computed<string>(() => {
   const vs = selectedVersions.value
   if (!vs.length) return song.value?.lrc_text || ''
-  if (lrcFormat.value === 'ttml') {
-    return versionsToTtml(vs, songCredit.value)
-  }
   return composeMixedLrc(vs, lrcFormat.value)
 })
 
@@ -833,6 +1026,8 @@ function copyCurrentTtml() {
 
 // ============ 操作 ============
 const showReward = ref(false)
+/** 补充歌词版本弹框（投稿进审核队列） */
+const versionDialogOpen = ref(false)
 
 function shareSong() {
   copyText(window.location.href).then(() => ElMessage.success('链接已复制到剪贴板！'))

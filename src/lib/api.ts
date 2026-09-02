@@ -256,26 +256,55 @@ export const api = {
 
   // ============ 歌曲 ============
 
-  /** 歌曲列表（不含 lrc_text） */
+  /** 歌曲列表（不含 lrc_text；带投稿人昵称/头像） */
   async getSongs(limit?: number): Promise<SongWithNames[]> {
-    let query = supabase
-      .from('songs')
-      .select(`id, title, album_id, duration, track, disc, status, is_hidden, cover, created_at, ${SONG_CONTRIB_EMBED}, albums(name, cover)`)
-      .eq('status', 'published')
-      .order('created_at', { ascending: false })
-    if (limit) query = query.limit(limit)
-    const { data, error } = await query
-    if (error) throw error
+    const build = (embedContributor: boolean) => {
+      let q = supabase
+        .from('songs')
+        .select(
+          `id, title, album_id, duration, track, disc, status, is_hidden, cover, contributor_id, created_at, ${SONG_CONTRIB_EMBED}${embedContributor ? ', contributors(id, name, avatar)' : ''}, albums(name, cover)`,
+        )
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+      if (limit) q = q.limit(limit)
+      return q
+    }
+
+    // 投稿人优先走 embed（依赖外键推断）；若外键缺失/歧义报错，降级为按 id 批量补拉
+    let { data, error } = await build(true)
+    if (error) {
+      const fallback = await build(false)
+      if (fallback.error) throw fallback.error
+      data = fallback.data
+      const cids = [
+        ...new Set(
+          ((data || []) as any[])
+            .map(r => r.contributor_id as string | null)
+            .filter((x): x is string => !!x),
+        ),
+      ]
+      const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
+      if (cids.length) {
+        const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
+        for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
+      }
+      data = ((data || []) as any[]).map(r => ({
+        ...r,
+        contributors: r.contributor_id ? (cMap.get(r.contributor_id) ?? null) : null,
+      }))
+    }
 
     const rows = ((data || []) as any[]).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
     const nameMap = await getArtistNameMap(rows.flatMap(s => s.artist_ids || []))
     return rows.map(s => {
-      const { albums, ...rest } = s
+      const { albums, contributors, ...rest } = s
+      const c = contributors as { id: string; name: string; avatar: string | null } | null | undefined
       return {
         ...rest,
         artist_name: joinNames(s.artist_ids, nameMap) || '未知',
         album_name: (albums as unknown as { name?: string })?.name || '',
         album_cover: (albums as unknown as { cover?: string | null })?.cover || null,
+        contributor: c ? { id: c.id, name: c.name, avatar: c.avatar } : null,
       } as SongWithNames
     })
   },

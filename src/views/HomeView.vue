@@ -169,95 +169,102 @@
         </div>
       </section>
 
-      <!-- 左右两栏 -->
-      <section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <!-- 左栏：最新歌词 -->
-        <div class="lg:col-span-2">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-2xl font-bold text-gray-800">🆕 最新歌词</h2>
-          </div>
-          <div v-if="songsLoading" class="bg-white rounded-2xl shadow-sm divide-y divide-gray-50">
-            <div v-for="i in 6" :key="i" class="flex items-center gap-4 p-3">
-              <div class="w-12 h-12 bg-gray-100 rounded-lg shrink-0"></div>
-              <div class="flex-1"><div class="h-4 bg-gray-100 rounded w-2/3 mb-2"></div><div class="h-3 bg-gray-100 rounded w-1/3"></div></div>
+      <!-- 最新歌词：NFC 歌曲卡（封面满印 + 底部渐变压字 + 投稿人） -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">🆕 最新歌词</h2>
+        <div v-if="songsLoading" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div v-for="i in 10" :key="i" class="aspect-square rounded-2xl bg-white shadow-sm animate-pulse"></div>
+        </div>
+        <div v-else-if="!recentSongs?.length" class="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">暂无歌词</div>
+        <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <RouterLink
+            v-for="song in recentSongs"
+            :key="song.id"
+            :to="`/song/${song.id}`"
+            class="group relative aspect-square rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 bg-gradient-to-br from-pink-400 to-purple-500"
+          >
+            <!-- 封面（无封面用渐变兜底），点击封面可预览大图 -->
+            <img
+              v-if="song.cover || song.album_cover"
+              :src="song.cover || song.album_cover!"
+              :alt="song.title"
+              class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-zoom-in"
+              @click.prevent.stop="ui.openPreview([song.cover || song.album_cover!])"
+            />
+            <span v-else class="absolute inset-0 flex items-center justify-center text-white/90 text-4xl">🎵</span>
+
+            <!-- NFC 角标 -->
+            <svg class="absolute top-2.5 right-2.5 w-4 h-4 text-white/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 8.5a8.5 8.5 0 0 0 12 0" />
+              <path d="M8.8 11.5a4.5 4.5 0 0 0 6.4 0" />
+              <circle cx="12" cy="15.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+
+            <!-- hover 查看歌词遮罩（本站只提供歌词，不放歌） -->
+            <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center text-white font-semibold text-sm">查看歌词</span>
+
+            <!-- 底部渐变信息：歌名 / 歌手 / 投稿人 -->
+            <div class="absolute inset-x-0 bottom-0 p-3 pt-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent">
+              <div class="text-white font-bold text-sm truncate">{{ song.title }}</div>
+              <div class="text-white/80 text-xs truncate">{{ song.artist_name || '未知' }}</div>
+              <div v-if="song.contributor" class="text-white/70 text-[11px] truncate">📤 {{ song.contributor.name }} 投稿</div>
             </div>
+          </RouterLink>
+        </div>
+      </section>
+
+      <!-- 站长逼逼 + 优秀贡献者（并排等高） -->
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- 站长逼逼 -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 h-full">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-xl font-bold text-gray-800">📝 站长逼逼</h2>
+            <RouterLink to="/posts" class="text-pink-600 hover:underline text-sm">查看全部 →</RouterLink>
           </div>
-          <div v-else-if="!recentSongs?.length" class="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">暂无歌词</div>
-          <div v-else class="bg-white rounded-2xl shadow-sm divide-y divide-gray-50">
+          <div v-if="articlesLoading" class="space-y-4">
+            <div v-for="i in 3" :key="i" class="p-3"><div class="h-3 bg-gray-100 rounded w-1/4 mb-2"></div><div class="h-4 bg-gray-100 rounded w-3/4 mb-2"></div><div class="h-3 bg-gray-100 rounded"></div></div>
+          </div>
+          <div v-else-if="!articles?.length" class="text-sm text-gray-400 text-center py-4">
+            暂无文章，<RouterLink to="/posts" class="text-pink-600 hover:underline">去看看 →</RouterLink>
+          </div>
+          <div v-else class="space-y-4">
             <RouterLink
-              v-for="song in recentSongs"
-              :key="song.id"
-              :to="`/song/${song.id}`"
-              class="group flex items-center gap-4 p-3 hover:bg-pink-50/60 transition"
+              v-for="a in articles"
+              :key="a.id"
+              :to="`/post/${a.slug || a.id}`"
+              class="block group p-3 rounded-lg hover:bg-pink-50/50 transition"
             >
-              <!-- 封面（无封面用渐变占位），hover 显示查看提示 -->
-              <div class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center">
-                <img v-if="song.cover || song.album_cover" :src="song.cover || song.album_cover!" class="w-full h-full object-cover group-hover:scale-105 transition cursor-zoom-in" :alt="song.title" @click.prevent.stop="ui.openPreview([song.cover || song.album_cover!])" />
-                <span v-else class="text-white/90 text-lg">🎵</span>
-                <span class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs">查看</span>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs text-gray-400">{{ formatDate(a.created_at) }}</span>
               </div>
-              <div class="flex-1 min-w-0">
-                <div class="font-semibold text-gray-800 truncate group-hover:text-pink-600 transition">{{ song.title }}</div>
-                <div class="text-sm text-gray-500 truncate">{{ song.artist_name || '未知' }}{{ song.album_name ? ` · ${song.album_name}` : '' }}</div>
-              </div>
-              <div class="text-sm text-gray-400 shrink-0 tabular-nums">{{ formatDuration(song.duration) }}</div>
+              <div class="text-sm font-semibold text-gray-800 group-hover:text-pink-600 truncate mb-1">{{ a.title }}</div>
+              <div class="text-xs text-gray-500 line-clamp-2">{{ a.summary?.trim() || mdToText(a.content) }}</div>
             </RouterLink>
           </div>
         </div>
 
-        <!-- 右栏 -->
-        <div class="space-y-8">
-          <!-- 站长逼逼 -->
-          <div class="bg-white rounded-2xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-5">
-              <h2 class="text-xl font-bold text-gray-800">📝 站长逼逼</h2>
-              <RouterLink to="/posts" class="text-pink-600 hover:underline text-sm">查看全部 →</RouterLink>
-            </div>
-            <div v-if="articlesLoading" class="space-y-4">
-              <div v-for="i in 3" :key="i" class="p-3"><div class="h-3 bg-gray-100 rounded w-1/4 mb-2"></div><div class="h-4 bg-gray-100 rounded w-3/4 mb-2"></div><div class="h-3 bg-gray-100 rounded"></div></div>
-            </div>
-            <div v-else-if="!articles?.length" class="text-sm text-gray-400 text-center py-4">
-              暂无文章，<RouterLink to="/posts" class="text-pink-600 hover:underline">去看看 →</RouterLink>
-            </div>
-            <div v-else class="space-y-4">
-              <RouterLink
-                v-for="a in articles"
-                :key="a.id"
-                :to="`/post/${a.slug || a.id}`"
-                class="block group p-3 rounded-lg hover:bg-pink-50/50 transition"
-              >
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="text-xs text-gray-400">{{ formatDate(a.created_at) }}</span>
-                </div>
-                <div class="text-sm font-semibold text-gray-800 group-hover:text-pink-600 truncate mb-1">{{ a.title }}</div>
-                <div class="text-xs text-gray-500 line-clamp-2">{{ a.summary?.trim() || mdToText(a.content) }}</div>
-              </RouterLink>
-            </div>
+        <!-- 优秀贡献者 -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 h-full">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-xl font-bold text-gray-800">🏆 优秀贡献者</h2>
+            <RouterLink to="/contributors" class="text-pink-600 hover:underline text-sm">查看全部 →</RouterLink>
           </div>
-
-          <!-- 优秀贡献者 -->
-          <div class="bg-white rounded-2xl shadow-sm p-6">
-            <div class="flex items-center justify-between mb-5">
-              <h2 class="text-xl font-bold text-gray-800">🏆 优秀贡献者</h2>
-              <RouterLink to="/contributors" class="text-pink-600 hover:underline text-sm">查看全部 →</RouterLink>
-            </div>
-            <div v-if="contributorsLoading" class="grid grid-cols-3 gap-3">
-              <div v-for="i in 6" :key="i" class="flex flex-col items-center p-2"><div class="w-12 h-12 bg-gray-100 rounded-full mb-2"></div><div class="h-3 bg-gray-100 rounded w-full"></div></div>
-            </div>
-            <div v-else-if="!contributors?.length" class="text-sm text-gray-400 text-center py-4">
-              暂无贡献者，<RouterLink to="/contributors" class="text-pink-600 hover:underline">全部名单 →</RouterLink>
-            </div>
-            <div v-else class="grid grid-cols-3 gap-3">
-              <RouterLink
-                v-for="c in contributors"
-                :key="c.id"
-                :to="`/contributor/${c.id}`"
-                class="flex flex-col items-center p-2 rounded-lg hover:bg-pink-50/50 transition text-center"
-              >
-                <img :src="c.avatar || LOGO_URL" :alt="c.name" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
-                <span class="font-medium text-sm text-gray-800 truncate w-full">{{ c.name }}</span>
-              </RouterLink>
-            </div>
+          <div v-if="contributorsLoading" class="grid grid-cols-3 gap-3">
+            <div v-for="i in 12" :key="i" class="flex flex-col items-center p-2"><div class="w-12 h-12 bg-gray-100 rounded-full mb-2"></div><div class="h-3 bg-gray-100 rounded w-full"></div></div>
+          </div>
+          <div v-else-if="!contributors?.length" class="text-sm text-gray-400 text-center py-4">
+            暂无贡献者，<RouterLink to="/contributors" class="text-pink-600 hover:underline">全部名单 →</RouterLink>
+          </div>
+          <div v-else class="grid grid-cols-3 gap-3">
+            <RouterLink
+              v-for="c in contributors"
+              :key="c.id"
+              :to="`/contributor/${c.id}`"
+              class="flex flex-col items-center p-2 rounded-lg hover:bg-pink-50/50 transition text-center"
+            >
+              <img :src="c.avatar || LOGO_URL" :alt="c.name" class="w-12 h-12 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 mb-2 cursor-zoom-in" @click.prevent.stop="ui.openPreview([c.avatar || LOGO_URL])" />
+              <span class="font-medium text-sm text-gray-800 truncate w-full">{{ c.name }}</span>
+            </RouterLink>
           </div>
         </div>
       </section>
@@ -298,7 +305,7 @@ const { data: articles, loading: articlesLoading } = useSSGData<Article[]>('home
   api.getArticles({ status: 'published', limit: 4 }),
 )
 const { data: contributors, loading: contributorsLoading } = useSSGData<Contributor[]>('home:contributors', () =>
-  api.getContributors({ limit: 9 }),
+  api.getContributors({ limit: 12 }),
 )
 
 function formatDate(d: string | null | undefined): string {

@@ -25,7 +25,6 @@
         <el-table-column label="赞助者" min-width="140">
           <template #default="{ row }">
             <div class="flex items-center gap-2">
-              <img v-if="row.avatar" :src="row.avatar" class="w-7 h-7 rounded-full object-cover" />
               <span class="font-medium text-gray-800">{{ row.name }}</span>
             </div>
             <div v-if="row.title" class="text-xs text-gray-400 mt-0.5 truncate max-w-52" :title="row.title">{{ row.title }}</div>
@@ -53,7 +52,6 @@
         <template #card="{ row }">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex items-center gap-2">
-              <img v-if="row.avatar" :src="row.avatar" class="w-8 h-8 rounded-full object-cover shrink-0" />
               <div class="min-w-0">
                 <div class="font-medium text-gray-800 truncate">{{ row.name }}</div>
                 <div v-if="row.title" class="text-xs text-gray-400 truncate">{{ row.title }}</div>
@@ -91,18 +89,17 @@
       <el-form :model="form" label-width="84px">
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="名称" required><el-input v-model="form.name" placeholder="赞助者名称" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="日期"><el-input v-model="form.datatime" placeholder="2024-01-01" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="日期"><el-date-picker v-model="form.datatime" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" class="!w-full" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="金额" required>
               <div class="flex gap-2 w-full">
-                <el-input-number v-model="form.amount" :min="0" :precision="2" class="!w-full" />
+                <el-input v-model="form.amount" placeholder="赞助金额，如 66.66" @input="onAmountInput" class="!w-full" />
                 <el-input v-model="form.suffix" class="!w-16" placeholder="元" />
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12"><el-form-item label="头像 URL"><el-input v-model="form.avatar" placeholder="选填" /></el-form-item></el-col>
         </el-row>
         <el-form-item label="描述"><el-input v-model="form.descr" type="textarea" :rows="2" placeholder="赞助留言 / 描述（选填）" /></el-form-item>
         <el-row :gutter="16">
@@ -167,18 +164,24 @@ const saving = ref(false)
 
 const form = reactive({
   name: '',
-  amount: 0,
+  amount: '',
   datatime: '',
   suffix: '元',
   descr: '',
   title: '',
   url: '',
-  avatar: '',
 })
+
+/** 金额输入：只允许数字与一个小数点（赞助金额直接录入，无需步进按钮） */
+function onAmountInput(v: string) {
+  const clean = v.replace(/[^\d.]/g, '')
+  const dot = clean.indexOf('.')
+  form.amount = dot === -1 ? clean : clean.slice(0, dot + 1) + clean.slice(dot + 1).replace(/\./g, '')
+}
 
 function openNew() {
   editing.value = null
-  Object.assign(form, { name: '', amount: 0, datatime: new Date().toISOString().slice(0, 10), suffix: '元', descr: '', title: '', url: '', avatar: '' })
+  Object.assign(form, { name: '', amount: '', datatime: new Date().toISOString().slice(0, 10), suffix: '元', descr: '', title: '', url: '' })
   showDialog.value = true
 }
 
@@ -186,13 +189,13 @@ function openEdit(row: Sponsor) {
   editing.value = row
   Object.assign(form, {
     name: row.name || '',
-    amount: parseFloat(row.amount || '0'),
+    // numeric 列返回带尾零（如 1.00 / 66.60），回填时归一为自然写法（1 / 66.6）
+    amount: row.amount ? String(parseFloat(row.amount)) : '',
     datatime: row.datatime || '',
     suffix: row.suffix || '元',
     descr: row.descr || '',
     title: row.title || '',
     url: row.url || '',
-    avatar: (row as any).avatar || '',
   })
   showDialog.value = true
 }
@@ -202,17 +205,21 @@ async function save() {
     ElMessage.warning('请输入赞助者名称')
     return
   }
+  const amountNum = parseFloat(form.amount)
+  if (!form.amount.trim() || isNaN(amountNum) || amountNum <= 0) {
+    ElMessage.warning('请输入正确的赞助金额')
+    return
+  }
   saving.value = true
   try {
     const payload = {
       name: form.name.trim(),
-      amount: String(form.amount),
+      amount: String(amountNum),
       datatime: form.datatime,
       suffix: form.suffix || '元',
       descr: form.descr || null,
       title: form.title.trim() || null,
       url: form.url.trim() || null,
-      avatar: form.avatar.trim() || null,
     }
     if (editing.value) {
       await adminApi.update('sponsors', editing.value.id, payload)

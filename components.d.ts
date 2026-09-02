@@ -31,6 +31,7 @@ declare module 'vue' {
     ElColorPicker: typeof import('element-plus/es')['ElColorPicker']
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElContainer: typeof import('element-plus/es')['ElContainer']
+    ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDivider: typeof import('element-plus/es')['ElDivider']
     ElForm: typeof import('element-plus/es')['ElForm']
@@ -66,6 +67,8 @@ declare module 'vue' {
     SearchOverlay: typeof import('./src/components/layout/SearchOverlay.vue')['default']
     SongFormDialog: typeof import('./src/components/admin/SongFormDialog.vue')['default']
     TwikooComment: typeof import('./src/components/submit/TwikooComment.vue')['default']
+    VersionSortDialog: typeof import('./src/components/admin/VersionSortDialog.vue')['default']
+    VersionSubmitPanel: typeof import('./src/components/submit/VersionSubmitPanel.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

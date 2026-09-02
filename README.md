@@ -7,17 +7,22 @@
 ### 前台
 
 - **首页**：单曲 / 专辑 / 歌手 / 歌词四维搜索，实时下拉建议，歌词命中片段预览，结果过多时进入全局搜索弹窗
-- **歌曲页**：文本歌词 / LRC 歌词双视图，外文歌词原文译文对照，日文假名注音，一键复制 LRC，页内嵌入 B 站 / YouTube 播放器，口令解锁隐藏歌词
+- **歌曲页**：歌词区双下拉自由组合——**版本下拉**（多语言版本与各来源版本混排，可整体混合或单选）× **格式下拉**（LRC / 增强逐字 / 逐字 / TTML 四格式，无词级数据自动置灰）；外文歌词原文译文上下对照、日文假名注音、单选译文时自动补齐原文公共行（语气词 / 间奏）；TTML 版本结构化渲染——对唱左右分列、和声斜体、翻译随行；复制内容跟随当前所选版本与格式，页内嵌入 B 站 / YouTube 播放器，口令解锁隐藏歌词
+- **歌词版本与 LunaBeat 来源**：歌词以版本容器存储（LRC / 增强逐字 / TTML 三类，每首歌任意多版本、多语言）；外部公开曲库 [LunaBeat TTML Hub](https://2755337087.github.io/ttml-hub/) 的清单由同步 Worker 抓取，**仅人工挑选合并**（挂到已有歌 / 新建展示 / 忽略，非全量搬运）后入库，来源版本带 LunaBeat 署名，来源侧下架时跟随回收；版本展示顺序由管理端「版本」弹框统一维护（填位次 + 置顶），一个序号同时控制歌曲页 TTML 版本下拉与 LRC 源下拉的混排顺序和默认选中
 - **艺术家**：按名称、别名搜索，按身份类型筛选，A-Z 拼音分组 + 首字母索引；艺术家主页含社交平台链接，作品按演唱 / 作词 / 作曲 / 编曲分组
 - **专辑页**：多碟专辑按 Disc 分组展示曲目表，点击直达歌词页
 - **贡献者**：卡片墙 + 个人主页，记录贡献标签（歌词 / 翻译 / 校对 / LOGO / 文案 / 代码等）与作品列表
 - **投稿**：单曲 / 批量双模式，老贡献者自动沿用资料、自助更新个人信息、多艺术家标注、专辑自动联想、编曲标注、支持视频链接；批量模式支持多选 LRC / ZIP 上传，公共字段预设 + 逐行覆盖
+- **投稿查重**：提交补充版本前自动比对该歌全部已发布版本（含 TTML 转 LRC 跨格式）——原文前 3 个行开始时间戳毫秒级一致即判定照抄他人时间轴并拦截（手打时间戳不可能毫秒级相同）；仅提交更好译文的场景放行（需连原文带译文一起粘贴）；数据加载失败时不拦截，由审核端兜底
 - **文章区**：站长随笔与公告，浏览量统计、分页浏览
 - **其他**：评论（Twikoo）、关于页、友链、赞赏
 
 ### 管理后台
 
-歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 投稿审核 / 站点设置管理，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
+歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 投稿审核 / 站点设置 / 歌词版本管理，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
+
+- **歌词版本管理**：歌曲列表「版本」弹框列出该歌全部已发布版本（格式 / 贡献者 / 语言 / 来源），填位次或点置顶即可调整前台展示顺序，保存批量写回 `sort_order`（10/20/30… 归一化，新投稿版本无序号自动排最后）
+- **TTML Hub 待确认队列**：同步 Worker 抓回的 LunaBeat 条目按 multi_candidate / low_confidence / conflict 分档，人工「挂到歌」（合并已有歌）/「新建展示」（确认建歌）/「忽略」三动作处理；已导入版本仅原文哈希变化时自动更新，Hub 侧删除跟随回收
 
 - **艺术家即建即补**：录歌 / 审核中输入新艺术家回车即建，点头像弹窗补全 ID、资料；库内艺术家同样点头像就地更新（含社交链接）
 - **批量审核**：批量投稿按批折叠为一行、一键审核整批；Excel 式表格逐列统一填充（可指定仅勾选行）、单元格逐行微调、展开行核对歌词、行级通过/拒绝混合决定、单曲封面独立设置、一键全部发布 / 批量拒绝（含原因通知）；专辑信息（专辑艺术家 / 封面 / 年份 / 简介）统一在专辑弹窗中编辑，已关联专辑差异写回、新专辑随发布创建；移动端自动切折叠卡片形态——一行一歌纵览全批、点开编辑，顶部吸附工具条（全选 / 勾选标拒），每个字段支持「应用到勾选行 / 全部行」
@@ -81,14 +86,15 @@ npm run docs:dev       # API 文档站（可选）
 
 - **前台主站**：GitHub Pages（lrcshare.com），构建流程见 `.github/workflows/deploy.yml`，数据每 6 小时自动同步一次
 - **开放 API**：Cloudflare Workers（api.lrcshare.com），源码 [cloudflare/open-api.js](cloudflare/open-api.js) + [cloudflare/wrangler.toml](cloudflare/wrangler.toml)，`wrangler deploy` 部署（依赖打包进 bundle），需用 `wrangler secret put` 配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY`
+- **TTML Hub 同步**：独立 Cloudflare Worker（[cloudflare/ttml-sync/](cloudflare/ttml-sync/)，Worker 名 `lrcshare-ttml-sync`），抓取 LunaBeat TTML 曲库清单并增量下载，未导入条目一律进人工待确认队列；`TTML_HUB_BASE` 为普通变量，需 `wrangler secret put` 配置 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SYNC_TOKEN`（`/__sync?token=` 手动触发令牌）；本地可用 `node scripts/run-ttml-sync.mjs` 手动触发
 - **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
-- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃
+- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md`、歌词版本模型 `phase5-stepB-lyric-versions.md` 及 phase5 系列、版本排序 `phase7-lyric-version-sort.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃
 
 ## 目录结构
 
 ```
-├── cloudflare/           # 开放 API Worker（api.lrcshare.com）
+├── cloudflare/           # Cloudflare Workers：open-api（开放 API）+ ttml-sync（LunaBeat 曲库同步）
 ├── docs/                 # API 文档站（VitePress → api.lrcshare.com/docs/）
 │   ├── api/              # 六组端点文档 + 数据对象字段表
 │   └── guide/            # 快速开始 / Lyrico 客户端集成教程
@@ -106,6 +112,15 @@ npm run docs:dev       # API 文档站（可选）
 ```
 
 ## 更新日志
+
+### 2026-09-02
+
+- **投稿时间轴查重上线**：提交补充版本前自动比对该歌全部已发布版本（含 TTML 转 LRC 跨格式），原文组前 3 个行开始时间戳毫秒级全等即判定照抄他人时间轴并拦截（手打时间戳不可能毫秒级相同；拆行重制等真自制行为天然漏过）；例外出口——仅提交更好译文且连原文带译文一起粘贴的放行（新增译文语言 / 类型，或同语言前 3 句译文全不同）；比对仅限当前歌、提交时一次性按需加载，数据加载失败放行由审核端兜底
+- **歌词版本展示顺序后台可控**：`lyric_versions` 新增 `sort_order`（迁移 `sql/phase7-lyric-version-sort.md`，存量按主键版本 / 格式 / 时间回填 10/20/30，NULL 排最后）；管理端歌曲列表新增「版本」弹框（[VersionSortDialog.vue](src/components/admin/VersionSortDialog.vue)），每行可填位次（长列表一步到位）+ 置顶按钮，保存归一化批量写回；前台版本排序改为 sort_order 升序、is_primary / 格式兜底，歌曲页 LRC 源下拉由「TTML 源全在前」改为 TTML 源与 LRC 源按统一序号混排，两个下拉与默认选中版本全部跟随
+- **修复 TTML 版本语言标签误判**：ttml-hub 同步 Worker 与审核发布链原为逐 `<p>` 检测后 Set 收集语言，中文歌里零星英文说唱 punchline / 和声会被误标「英语」（如《崂山道士》77 中文行 + 3 英文行被标 `zh/en`）；改为整体判定——根 `xml:lang` 标注优先（BCP47 归一为站内码，`zh-Hans`→`zh`），无标注时正文行整体众数，译文 / 音译只认结构化翻译轨（侧车 `<translation>` / AMLL translations），`x-bg` 和声与正文夹带外语句不再产生独立语言标签；Worker（`detectLangsFromTtml`）、审核发布链、后台歌曲编辑三处统一为 `detectTtmlLangs`（Node 无 DOMParser 走正则兜底），存量错误标签已修正
+- **首页改版「NFC 歌曲卡」**：最新歌词由行式列表改为方形封面卡片墙（手机 2 列 / 平板 3 列 / 桌面 5 列）——封面满印、底部黑色渐变压白字（歌名 / 歌手 / 投稿人署名「📤 昵称 投稿」），右上角 NFC 波纹角标，hover 卡片上浮并浮现「查看歌词」遮罩（本站只提供歌词，不提供任何放歌功能，无封面沿用粉紫渐变 + 🎵 兜底、点封面可预览大图）；`getSongs` 列表接口新增投稿人 embed（外键推断失败自动降级按 id 批量补拉），官方 / Hub 导入无投稿人的歌不显示署名行
+- **首页布局高度差修复**：原左右两栏（最新歌词 vs 站长逼逼 / 优秀贡献者）内容不等高、底部参差，改为最新歌词通栏卡片墙，「站长逼逼」与「优秀贡献者」下移至卡墙下方并排等高；优秀贡献者展示数 9 → 12（3×4 满格不留空行）
+- **赞助名单页视觉升级**（/support）：领奖台三卡内容居中、名次改 🥇🥈🥉 emoji——冠军深炭底镭射卡（conic 七彩扇形旋转流动 + 鼠标 3D 倾斜与跟随高光）、亚军七彩渐变对角往返流动（替代横移「拉窗帘」）、季军蓝紫底星空错峰闪烁；第 4 名起网格卡按金额 4 档浅亮风格（👑 / 💖 / ✨ / 🌱），金额胶囊统一深色、名次/日期/留言文字加深护眼；所有动效遵循 `prefers-reduced-motion`
 
 ### 2026-08-31
 

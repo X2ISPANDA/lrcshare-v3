@@ -29,10 +29,11 @@
         <el-table-column label="贡献者" width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ contributorMap.get(row.contributor_id)?.name || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="170" align="center">
+        <el-table-column label="操作" width="215" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link size="small" @click="viewLyrics(row)">歌词</el-button>
+            <el-button link type="warning" size="small" @click="openSort(row)">版本</el-button>
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -52,6 +53,7 @@
           <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link size="small" @click="viewLyrics(row)">歌词</el-button>
+            <el-button link type="warning" size="small" @click="openSort(row)">版本</el-button>
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </div>
         </template>
@@ -79,6 +81,9 @@
       <pre class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-96 overflow-y-auto m-0 font-mono">{{ viewing?.lrc_text || viewing?.lyrics_text || '（无歌词）' }}</pre>
     </el-dialog>
 
+    <!-- 歌词版本排序弹窗 -->
+    <VersionSortDialog v-model="showSort" :song="sortingSong" />
+
     <!-- 新增 / 编辑弹窗（共用组件） -->
     <SongFormDialog
       v-model="showDialog"
@@ -101,6 +106,7 @@ import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { adminApi } from '@/lib/adminApi'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import SongFormDialog from '@/components/admin/SongFormDialog.vue'
+import VersionSortDialog from '@/components/admin/VersionSortDialog.vue'
 import type { Artist, Contributor } from '@/lib/types'
 
 /** 歌曲管理：列表 + 新增/编辑（表单交由共用 SongFormDialog） */
@@ -201,6 +207,14 @@ const viewing = ref<any>(null)
 function viewLyrics(row: any) {
   viewing.value = row
   showLyrics.value = true
+}
+
+// ============ 歌词版本排序 ============
+const showSort = ref(false)
+const sortingSong = ref<{ id: string; title: string } | null>(null)
+function openSort(row: any) {
+  sortingSong.value = { id: row.id, title: row.title }
+  showSort.value = true
 }
 
 // ============ 新增 / 编辑弹窗（表单交由 SongFormDialog 共用组件） ============

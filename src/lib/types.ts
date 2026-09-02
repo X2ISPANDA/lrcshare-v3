@@ -109,6 +109,8 @@ export interface SongWithNames extends Song {
   album_name?: string
   album_year?: string
   album_cover?: string | null
+  /** 投稿人（列表接口 embed 带出；官方/Hub 导入的歌可能为空） */
+  contributor?: { id: string; name: string; avatar: string | null } | null
 }
 
 /** 带艺术家信息的专辑（API 层组装） */
@@ -142,6 +144,9 @@ export interface Contributor {
 export interface SongSubmissionData {
   type: string
   title: string
+  /** type='song_version'（为已有歌曲补充歌词版本）时：目标歌曲 id/标题（发布时跳过建歌，只写版本） */
+  song_id?: string
+  song_title?: string
   /** 多艺术家数组，id 为 null 表示用户新建 */
   artists: { id: string | null; name: string }[]
   album_artists: { id: string | null; name: string }[]
@@ -236,8 +241,6 @@ export interface Sponsor {
   title: string | null
   /** 广告链接 */
   url: string | null
-  /** 头像 URL */
-  avatar?: string | null
   created_at?: string
 }
 
