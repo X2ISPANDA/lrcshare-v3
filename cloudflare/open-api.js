@@ -670,6 +670,58 @@ function fillCommonRows(versions) {
   return versions
 }
 
+/**
+ * 跨版本容器合并行（词级目标用：lyric_lines 结构化 / ttml / enhanced / verbatim）。
+ * 容器质量序：原生 TTML 拆行（词级）> enhanced 行表（词级）> lrc 行表（行级）。
+ * 同一 (lang,kind) 高质量容器先占坑，低质量容器只补它独有的译文/罗马音（只补不覆盖，
+ * 两套时间轴绝不混排）——避免「用户逐行 LRC（is_primary）+ Hub 词级 TTML 并存」时
+ * 词级数据被跳过、行级 LRC 冒充词级（假 TTML）。
+ * 元数据行（time_ms==null 的 [ti:]/[ar:] 等）歌级收集后挂到首个 original 版本，
+ * 合成 LRC/TTML 时由 dedupeMeta 去重，信息不丢。
+ */
+function mergeVersionsForWord(versionMetas, linesByVersion) {
+  const rank = f => (f === 'ttml' ? 0 : f === 'enhanced' ? 1 : 2)
+  const ordered = (versionMetas || [])
+    .filter(m => (linesByVersion.get(m.id) || []).length > 0)
+    .slice()
+    .sort((a, b) => rank(a.format) - rank(b.format))
+
+  const map = new Map()
+  const metaRows = []
+  for (const meta of ordered) {
+    for (const v of linesByVersion.get(meta.id) || []) {
+      const key = `${v.lang}|${v.kind}`
+      if (!map.has(key)) {
+        map.set(key, { lang: v.lang, kind: v.kind, rows: (v.rows || []).filter(r => r.time_ms != null) })
+      }
+      for (const r of v.rows || []) {
+        if (r.time_ms == null) metaRows.push(r)
+      }
+    }
+  }
+  const versions = [...map.values()]
+  // 主语言 original（歌词行数最多）排最前：Lyrico 插件端取第一个 original 作为逐字原文，
+  // 多语言 TTML（如中英双原文）时必须保证主语言胜出
+  const origCount = new Map()
+  for (const v of versions) {
+    if (v.kind === 'original') origCount.set(v.lang, (origCount.get(v.lang) || 0) + v.rows.length)
+  }
+  const primaryLang = [...origCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  if (primaryLang != null) {
+    versions.sort((a, b) => {
+      const aPri = a.kind === 'original' && a.lang === primaryLang
+      const bPri = b.kind === 'original' && b.lang === primaryLang
+      return (bPri ? 1 : 0) - (aPri ? 1 : 0)
+    })
+  }
+  // 元数据行挂到主 original（合成 LRC/TTML 时 dedupeMeta 去重，结构化输出原样带出，信息不丢）
+  if (metaRows.length && versions.length) {
+    const target = versions.find(v => v.kind === 'original') || versions[0]
+    target.rows = [...target.rows, ...metaRows]
+  }
+  return versions
+}
+
 /** 元数据行 key（[ti:xxx] → ti） */
 function metaKeyOf(line) {
   const m = String(line).match(/^\[([A-Za-z]+):/)
@@ -953,9 +1005,20 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
 
   // 合成歌词：指定格式 / 语言切片 / 结构化行
   if (needCompose || wantLines) {
-    // 优先 lrc/enhanced 版本（保持既有行为）；纯 ttml 歌回退到 ttml 拆行
-    const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || versionMetas[0] || {}).id
-    const versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
+    // 选源分流：
+    // - 词级目标（插件 lyric_lines 结构化 / ttml / enhanced / verbatim）：跨容器质量合并
+    //   （原生 TTML 拆行 > enhanced 行表 > 行级 LRC，同 lang|kind 高质量占坑、只补独有译文/罗马音），
+    //   保证词级格式拿到真词级数据，行级绝不许升级冒充；
+    // - 行级目标（line / 默认 LRC）：维持既有行为，优先用户投稿 lrc/enhanced 容器；纯 ttml 歌回退 ttml 拆行
+    const WORD_FORMATS = new Set(['ttml', 'enhanced', 'verbatim'])
+    const useWordSource = wantLines || WORD_FORMATS.has(lyricFormat)
+    let versions
+    if (useWordSource) {
+      versions = mergeVersionsForWord(versionMetas, linesByVersion)
+    } else {
+      const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || versionMetas[0] || {}).id
+      versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
+    }
     if (versions.length > 0) {
       const primaryLang = derivePrimaryLang(versions)
       const effLyricLang = lyricLang || primaryLang || ''
@@ -985,10 +1048,17 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
           }
         }
         // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行；line/enhanced 带署名，ttml 纯 XML 不带）
+        // ttml 逐版本资格门控：该版本歌词行无词标签（纯行级数据）→ lrc:null，行级绝不许升级成假 TTML
         if (selected.length > 0) {
           const filled = fillCommonRows(selected)
           fields.lyrics = filled.map(v => {
-            const text = lyricFormat === 'ttml' ? composeTtml([v], defaultComment) : composeLrc([v], lyricFormat)
+            let text
+            if (lyricFormat === 'ttml') {
+              const hasWord = (v.rows || []).some(r => r.time_ms != null && /<\d{1,6}>/.test(String(r.text)))
+              text = hasWord ? composeTtml([v], defaultComment) : null
+            } else {
+              text = composeLrc([v], lyricFormat)
+            }
             const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${defaultComment}` : null)
             return { lang: v.lang, kind: v.kind, format: lyricFormat, lrc }
           })
