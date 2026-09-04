@@ -282,7 +282,7 @@ async function save() {
       await adminApi.update('contributors', editing.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      payload.id = 'cb_' + Date.now()
+      payload.id = crypto.randomUUID()
       payload.created_at = new Date().toISOString()
       await adminApi.insert('contributors', payload)
       ElMessage.success('新增贡献者成功')

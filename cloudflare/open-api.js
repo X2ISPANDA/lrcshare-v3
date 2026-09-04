@@ -1,7 +1,8 @@
 /**
  * LrcShare 开放 API 网关（Cloudflare Worker）
- * 部署：CF Dashboard → Workers → 新建 → 粘贴本文件 → 绑定 api.lrcshare.com
- * 环境变量（Worker Settings → Variables）：
+ * 部署：本目录（cloudflare/）下 `npx wrangler deploy`（wrangler.toml main=open-api.js，
+ *       esbuild 会把 import 的 ./shared/lang.mjs 一并打包；Dashboard 粘贴单文件的旧方式不再支持）
+ * 环境变量（Worker Settings → Variables 或 wrangler.toml）：
  *   SUPABASE_URL       形如 https://spb-xxx.supabase.opentrust.net（不带尾斜杠、不带反引号）
  *   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）
  *
@@ -26,10 +27,22 @@
 // Worker 无 DOMParser，注入 @xmldom/xmldom 供其解析。
 import { TTMLParser } from '@applemusic-like-lyrics/ttml'
 import { DOMParser } from '@xmldom/xmldom'
+import { normalizeTtmlLang, lrcLangToTtml } from './shared/lang.mjs'
 
 // ============ 常量 ============
 
 const SITE_DOMAIN = 'lrcshare.com'
+
+/** ilike 模式串转义：% _ * 是 PostgREST/PG 通配符、\ 是转义符，关键词需按字面匹配 */
+const escapeIlike = s => String(s).replace(/[\\%_*]/g, '\\$&')
+
+/** URL 百分号解码：畸形编码（%zz / %E0%A4 截断序列）抛 URIError，统一转 null 由调用方回 400 */
+function safeDecode(s) {
+  try { return decodeURIComponent(s) } catch { return null }
+}
+
+/** 上游请求超时（毫秒）：Supabase/文档站 hang 住时及时失败，不挂到平台 wall-clock 上限白占并发 */
+const FETCH_TIMEOUT_MS = 8000
 
 /** 文档站 Pages 源站（内容在根路径；/docs 前缀由 VitePress base 产生，代理时剥离） */
 const DOCS_UPSTREAM = 'https://lrcshare-v3.pages.dev'
@@ -133,6 +146,7 @@ function proxyDocs(url, request) {
   return fetch(DOCS_UPSTREAM + path + url.search, {
     method: request.method,
     headers: request.headers,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
 }
 
@@ -159,6 +173,7 @@ async function pgList(env, table, params, { limit, offset }) {
       Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
       Prefer: 'count=exact',
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return null
   const data = await res.json()
@@ -176,6 +191,7 @@ async function pgRpc(env, fn, params) {
       Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
       Prefer: 'count=exact',
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return null
   const data = await res.json()
@@ -209,6 +225,7 @@ async function pgOne(env, table, select, filter) {
       apikey: env.SUPABASE_ANON_KEY,
       Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return null
   const data = await res.json()
@@ -225,6 +242,7 @@ async function getArtistNameMap(env, ids) {
       apikey: env.SUPABASE_ANON_KEY,
       Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return new Map()
   const data = await res.json()
@@ -241,6 +259,7 @@ async function getContributorNameMap(env, ids) {
       apikey: env.SUPABASE_ANON_KEY,
       Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok) return new Map()
   const data = await res.json()
@@ -393,7 +412,7 @@ async function handleSearch(env, url) {
   }
 
   if (type === 'album') {
-    const result = await pgList(env, 'albums', { select: ALBUM_SELECT, name: `ilike.*${keyword}*`, order: 'name.asc' }, { limit, offset })
+    const result = await pgList(env, 'albums', { select: ALBUM_SELECT, name: `ilike.*${escapeIlike(keyword)}*`, order: 'name.asc' }, { limit, offset })
     if (!result) return jsonError(502, 'upstream error')
     const artistNames = await getArtistNameMap(env, result.data.flatMap(a => albumArtistIdsOf(a)))
     const items = result.data.map(a => mapAlbum(a, artistNames))
@@ -401,7 +420,7 @@ async function handleSearch(env, url) {
   }
 
   if (type === 'artist') {
-    const result = await pgList(env, 'artists', { select: ARTIST_SELECT, is_show: 'eq.true', name: `ilike.*${keyword}*`, order: 'name.asc' }, { limit, offset })
+    const result = await pgList(env, 'artists', { select: ARTIST_SELECT, is_show: 'eq.true', name: `ilike.*${escapeIlike(keyword)}*`, order: 'name.asc' }, { limit, offset })
     if (!result) return jsonError(502, 'upstream error')
     const items = result.data.map(a => ({
       id: a.id,
@@ -415,10 +434,11 @@ async function handleSearch(env, url) {
     return jsonOk({ keyword, type, total: result.total, items }, TTL_LIST)
   }
 
-  // type === 'lyric'：歌词内容模糊匹配（关键词中的逗号/括号会破坏 PostgREST or 语法，剔除）
+  // type === 'lyric'：歌词内容模糊匹配（关键词中的逗号/括号会破坏 PostgREST or 语法，剔除；通配符转义见 escapeIlike）
   const kw = keyword.replace(/[(),]/g, ' ').trim()
   if (!kw) return jsonOk({ keyword, type, total: null, items: [] }, TTL_LIST)
-  const or = `(lrc_text.ilike.*${kw}*,lyrics_text.ilike.*${kw}*)`
+  const kwEsc = escapeIlike(kw)
+  const or = `(lrc_text.ilike.*${kwEsc}*,lyrics_text.ilike.*${kwEsc}*)`
   const result = await pgList(
     env,
     'songs',
@@ -639,14 +659,37 @@ function composeVerbatimText(text, timeMs, endMs) {
   return out
 }
 
+/**
+ * BCP47 层级匹配：请求码与版本码精确相等，或请求码是版本码的前缀。
+ * 例：请求 zh-Hant 命中 zh-Hant-HK / zh-Hant-TW；请求 zh 命中全部中文子标签；
+ * 传基础码的老客户端无需改动即可拿到细分地区版本。
+ */
+function langMatches(want, have) {
+  if (!want || !have) return false
+  if (want === have) return true
+  return have.toLowerCase().startsWith(want.toLowerCase() + '-')
+}
+
 /** 选中版本：original(lyricLang) + 命中 translationLangs 的非 original 版本 */
 function selectVersions(versions, lyricLang, translationLangs) {
   const selected = []
   const wantAll = translationLangs.includes('all')
+  const originals = versions.filter(v => v.kind === 'original')
+  // 原文：精确 lang 优先；无精确时按 BCP47 层级命中一个（如请求 zh-Hant 命中 zh-Hant-HK）。
+  // 层级命中只取一个，避免港繁/台繁两套原文同时间戳混排
+  if (lyricLang) {
+    const exact = originals.filter(v => v.lang === lyricLang)
+    if (exact.length) {
+      selected.push(...exact)
+    } else {
+      const fuzzy = originals.find(v => langMatches(lyricLang, v.lang))
+      if (fuzzy) selected.push(fuzzy)
+    }
+  }
   for (const v of versions) {
-    if (v.kind === 'original') {
-      if (v.lang === lyricLang) selected.push(v)
-    } else if (wantAll || translationLangs.includes(v.lang)) {
+    if (v.kind === 'original') continue
+    // 译文/音译：精确或层级命中均收录（同一请求命中多版本时并列保留）
+    if (wantAll || translationLangs.some(w => w === v.lang || langMatches(w, v.lang))) {
       selected.push(v)
     }
   }
@@ -692,7 +735,9 @@ function mergeVersionsForWord(versionMetas, linesByVersion) {
     for (const v of linesByVersion.get(meta.id) || []) {
       const key = `${v.lang}|${v.kind}`
       if (!map.has(key)) {
-        map.set(key, { lang: v.lang, kind: v.kind, rows: (v.rows || []).filter(r => r.time_ms != null) })
+        // source_vid = 占坑容器版本 id（高质量先占坑）：合成署名 / lyric_lines 输出来源据此取值，
+        // 保证「歌词内容来自哪个版本，署名就署哪个版本」（只补不覆盖，低质量容器不改变占坑归属）
+        map.set(key, { lang: v.lang, kind: v.kind, rows: (v.rows || []).filter(r => r.time_ms != null), source_vid: meta.id })
       }
       for (const r of v.rows || []) {
         if (r.time_ms == null) metaRows.push(r)
@@ -800,39 +845,105 @@ function parseWordTags(text) {
   return words
 }
 
-/** 合成 TTML：行 → <p>，词 → <span>；end 派生（p=下一行 begin，span=下一词 begin，末位兜底 +3000ms）；署名走 <metadata> */
-function composeTtml(versions, credit) {
-  const lines = []
+/** 合成 TTML（苹果 sidecar 形态，AMLL/Apple 生态可直接解析出原文+译文+音译）：
+ *  - 正文 = original 行（<p itunes:key="Ln"> + 词级 <span>；AMLL 对无 key 的 p 整行跳过）；
+ *  - 译文/音译 = head iTunesMetadata 侧车（<translations>/<transliterations>，<text for="Ln"> 按 time_ms 与原文行配对）；
+ *  - 无 original 时（单译文版本等）全部行进正文兜底；
+ *  - end 派生（p=下一行 begin，span=下一词 begin，末位兜底 +3000ms）；
+ *  - 署名走超界时间 <p>（无 key → AMLL 不渲染；06:59:19.999 起，播放器永不渲染，工具按字幕行解析收录） */
+function composeTtml(versions, credits) {
+  const list = versions || []
+  const originals = list.filter(v => v.kind === 'original')
+  const bodyVers = originals.length ? originals : list
+  const sidecarVers = originals.length ? list.filter(v => v.kind !== 'original') : []
   const metaLines = []
-  for (const v of versions) {
-    for (const r of v.rows) {
-      if (r.time_ms == null) {
-        metaLines.push(r.text)
-        continue
-      }
-      lines.push({ time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
+  const bodyRows = []
+  for (const v of bodyVers) {
+    for (const r of v.rows || []) {
+      if (r.time_ms == null) { metaLines.push(r.text); continue }
+      bodyRows.push(r)
     }
   }
-  lines.sort((a, b) => a.time_ms - b.time_ms)
+  if (!bodyRows.length) return ''
+  bodyRows.sort((a, b) => a.time_ms - b.time_ms)
+  // 原文行 key（L1..Ln）与 time_ms → key 映射（sidecar 配对用；同时间戳首行优先）
+  const keyByTime = new Map()
   const ps = []
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+  for (let i = 0; i < bodyRows.length; i++) {
+    const line = bodyRows[i]
+    const key = `L${i + 1}`
+    if (!keyByTime.has(line.time_ms)) keyByTime.set(line.time_ms, key)
     const pBeginMs = line.time_ms
     const pEndMs = line.end_ms != null
       ? line.end_ms
-      : (i + 1 < lines.length ? lines[i + 1].time_ms : line.time_ms + 3000)
+      : (i + 1 < bodyRows.length ? bodyRows[i + 1].time_ms : line.time_ms + 3000)
     const words = parseWordTags(line.text)
     const spans = words.map((w, wi) => {
       const wBeginMs = pBeginMs + w.offset_ms
       const wEndMs = wi + 1 < words.length ? pBeginMs + words[wi + 1].offset_ms : pEndMs
       return `<span begin="${formatTtmlTime(wBeginMs)}" end="${formatTtmlTime(wEndMs)}">${escapeXml(w.text)}</span>`
     }).join('')
-    ps.push(`<p begin="${formatTtmlTime(pBeginMs)}" end="${formatTtmlTime(pEndMs)}">${spans}</p>`)
+    ps.push(`<p begin="${formatTtmlTime(pBeginMs)}" end="${formatTtmlTime(pEndMs)}" itunes:key="${key}">${spans}</p>`)
   }
-  const meta = metaLines.length ? `<head><metadata>${dedupeMeta(metaLines).map(escapeXml).join('\n')}</metadata></head>` : ''
-  // 署名走超界时间 <p>（06:59:19.999 对应 LRC [419:19.999]，播放器永不渲染，但工具按字幕行解析收录）
-  const creditP = credit ? `<p begin="06:59:19.999" end="06:59:20.999">${escapeXml(credit)}</p>` : ''
-  return `<tt xmlns="http://www.w3.org/ns/ttml">${meta}<body><div>${ps.join('')}${creditP}</div></body></tt>`
+  // head sidecar：译文 <translations> / 音译 <transliterations>（音译 lang 本就是 BCP47 拉丁化标签原值）
+  const transParts = []
+  const romanParts = []
+  for (const v of sidecarVers) {
+    const texts = []
+    for (const r of v.rows || []) {
+      if (r.time_ms == null) continue
+      const key = keyByTime.get(r.time_ms)
+      if (!key) continue
+      const text = stripWordTags(r.text)
+      if (!text.trim()) continue
+      texts.push(`<text for="${key}">${escapeXml(text)}</text>`)
+    }
+    if (!texts.length) continue
+    const lang = escapeXml(lrcLangToTtml(v.lang))
+    if (v.kind === 'translation') transParts.push(`<translation xml:lang="${lang}">${texts.join('')}</translation>`)
+    else romanParts.push(`<transliteration xml:lang="${lang}">${texts.join('')}</transliteration>`)
+  }
+  const itunesMeta = (transParts.length || romanParts.length)
+    ? `<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal">${transParts.length ? `<translations>${transParts.join('')}</translations>` : ''}${romanParts.length ? `<transliterations>${romanParts.join('')}</transliterations>` : ''}</iTunesMetadata>`
+    : ''
+  const metaText = metaLines.length ? dedupeMeta(metaLines).map(escapeXml).join('\n') : ''
+  const meta = (metaText || itunesMeta) ? `<head><metadata>${metaText}${itunesMeta}</metadata></head>` : ''
+  // 署名走超界时间 <p>（06:59:19.999 对应 LRC [419:19.999]，播放器永不渲染，但工具按字幕行解析收录）。
+  // 多来源（原文/译文来自不同歌词版本，如 LunaBeat TTML + 用户投稿译文）时署名去重并列、每行错开 1s
+  const creditList = Array.isArray(credits) ? credits : (credits ? [credits] : [])
+  const creditPs = creditList
+    .filter(Boolean)
+    .map((c, i) => `<p begin="06:59:${String(19 + i).padStart(2, '0')}.999" end="06:59:${String(20 + i).padStart(2, '0')}.999">${escapeXml(c)}</p>`)
+    .join('')
+  const rootLang = escapeXml(lrcLangToTtml(bodyVers[0].lang))
+  return `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word" xml:lang="${rootLang}">${meta}<body><div>${ps.join('')}${creditPs}</div></body></tt>`
+}
+
+/** 选中版本 → 去重署名列表（按各版本占坑容器 source_vid 取版本署名）。
+ *  跨容器合并时原文/译文可能来自不同歌词版本（如原文 LunaBeat TTML、译文用户投稿），署名并列；
+ *  全部取不到时兜底 fallback（默认版本署名），保证署名永不空 */
+function creditsOfVersions(versions, versionCredits, fallback) {
+  const seen = new Set()
+  const out = []
+  for (const v of versions || []) {
+    const c = v.source_vid ? versionCredits.get(v.source_vid) : null
+    if (c && !seen.has(c)) { seen.add(c); out.push(c) }
+  }
+  if (!out.length && fallback) out.push(fallback)
+  return out
+}
+
+/** TTML 原文输出时追加超界署名 <p>（仅 API 输出拼接，库内原文不动，agent/样式完整保留；
+ *  06:59:19.999 对应 LRC [419:19.999]，播放器永不渲染、工具按字幕行解析收录；
+ *  已含署名行则幂等跳过；结构不符时兜底插到 </body> 前/文末） */
+function appendTtmlCredit(xml, credit) {
+  if (!xml) return null
+  if (!credit) return xml
+  if (xml.includes('06:59:19.999')) return xml
+  const p = `<p begin="06:59:19.999" end="06:59:20.999">${escapeXml(credit)}</p>`
+  if (/<\/div>\s*<\/body>\s*<\/tt>\s*$/.test(xml)) return xml.replace(/<\/div>\s*<\/body>\s*<\/tt>\s*$/, `${p}</div></body></tt>`)
+  if (/<\/body>\s*<\/tt>\s*$/.test(xml)) return xml.replace(/<\/body>\s*<\/tt>\s*$/, `${p}</body></tt>`)
+  return xml + p
 }
 
 // ---------- TTML 原文 → 多语言版本（AMLL 官方库解析） ----------
@@ -859,25 +970,38 @@ function finalizeTtmlRows(rows) {
  * TTML 原文 → 多语言版本数组（每个 (lang, kind) 一个版本）。
  * AMLL 官方库解析：original = 主歌词行；translation/romanization = 行内翻译/音译（含 sidecar）。
  */
-/** TTML xml:lang → 项目语言代码（zh-Hans→zh、zh-Hant→zh-Hant、ja-Latn→ja） */
+/** TTML xml:lang → 项目语言代码：规则在 shared/lang.mjs（单一来源），本端空值适配为 '' */
 function normalizeLang(code) {
-  const c = String(code || '').trim()
-  if (!c) return ''
-  const low = c.toLowerCase()
-  if (['zh-hans', 'zh-cn', 'zh-sg'].includes(low)) return 'zh'
-  if (['zh-hant', 'zh-tw', 'zh-hk', 'zh-mo'].includes(low)) return 'zh-Hant'
-  if (low.endsWith('-latn')) return low.split('-')[0]
-  return c
+  return normalizeTtmlLang(code) || ''
 }
 
-function parseTtmlVersionsWorker(xml) {
+/** TTML 拆行（AMLL 纯函数，单 Worker isolate 内跨请求缓存安全性不明，缓存只做请求级：
+ *  同一请求内同一版本会拆 2-3 次——拆行切片 / 降级 enhanced+verbatim / 顶层 lrc 兜底） */
+function parseTtmlVersionsWorker(xml, cache) {
+  const key = String(xml || '')
+  if (cache) {
+    const hit = cache.get(key)
+    if (hit) return hit
+  }
   let result
   try {
-    result = amllParser.parse(String(xml || ''))
+    result = amllParser.parse(key)
   } catch {
+    if (cache) cache.set(key, [])
     return []
   }
-  const rootLang = normalizeLang(result.metadata.language) || 'und'
+  // 防御：异常 TTML 可能让 AMLL 返回缺 lines/metadata 的对象（parse 不抛错但结构残缺），后续访问直接 TypeError
+  if (!result || !Array.isArray(result.lines)) {
+    if (cache) cache.set(key, [])
+    return []
+  }
+  // AMLL 只读 <tt> 根标签 xml:lang；历史数据语言可能标在 <body>（后台编辑器旧写法，AMLL 读不到）→ 正则兜底读取并归一
+  const rootLang = normalizeLang(result.metadata?.language)
+    || (() => {
+      const m = /<body\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(xml)
+      return m ? normalizeLang(m[1]) : ''
+    })()
+    || 'und'
 
   const versions = []
 
@@ -912,6 +1036,7 @@ function parseTtmlVersionsWorker(xml) {
   for (const [lang, rows] of transMap) versions.push({ lang, kind: 'translation', rows: finalizeTtmlRows(rows) })
   for (const [lang, rows] of romanMap) versions.push({ lang, kind: 'romanization', rows: finalizeTtmlRows(rows) })
 
+  if (cache) cache.set(key, versions)
   return versions
 }
 
@@ -931,6 +1056,8 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
   const needCompose = explicitFormat || !!lyricLang || translationLangs.length > 0
 
   // 读行表 + TTML 拆行（无条件：全开时 lyric_versions 附完整内容、指定格式时合成 lrc 都需要）
+  // ttmlCache：请求级缓存，同一版本 TTML 在拆行切片 / 降级 enhanced+verbatim / 顶层兜底处只解析一次
+  const ttmlCache = new Map()
   const linesByVersion = new Map()
   {
     const lineRows = await getLyricVersions(env, id)
@@ -938,7 +1065,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
     // TTML 版本拆行：参与 lang/kind 切片与格式合成（原 agent/样式仍在 ttml_text 保留）
     for (const v of versionMetas) {
       if (v.format === 'ttml' && v.ttml_text) {
-        const vs = parseTtmlVersionsWorker(v.ttml_text)
+        const vs = parseTtmlVersionsWorker(v.ttml_text, ttmlCache)
         if (vs.length) linesByVersion.set(v.id, vs)
       }
     }
@@ -949,6 +1076,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
     versionCredits.set(v.id, versionCreditOf(v, contributorNames))
   }
   const defaultComment = versionMetas.length > 0 ? (versionCredits.get(versionMetas[0].id) || null) : null
+  const metaById = new Map((versionMetas || []).map(m => [m.id, m]))
 
   const fields = {}
 
@@ -970,7 +1098,8 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
       }
       if (v.source === 'ttml-hub') out.external_id = v.external_id
       if (v.format === 'ttml') {
-        out.ttml_text = v.ttml_text || null
+        // 输出时追加超界署名 <p>（库内原文保留 agent/样式不动，与 lrc/enhanced 输出拼 [419:19.999] 同模式）
+        out.ttml_text = appendTtmlCredit(v.ttml_text || null, credit)
       } else {
         const vs = linesByVersion.get(v.id) || []
         const composed = composeLrc(vs, v.format === 'enhanced' ? 'enhanced' : 'line')
@@ -982,7 +1111,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
     // 从 ttml 动态降级 enhanced / verbatim（不落库，仅导出视图）
     for (const v of versionMetas) {
       if (v.format !== 'ttml' || !v.ttml_text) continue
-      const ttmlVersions = parseTtmlVersionsWorker(v.ttml_text)
+      const ttmlVersions = parseTtmlVersionsWorker(v.ttml_text, ttmlCache)
       const original = ttmlVersions.filter(x => x.kind === 'original')
       if (!original.length) continue
       const credit = versionCredits.get(v.id)
@@ -1016,8 +1145,10 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
     if (useWordSource) {
       versions = mergeVersionsForWord(versionMetas, linesByVersion)
     } else {
-      const defaultLinesVid = (versionMetas.find(v => v.format !== 'ttml') || versionMetas[0] || {}).id
-      versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []) : []
+      const defaultLinesMeta = versionMetas.find(v => v.format !== 'ttml') || versionMetas[0]
+      const defaultLinesVid = defaultLinesMeta ? defaultLinesMeta.id : null
+      // 行级选源 = 单一容器：版本统一标记来源，合成署名时据此取该容器署名
+      versions = defaultLinesVid ? (linesByVersion.get(defaultLinesVid) || []).map(v => ({ ...v, source_vid: defaultLinesVid })) : []
     }
     if (versions.length > 0) {
       const primaryLang = derivePrimaryLang(versions)
@@ -1028,38 +1159,50 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
       if (wantLines) {
         const filled = fillCommonRows(versions)
         const outVersions = (lyricLang || translationLangs.length ? selectVersions(filled, effLyricLang, translationLangs) : filled)
-          .map(v => ({ lang: v.lang, kind: v.kind, rows: v.rows }))
+          .map(v => ({
+            lang: v.lang,
+            kind: v.kind,
+            rows: v.rows,
+            // 版本级来源与署名：跨容器合并时按占坑容器计（内容来自哪个 lyric_versions 就署哪个），
+            // 调用方（如 Lyrico 插件）据此让 comment 跟随实际写入的歌词来源，而非顶层默认版本署名
+            source: (v.source_vid && metaById.has(v.source_vid)) ? metaById.get(v.source_vid).source : null,
+            comment: (v.source_vid && versionCredits.get(v.source_vid)) || null,
+          }))
         fields.lyricLines = { primary_lang: primaryLang, versions: outVersions }
       }
 
       // 合成 lrc + lyrics 数组（显式指定格式或语言切片）
       if (needCompose) {
+        // 署名跟随实际内容来源：跨容器合并时各版本按占坑容器取署名、去重并列
+        // （如原文来自 LunaBeat TTML、译文来自用户投稿 → 两方同署）；取不到兜底默认版本署名
+        const mergedCredits = creditsOfVersions(selected, versionCredits, defaultComment)
         if (selected.length === 0) {
           // 匹配不到任何版本 → 空 lrc（显式圈定语义，不 fallback 原始 lrc_text）
           fields.lrc = null
         } else if (lyricFormat === 'ttml') {
           // 资格规则：逐行数据（无词标签）没资格升 ttml → null；逐字/ttml 才合成
           const hasWord = selected.some(v => (v.rows || []).some(r => /<\d{1,6}>/.test(String(r.text))))
-          fields.lrc = hasWord ? composeTtml(selected, defaultComment) : null
+          fields.lrc = hasWord ? composeTtml(selected, mergedCredits) : null
         } else {
           const composed = composeLrc(selected, lyricFormat)
           if (composed) {
-            fields.lrc = `${composed}\n[419:19.999]${defaultComment}`
+            fields.lrc = `${composed}\n${mergedCredits.map(c => `[419:19.999]${c}`).join('\n')}`
           }
         }
-        // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行；line/enhanced 带署名，ttml 纯 XML 不带）
+        // lyrics 数组：每个选中版本一份独立完整文本（补齐公共行），各版本挂自己占坑容器的署名；
         // ttml 逐版本资格门控：该版本歌词行无词标签（纯行级数据）→ lrc:null，行级绝不许升级成假 TTML
         if (selected.length > 0) {
           const filled = fillCommonRows(selected)
           fields.lyrics = filled.map(v => {
+            const credit = (v.source_vid && versionCredits.get(v.source_vid)) || defaultComment
             let text
             if (lyricFormat === 'ttml') {
               const hasWord = (v.rows || []).some(r => r.time_ms != null && /<\d{1,6}>/.test(String(r.text)))
-              text = hasWord ? composeTtml([v], defaultComment) : null
+              text = hasWord ? composeTtml([v], [credit]) : null
             } else {
               text = composeLrc([v], lyricFormat)
             }
-            const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${defaultComment}` : null)
+            const lrc = lyricFormat === 'ttml' ? text : (text ? `${text}\n[419:19.999]${credit}` : null)
             return { lang: v.lang, kind: v.kind, format: lyricFormat, lrc }
           })
         }
@@ -1067,7 +1210,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
     }
   }
 
-  return { fields, versionCredits, defaultComment, linesByVersion }
+  return { fields, versionCredits, defaultComment, linesByVersion, ttmlCache }
 }
 
 async function handleSong(env, id, url) {
@@ -1105,7 +1248,7 @@ async function handleSong(env, id, url) {
     arranger: idsToNames(creditIds.arranger),
   }
 
-  const { fields, versionCredits } = await buildLyricFields(env, id, url, versionMetas, contributorNames)
+  const { fields, versionCredits, ttmlCache } = await buildLyricFields(env, id, url, versionMetas, contributorNames)
 
   // 顶层 comment（默认版本署名）
   if (versionMetas.length > 0) {
@@ -1120,11 +1263,13 @@ async function handleSong(env, id, url) {
   if (!base.lrc && versionMetas.length > 0) {
     const ttmlVer = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
     if (ttmlVer) {
-      const ttmlVersions = parseTtmlVersionsWorker(ttmlVer.ttml_text)
+      const ttmlVersions = parseTtmlVersionsWorker(ttmlVer.ttml_text, ttmlCache)
       const original = ttmlVersions.filter(v => v.kind === 'original')
       if (original.length) {
         const composed = composeLrc(original, 'line')
-        if (composed) base.lrc = `${composed}\n[419:19.999]${base.comment}`
+        // 署名跟随该 TTML 版本自身（内容来自它），不依赖顶层 comment 的排序语义
+        const ttmlCredit = versionCredits.get(ttmlVer.id) || base.comment
+        if (composed) base.lrc = `${composed}\n[419:19.999]${ttmlCredit}`
       }
     }
   }
@@ -1193,14 +1338,12 @@ async function handleAlbum(env, id) {
   const row = await pgOne(env, 'albums', ALBUM_SELECT, { id: `eq.${id}` })
   if (!row) return jsonError(404, 'album not found')
   const artistNames = await getArtistNameMap(env, albumArtistIdsOf(row))
-  // 曲目表：含隐藏歌曲（API 全量开放），按碟号/曲目号排序
-  const songsRes = await pgList(
+  // 曲目表：含隐藏歌曲（API 全量开放），按碟号/曲目号排序；翻页拉全（原 limit:500 超限会静默丢歌）
+  const trackRows = await pgListAll(
     env,
     'songs',
     { select: ALBUM_TRACK_SELECT, album_id: `eq.${id}`, status: 'eq.published', order: 'disc.asc.nullslast,track.asc.nullslast' },
-    { limit: 500, offset: 0 },
-  )
-  const trackRows = (songsRes && songsRes.data) || []
+  ) || []
   const trackArtistNames = await getArtistNameMap(env, trackRows.flatMap(r => singerIdsOf(r)))
   const albumObj = mapAlbum(row, artistNames) // 曲目内嵌的 album 直接复用（含 artists）
   return jsonOk(
@@ -1321,7 +1464,7 @@ export default {
       if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
         return jsonError(500, 'worker not configured: missing SUPABASE_URL / SUPABASE_ANON_KEY')
       }
-      if (path === '/v1' || path === '/v1/') {
+      if (path === '/v1') {
         res = apiIndex()
       } else if (path === '/v1/search') {
         res = await handleSearch(env, url)
@@ -1339,14 +1482,30 @@ export default {
         const ma = path.match(/^\/v1\/album\/([^/]+)$/)
         const mar = path.match(/^\/v1\/artist\/([^/]+)$/)
         const mars = path.match(/^\/v1\/artist\/([^/]+)\/songs$/)
-        if (m) res = await handleSong(env, decodeURIComponent(m[1]), url)
-        else if (ml) res = await handleLyric(env, decodeURIComponent(ml[1]), url)
-        else if (ma) res = await handleAlbum(env, decodeURIComponent(ma[1]))
-        else if (mars) res = await handleArtistSongs(env, decodeURIComponent(mars[1]), url)
-        else if (mar) res = await handleArtist(env, decodeURIComponent(mar[1]))
-        else res = jsonError(404, 'not found, see /v1/ for available endpoints')
+        const seg = m || ml || ma || mars || mar
+        if (seg) {
+          // 畸形百分号编码（/v1/song/%zz 等）解码失败 → 400，而非被 catch 兜成无日志 500
+          const id = safeDecode(seg[1])
+          if (id === null) {
+            res = jsonError(400, 'invalid percent-encoding in id')
+          } else if (m) {
+            res = await handleSong(env, id, url)
+          } else if (ml) {
+            res = await handleLyric(env, id, url)
+          } else if (ma) {
+            res = await handleAlbum(env, id)
+          } else if (mars) {
+            res = await handleArtistSongs(env, id, url)
+          } else {
+            res = await handleArtist(env, id)
+          }
+        } else {
+          res = jsonError(404, 'not found, see /v1/ for available endpoints')
+        }
       }
     } catch (e) {
+      // 全文件唯一入口 catch：上游异常 JSON / AMLL 后处理抛错等统一记日志（此前零 console，线上 500 无法定位）
+      console.error('[api]', request.method, url.pathname, e)
       res = jsonError(500, 'internal error')
     }
 

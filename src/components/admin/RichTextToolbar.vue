@@ -246,9 +246,21 @@ async function wrapLink() {
     const { value } = await ElMessageBox.prompt('请输入链接地址（如 www.hao123.com）', '链接', { confirmButtonText: '确定', cancelButtonText: '取消' })
     let url = (value || '').trim()
     if (!url) return
-    // 无协议头（http(s)/mailto/tencent 等）时自动补 https://，否则浏览器按相对路径解析
-    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) url = 'https://' + url
-    apply(s.start, s.end, `<a href="${url}" target="_blank">`, s.sel, '</a>')
+    // 协议白名单：显式带协议头时只放行 http(s)/mailto/tencent/weixin/tel（挡 javascript:/data: 等可执行协议）；
+    // 无协议头（www.xxx.com）自动补 https://，否则浏览器按相对路径解析
+    const proto = url.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)
+    if (proto) {
+      const scheme = proto[1].toLowerCase()
+      if (!['http', 'https', 'mailto', 'tencent', 'weixin', 'tel'].includes(scheme)) {
+        ElMessage.warning(`不支持的链接协议「${scheme}:」，仅允许 http(s)/mailto/tencent/weixin/tel`)
+        return
+      }
+    } else {
+      url = 'https://' + url
+    }
+    // href 属性转义引号/尖括号/&，防属性逃逸注入；新窗口补 rel=noopener
+    const esc = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    apply(s.start, s.end, `<a href="${esc}" target="_blank" rel="noopener">`, s.sel, '</a>')
   } catch { /* cancelled */ }
 }
 </script>

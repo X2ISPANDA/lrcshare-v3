@@ -5,8 +5,9 @@ compatibility_date = "2024-09-01"
 [vars]
 # ttml-hub 静态站点根地址（含尾斜杠）
 TTML_HUB_BASE = "https://2755337087.github.io/ttml-hub/"
-# 首跑 dry-run：只产出待匹配队列不写库；人工过目后改 "false" 重新 deploy
-DRY_RUN = "true"
+# 定时同步已迁 GitHub Actions（workflow 内 DRY_RUN 按 dry_run 输入注入）；Worker 仅保留 /__sync 手动端点，
+# 触发即写库，故默认 false（需要演练时用 `wrangler dev --var DRY_RUN:true` 本地跑）
+DRY_RUN = "false"
 
 [triggers]
 # 定时同步已迁移至 GitHub Actions（.github/workflows/ttml-sync.yml）——Node 运行无子请求配额限制。
@@ -19,7 +20,7 @@ name = "lrcshare-ttml-sync"
 #   SUPABASE_SERVICE_ROLE_KEY service role key（绕过 RLS，泄露=库裸奔）
 [env.production.vars]
 TTML_HUB_BASE = "https://2755337087.github.io/ttml-hub/"
-DRY_RUN = "true"
+DRY_RUN = "false"
 # 仅 /__sync 手动调试用；定时已迁移 GitHub Actions，此处预算无需调大
 SYNC_BUDGET = "30"
 

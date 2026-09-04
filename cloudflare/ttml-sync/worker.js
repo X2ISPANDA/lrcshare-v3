@@ -16,6 +16,18 @@
 
 const BASE_DEFAULT = 'https://2755337087.github.io/ttml-hub/'
 const PAGE = 1000
+/** 上游请求超时（毫秒）：Supabase/hub hang 住时及时失败，不拖到 GHA 120 分钟或平台 wall-clock 上限 */
+const FETCH_TIMEOUT_MS = 15000
+
+/** 解析 hub 地址并校验与基站同源（manifest 给绝对 URL 时防 SSRF——把 Worker 请求导向任意外部源） */
+function hubUrl(path, base) {
+  const u = new URL(path, base)
+  if (u.origin !== new URL(base).origin) throw new Error(`hub 地址越界（origin 不符，拒绝）: ${u.origin}`)
+  return u.href
+}
+
+// 语言码规则与前端/open-api 共用单一来源（shared/lang.mjs）
+import { normalizeTtmlLang as normalizeTtmlLangCore, detectLang as detectLangCore } from '../shared/lang.mjs'
 
 /** NFKC + 小写 + 删空白与分隔符（对齐 ttml-hub 接入指南的归一化） */
 function norm(s) {
@@ -28,37 +40,15 @@ function norm(s) {
 /** Live/Remaster/伴奏等标记 → 强制降档 3（不自动合并/建歌） */
 const LOW_QUALITY = /live|remaster|instrumental|inst\.|karaoke|cover|sped\s*up|slowed|reverb|伴奏|翻唱|纯音乐|演奏/i
 
-/** 独立文字系统语言判定（与前端 detectLang 同规则集，供 langs 摘要） */
+/** 独立文字系统语言判定（规则在 shared/lang.mjs，与前端 detectLang 同源；本端直接消费 null） */
 function detectLang(text) {
-  const s = String(text || '').replace(/<\d+>/g, '')
-  if (/[ぁ-んァ-ヶー]/.test(s)) return 'ja'
-  if (/[가-힣]/.test(s)) return 'ko'
-  if (/[\u0E00-\u0E7F]/.test(s)) return 'th'
-  if (/[\u0E80-\u0EFF]/.test(s)) return 'lo'
-  if (/[\u0F00-\u0FFF]/.test(s)) return 'bo'
-  if (/[\u1800-\u18AF]/.test(s)) return 'mn'
-  if (/[\u1000-\u109F]/.test(s)) return 'my'
-  if (/[\u1780-\u17FF]/.test(s)) return 'km'
-  if (/[\u0900-\u097F]/.test(s)) return 'hi'
-  if (/[\u0600-\u06FF]/.test(s)) return 'ar'
-  if (/[\u0590-\u05FF]/.test(s)) return 'he'
-  if (/[\u0370-\u03FF]/.test(s)) return 'el'
-  if (/[\u0400-\u04FF]/.test(s)) return 'ru'
-  if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(s)) return 'zh'
-  if (/[A-Za-z\u00C0-\u024F]/.test(s)) return 'en'
-  return null
+  return detectLangCore(text)
 }
 
-/** TTML xml:lang（BCP47）→ 站内语言码（与前端 ttmlLangToLrc 对齐） */
+/** 译文/正文轨 xml:lang → 站内码（规则在 shared/lang.mjs；foldToBase 对齐本端原行为：未知标签折叠主子标签）；
+ *  音译轨不走此函数（拉丁化标签原值保留，见 detectLangsFromTtml） */
 function normTtmlLang(raw) {
-  const v = String(raw || '').replace(/^xml:/, '').trim()
-  if (!v) return null
-  const lower = v.toLowerCase()
-  if (lower === 'zh-hans' || lower === 'zh-hans-cn') return 'zh'
-  if (/^zh-hant/.test(lower)) return 'zh-Hant'
-  if (lower === 'ja-latn') return 'en' // 日语音译轨，站内按拉丁系 en 归类
-  const base = v.split('-')[0]
-  return base || null
+  return normalizeTtmlLangCore(raw, { foldToBase: true })
 }
 
 /** 从 TTML 提取语言集合（与前端 detectTtmlLangs 同规则，Worker 无 DOMParser 走正则）。
@@ -72,10 +62,17 @@ function detectLangsFromTtml(xml) {
     const rootM = /<(?:tt|body)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(text)
     const rootLang = rootM ? normTtmlLang(rootM[1]) : null
     if (rootLang) langs.add(rootLang)
-    // 译文/音译轨：站内侧车标签 + div 级 xml:lang（与主体不同者）
-    const trRe = /<(?:translation|transliteration)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
+    // 侧车标签：音译轨 <transliteration> 取 BCP47 拉丁化标签原值（zh-Latn-jyutping / ja-Latn，不折叠）；
+    // 译文轨 <translation> 归一站内码
+    const romanRe = /<transliteration\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
     let tm
+    while ((tm = romanRe.exec(text))) {
+      const k = String(tm[1] || '').replace(/^xml:/, '').trim()
+      if (k && k.toLowerCase() !== 'und') langs.add(k)
+    }
+    const trRe = /<translation\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
     while ((tm = trRe.exec(text))) { const k = normTtmlLang(tm[1]); if (k) langs.add(k) }
+    // div 级 xml:lang（与主体不同者）
     const divRe = /<div\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi
     while ((tm = divRe.exec(text))) { const k = normTtmlLang(tm[1]); if (k && k !== rootLang) langs.add(k) }
     // 全无标注 → 正文行众数（x-bg 和声 span 先剔除）
@@ -112,7 +109,7 @@ async function sbAll(env, table, select, extraQuery = '') {
   const out = []
   for (let from = 0; ; from += PAGE) {
     const url = `${env.SUPABASE_URL}/rest/v1/${table}?select=${select}${extraQuery}&limit=${PAGE}&offset=${from}`
-    const res = await fetch(url, { headers: sbHeaders(env) })
+    const res = await fetch(url, { headers: sbHeaders(env), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!res.ok) throw new Error(`${table} 拉取失败 ${res.status}: ${await res.text()}`)
     const rows = await res.json()
     out.push(...rows)
@@ -125,6 +122,7 @@ async function sbMutate(env, table, path, method, body, prefer) {
     method,
     headers: { ...sbHeaders(env), Prefer: prefer || 'return=minimal' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!res.ok && res.status !== 404) throw new Error(`${table} ${method} ${res.status}: ${await res.text()}`)
   return res
@@ -139,7 +137,7 @@ async function sha256Hex(buf) {
 
 /** 下载 TTML 并校验 sha256（不符返回 null，调用方跳过下轮重试） */
 async function downloadTtml(base, hub) {
-  const res = await fetch(new URL(hub.path, base).href)
+  const res = await fetch(hubUrl(hub.path, base), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`TTML 下载 ${res.status}: ${hub.path}`)
   const buf = await res.arrayBuffer()
   const hex = await sha256Hex(buf)
@@ -172,19 +170,22 @@ export default {
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(sync(env).catch(e => console.error('[sync] 整轮失败:', e.message)))
   },
-  /** 手动触发调试：curl "https://<worker>/__sync?token=<SYNC_TOKEN>"（SYNC_TOKEN 未设置则拒绝） */
+  /** 手动触发调试：curl -H "X-Sync-Token: <SYNC_TOKEN>" "https://<worker>/__sync"
+   *  （SYNC_TOKEN 未设置则拒绝；令牌走请求头，不进 URL query/边缘访问日志） */
   async fetch(req, env) {
     const url = new URL(req.url)
     if (url.pathname === '/__sync') {
-      if (!env.SYNC_TOKEN || url.searchParams.get('token') !== env.SYNC_TOKEN) {
+      const token = req.headers.get('x-sync-token') || ''
+      if (!env.SYNC_TOKEN || token !== env.SYNC_TOKEN) {
         return new Response('forbidden', { status: 403 })
       }
       try {
         await sync(env)
         return new Response('ok', { status: 200 })
       } catch (e) {
-        // 调试期把异常直接返回，浏览器可见；稳定后可移除
-        return new Response('sync failed: ' + (e.stack || e.message), { status: 500 })
+        // 完整堆栈只进服务端日志（wrangler tail / 控制台可见）；客户端仅返回错误消息，不泄露内部 URL/表名/行号
+        console.error('[sync] 手动同步失败:', e)
+        return new Response('sync failed: ' + (e.message || 'unknown error'), { status: 500 })
       }
     }
     return new Response('not found', { status: 404 })
@@ -198,7 +199,7 @@ export async function sync(env) {
   console.log(`[sync] 开始 dryRun=${dryRun}`)
 
   // 1. state（单行）
-  const stateRes = await fetch(`${env.SUPABASE_URL}/rest/v1/ttml_hub_state?id=eq.singleton`, { headers: sbHeaders(env) })
+  const stateRes = await fetch(`${env.SUPABASE_URL}/rest/v1/ttml_hub_state?id=eq.singleton`, { headers: sbHeaders(env), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (!stateRes.ok) throw new Error(`state 读取 ${stateRes.status}`)
   const stateRow = (await stateRes.json())[0] || {}
   const state = {
@@ -210,6 +211,7 @@ export async function sync(env) {
   // 2. manifest（ETag 304 短路）
   const mRes = await fetch(`${base}api/v1/manifest.json`, {
     headers: state.etag ? { 'If-None-Match': state.etag } : {},
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (mRes.status === 304) {
     await touchState(env, state.revision, state.etag)
@@ -228,8 +230,8 @@ export async function sync(env) {
   // 3. 索引（校验 revision 一致 + indexSha256）
   // manifest.index 相对 manifest 自身所在目录解析（实测 index="songs.json" 位于 api/v1/ 下）
   const mUrl = new URL('api/v1/manifest.json', base)
-  const indexUrl = new URL(manifest.index || 'songs.json', mUrl).href
-  const iRes = await fetch(indexUrl)
+  const indexUrl = hubUrl(new URL(manifest.index || 'songs.json', mUrl).href, base)
+  const iRes = await fetch(indexUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (!iRes.ok) throw new Error(`索引 ${iRes.status}`)
   const indexBuf = await iRes.arrayBuffer()
   if (manifest.indexSha256 && (await sha256Hex(indexBuf)) !== manifest.indexSha256) {
@@ -237,6 +239,8 @@ export async function sync(env) {
   }
   const index = JSON.parse(new TextDecoder().decode(indexBuf))
   if (index.revision !== manifest.revision) throw new Error('索引 revision 与 manifest 不一致')
+  // 防御：外部索引缺 songs 字段时归一为空数组（后续 .length/遍历不再整轮抛错）
+  if (!Array.isArray(index.songs)) index.songs = []
   console.log(`[sync] 索引 revision=${index.revision} 歌词数=${index.songs.length}`)
 
   // 4. 载入库（songs / 歌手关联 / 艺术家 / 已有 ttml-hub 版本 / 待处理队列）——只读，不写任何实体表
@@ -410,7 +414,10 @@ function collectPending(pendingRows, hub, resolvedHubIds, reason, candidates) {
 
 /** 删除跟随（4.3）：他删我们跟。返回是否发生删除 */
 async function followRemoval(env, dryRun, hubId) {
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/lyric_versions?source=eq.ttml-hub&external_id=eq.${hubId}&select=id,song_id`, { headers: sbHeaders(env) })
+  // hubId 来自第三方 manifest，必须经 URLSearchParams 编码（裸拼可被 &or=(...) 类字符改变 WHERE 语义，
+  // 配合 service_role 存在误删版本风险）
+  const qs = new URLSearchParams({ source: 'eq.ttml-hub', external_id: 'eq.' + hubId, select: 'id,song_id' })
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/lyric_versions?${qs}`, { headers: sbHeaders(env), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`版本查询 ${res.status}`)
   const versions = await res.json()
   if (!versions.length) return false
@@ -420,15 +427,15 @@ async function followRemoval(env, dryRun, hubId) {
     return false
   }
   for (const v of versions) {
-    // 歌的其他版本（任何来源）
+    // 歌的其他版本（任何来源）；song_id/id 为库内 UUID，非外部输入
     const othersRes = await fetch(
       `${env.SUPABASE_URL}/rest/v1/lyric_versions?song_id=eq.${v.song_id}&id=neq.${v.id}&select=id&limit=1`,
-      { headers: sbHeaders(env) })
+      { headers: sbHeaders(env), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!othersRes.ok) throw new Error(`其他版本查询 ${othersRes.status}`)
     const others = await othersRes.json()
     if (others.length === 0) {
       // 无其他版本：仅当歌本体由 ttml-hub 创建才删歌（D4）
-      const songRes = await fetch(`${env.SUPABASE_URL}/rest/v1/songs?id=eq.${v.song_id}&select=origin`, { headers: sbHeaders(env) })
+      const songRes = await fetch(`${env.SUPABASE_URL}/rest/v1/songs?id=eq.${v.song_id}&select=origin`, { headers: sbHeaders(env), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
       const song = (await songRes.json())[0]
       if (song && song.origin === 'ttml-hub') {
         await sbMutate(env, 'songs', `?id=eq.${v.song_id}`, 'DELETE')

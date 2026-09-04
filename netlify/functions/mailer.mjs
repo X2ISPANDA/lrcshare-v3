@@ -44,9 +44,32 @@ async function loadSmtp() {
     port: parseInt(map.smtp_port) || 465,
     user: map.smtp_user,
     pass: map.smtp_pass,
-    admin_email: map.admin_email || '',
+    admin_email: (map.admin_email || '').trim(),
   }
 }
+
+/**
+ * 管理端会话校验：Authorization 必须携带 Supabase Auth 有效 JWT（调 /auth/v1/user 验证）。
+ * 公开注册已关闭，能通过校验的仅管理员账号。notify 不走此校验。
+ */
+async function assertAdmin(req) {
+  const token = String(req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim()
+  if (!token) return false
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return false
+  try {
+    const res = await fetch(`${url}/auth/v1/user`, {
+      headers: { apikey: key, Authorization: `Bearer ${token}` },
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** to 必须为单个合法邮箱：nodemailer 的 to 支持逗号/分号分隔群发，必须锁死单地址 */
+const isSingleEmail = v => /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(v || '').trim())
 
 /** 邮件 HTML 模板（迁移自 v2 server/index.js，保留品牌视觉） */
 function generateEmailHTML({ type, user_name, song_title, reject_reason, admin_email }) {
@@ -205,52 +228,76 @@ function humanizeMailError(err) {
   return hit ? `${hit[1]}｜原始错误: ${raw}` : raw
 }
 
-// CORS：管理后台（v3.lrcshare.com）跨域调用，需允许并响应 OPTIONS 预检
-const CORS_HEADERS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+// CORS：仅放行本站及子域（反射式回显，正则锚定防 lrcshare.com.evil.com / evil-lrcshare.com 仿冒域）。
+// 预检需放行 Authorization（管理端会话令牌）。
+// 注意：CORS 只约束浏览器，非浏览器工具本就无视——真正的防线是管理端 action 的会话校验（assertAdmin）。
+const ALLOWED_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*lrcshare\.com$/
+function corsHeaders(req) {
+  const origin = req.headers.get('Origin') || ''
+  const h = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }
+  if (ALLOWED_ORIGIN.test(origin)) h['Access-Control-Allow-Origin'] = origin
+  return h
 }
-const json = (status, body) => new Response(JSON.stringify(body), { status, headers: CORS_HEADERS })
+const json = (req, status, body) => new Response(JSON.stringify(body), { status, headers: corsHeaders(req) })
 
 export default async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
-  if (req.method !== 'POST') return json(405, { success: false, error: 'Method not allowed' })
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(req) })
+  if (req.method !== 'POST') return json(req, 405, { success: false, error: 'Method not allowed' })
+  // action 提至 try 外记录：catch 里据此区分匿名 notify 与已鉴权管理端 action 的错误返回粒度
+  let action = ''
   try {
-    const { action, to, user_name, song_title, reject_reason, items } = await req.json()
+    const body = await req.json()
+    action = body.action
+    const { to, user_name, song_title, reject_reason, items } = body
+    // 管理端 action（test/approve/reject/batch）必须携带有效登录会话；
+    // notify（公开投稿通知，收件人固定 admin_email）免鉴权放行
+    if (action !== 'notify' && !(await assertAdmin(req))) {
+      return json(req, 401, { success: false, error: '未授权：请登录管理后台后使用' })
+    }
     // 邮件主题同样拼用户可控字段，换行符可拆信头——统一剥离控制字符
     const cleanSubjectText = s => String(s || '').replace(/[\r\n\t]/g, ' ')
     const subjTitle = cleanSubjectText(song_title)
 
     const smtp = await loadSmtp()
-    if (!smtp) return json(200, { success: true, skipped: true, reason: 'SMTP 未配置' })
+    if (!smtp) return json(req, 200, { success: true, skipped: true, reason: 'SMTP 未配置' })
 
+    // 端口决定 TLS 模式：465 隐式 TLS（secure）；587 STARTTLS（requireTLS 强制升级）；其余端口不加密直连
+    const port = Number(smtp.port) || 465
     const transporter = nodemailer.createTransport({
       host: smtp.host,
-      port: smtp.port,
-      secure: true,
+      port,
+      secure: port === 465,
+      requireTLS: port === 587,
       auth: { user: smtp.user, pass: smtp.pass },
     })
 
     let mail
     if (action === 'test') {
-      if (!to) return json(400, { success: false, error: '缺少收件人地址' })
+      // 已有会话校验兜底，test 与其他管理端 action 同规则：管理员指定单个收件人
+      if (!to) return json(req, 400, { success: false, error: '缺少收件人地址' })
+      if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       mail = { to, subject: '【LrcShare】测试邮件', html: generateEmailHTML({ type: 'approve', user_name: '管理员', song_title: '测试歌曲', admin_email: smtp.admin_email }) }
     } else if (action === 'notify') {
       // 新投稿通知：收件人固定为 settings 的 admin_email（防滥用：不接受外部 to 参数）
-      if (!smtp.admin_email) return json(200, { success: true, skipped: true, reason: '未配置 admin_email' })
+      if (!smtp.admin_email) return json(req, 200, { success: true, skipped: true, reason: '未配置 admin_email' })
       mail = { to: smtp.admin_email, subject: subjTitle ? `【LrcShare】新投稿：《${subjTitle}》待审核` : '【LrcShare】收到新投稿', html: generateEmailHTML({ type: 'notify', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'approve') {
-      if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       mail = { to, subject: subjTitle ? `【LrcShare】恭喜！《${subjTitle}》审核通过` : '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'reject') {
-      if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       mail = { to, subject: subjTitle ? `【LrcShare】很遗憾，《${subjTitle}》审核未通过` : '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
     } else if (action === 'batch') {
       // 批次合并通知：一次批量投稿的逐首结果合成一封邮件（items: [{ title, result, reason? }]）
-      if (!to) return json(200, { success: true, skipped: true, reason: '投稿未留邮箱' })
-      if (!Array.isArray(items) || !items.length) return json(400, { success: false, error: '缺少 items' })
+      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
+      if (!Array.isArray(items) || !items.length) return json(req, 400, { success: false, error: '缺少 items' })
       const total = items.length
       const okCount = items.filter(i => i.result === 'approve').length
       const subject = okCount === total
@@ -260,13 +307,16 @@ export default async (req) => {
         : `【LrcShare】审核结果：${okCount}/${total} 首通过`
       mail = { to, subject, html: generateBatchEmailHTML({ user_name, items, admin_email: smtp.admin_email }) }
     } else {
-      return json(400, { success: false, error: '未知 action: ' + action })
+      return json(req, 400, { success: false, error: '未知 action: ' + action })
     }
 
     await transporter.sendMail({ from: smtp.user, ...mail })
-    return json(200, { success: true })
+    return json(req, 200, { success: true })
   } catch (err) {
     console.error('mailer error:', err)
-    return json(500, { success: false, error: humanizeMailError(err) })
+    // notify 是匿名公开接口（投稿通知站长），不回传 SMTP 主机名/greeting/认证细节；
+    // 管理端 action（test/approve/reject/batch）已过会话校验，返回中文结论+原始错误便于排查
+    if (action === 'notify') return json(req, 500, { success: false, error: '邮件发送失败，请稍后重试' })
+    return json(req, 500, { success: false, error: humanizeMailError(err) })
   }
 }

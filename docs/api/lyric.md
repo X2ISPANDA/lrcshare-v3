@@ -10,8 +10,8 @@
 
 | 参数 | 必填 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| `lyric_lang` | 否 | string | 原文语言代码（缺省自动检测，仅双语单曲需显式指定） |
-| `lyric_translation_lang` | 否 | string | 译文语言代码，逗号分隔多个，`all` = 全部译文 |
+| `lyric_lang` | 否 | string | 原文语言代码（缺省自动检测，仅双语单曲需显式指定；支持 BCP47 层级匹配，如 `zh-Hant` 命中 `zh-Hant-HK/TW`） |
+| `lyric_translation_lang` | 否 | string | 译文/音译语言代码，逗号分隔多个，`all` = 全部；支持 BCP47 层级匹配 |
 | `lyric_format` | 否 | string | 输出格式：`line` / `enhanced` / `verbatim` / `ttml` |
 | `lyric_lines` | 否 | boolean | `=1` 返回结构化行 |
 
@@ -75,9 +75,9 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 }
 ```
 
-- `lrc` / `enhanced` / `verbatim` 版本附 `lrc` 文本，`ttml` 版本附 `ttml_text` 原文
+- `lrc` / `enhanced` / `verbatim` 版本附 `lrc` 文本（末尾带超界署名行 `[419:19.999]`）；`ttml` 版本附 `ttml_text`——输出时在末尾追加超界署名 `<p>`（`06:59:19.999`，播放器不渲染、工具按字幕行收录），**库内原文不含署名**，agent/样式完整保留
 - `enhanced` / `verbatim` 是从 ttml 降级的导出视图，动态生成、不落库
-- `ttml-hub` 版本额外带 `external_id`；各版本 `comment` 独立
+- `ttml-hub` 版本额外带 `external_id`；各版本 `comment` 独立——署名跟随歌词实际来源版本
 
 ### 响应（指定 `lyric_format`）
 
@@ -99,12 +99,14 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
         {
           "lang": "ja",
           "kind": "original",
+          "source": "ttml-hub",
+          "comment": "本歌词来自于:LunaBeat TTML 歌词站@lrcshare.com",
           "rows": [
             { "seq": 7, "time_ms": 14690, "end_ms": null, "text": "Ohayo Tokyo Konichiwa" },
             { "seq": 8, "time_ms": 1610, "end_ms": 2480, "text": "<0>作<120>词<240>：Namewee" }
           ]
         },
-        { "lang": "zh", "kind": "translation", "rows": [] }
+        { "lang": "zh", "kind": "translation", "source": "user", "comment": "本歌词来自于:贡献者名@lrcshare.com", "rows": [] }
       ]
     }
   }
@@ -113,6 +115,7 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 
 - `rows[]` 按 `seq` 升序；`time_ms` 为行开始毫秒，`end_ms` 仅逐字行有值
 - `text` 中的 `<毫秒>` 为相对行首的词偏移；`time_ms` 为 `null` 的行是元数据行（`[ti:...]` 等）
+- `source` / `comment` 为该版本歌词的**实际来源与署名**：多个歌词版本跨容器合并时按占坑容器计（高质量容器优先）。写入音乐文件的署名应取实际采用版本的 `comment`（多来源去重并列），**不要用歌曲顶层 `comment`**——它只代表默认版本，词级歌词可能来自其他版本（如 LunaBeat TTML）
 
 ## 歌词格式 {#lyric-formats}
 
@@ -136,14 +139,16 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 [00:14.690]作[00:14.810]词[00:15.000]：[00:15.200]Namewee[00:16.480]
 ```
 
-**`ttml` — TTML XML**，`<p>` 为行、`<span>` 为词：
+**`ttml` — TTML XML（Apple sidecar 结构）**，正文 `<p>` 带 `itunes:key`、`<span>` 为词；译文/音译在 head `iTunesMetadata` 侧车按行 key 配对；根标签带 `xml:lang`（BCP47，简体为 `zh-Hans`）与 `itunes:timing="Word"`：
 
 ```xml
-<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="00:00:14.690" end="00:00:16.480"><span begin="00:00:14.690" end="00:00:14.810">作</span><span begin="00:00:14.810" end="00:00:15.000">词</span></p></div></body></tt>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word" xml:lang="zh-Hans"><head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><translations><translation xml:lang="en"><text for="L1">Lyricist: Namewee</text></translation></translations></iTunesMetadata></metadata></head><body><div><p begin="00:00:14.690" end="00:00:16.480" itunes:key="L1"><span begin="00:00:14.690" end="00:00:14.810">作</span><span begin="00:00:14.810" end="00:00:15.000">词</span></p></div></body></tt>
 ```
 
 - **降级**：无词级时间的数据请求 `enhanced` / `verbatim` 时输出与 `line` 同形；请求 `ttml` 返回 `null`（逐行数据无资格升级）
-- 除 `ttml`（纯 XML）外，其余格式末尾带 `[99:99.999]` 署名行
+- **署名行**：`line` / `enhanced` / `verbatim` 末尾带超界时间 LRC 行 `[419:19.999]本歌词来自于:...`；`ttml` 末尾带超界时间 `<p begin="06:59:19.999">署名</p>`——播放器均不渲染，歌词工具按普通时间轴行/字幕行解析收录
+- 歌词内容跨版本合并时（如原文来自 TTML 版本、译文来自另一版本），署名按实际来源版本去重并列（LRC 多行、TTML 多个超界 `<p>`）
+- 合成 TTML 可被 AMLL / Apple 生态标准库直接解析出原文、译文（`<translations>`）与音译（`<transliterations>`，语言为 BCP47 拉丁化标签）
 
 ## 语言代码 {#lang-codes}
 
@@ -151,16 +156,28 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 
 | 代码 | 语言 | | 代码 | 语言 | | 代码 | 语言 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `zh` | 中文 | | `ru` | 俄语 | | `hi` | 印地语 |
+| `zh` | 简体中文 | | `ru` | 俄语 | | `hi` | 印地语 |
 | `zh-Hant` | 繁体中文 | | `th` | 泰语 | | `he` | 希伯来语 |
-| `yue` | 粤语 | | `ar` | 阿拉伯语 | | `el` | 希腊语 |
-| `ja` | 日语 | | `bo` | 藏语 | | `my` | 缅甸语 |
-| `ko` | 韩语 | | `mn` | 蒙语 | | `km` | 高棉语 |
-| `en` | 英语 | | `tr` | 土耳其语 | | `lo` | 老挝语 |
-| `fr` | 法语 | | `nl` | 荷兰语 | | `en-US` | 英语（美） |
-| `de` | 德语 | | `pl` | 波兰语 | | `und` | 未标注 |
-| `es` | 西班牙语 | | `id` | 印尼语 | | | |
-| `it` | 意大利语 | | `ms` | 马来语 | | | |
-| `pt` | 葡萄牙语 | | `vi` | 越南语 | | | |
+| `zh-Hant-HK` | 繁体中文（香港） | | `ar` | 阿拉伯语 | | `el` | 希腊语 |
+| `zh-Hant-TW` | 繁体中文（台湾） | | `bo` | 藏语 | | `my` | 缅甸语 |
+| `yue` | 粤语 | | `mn` | 蒙语 | | `km` | 高棉语 |
+| `ja` | 日语 | | `tr` | 土耳其语 | | `lo` | 老挝语 |
+| `ko` | 韩语 | | `nl` | 荷兰语 | | `en-US` | 英语（美） |
+| `en` | 英语 | | `pl` | 波兰语 | | `und` | 未标注 |
+| `fr` | 法语 | | `id` | 印尼语 | | | |
+| `de` | 德语 | | `ms` | 马来语 | | | |
+| `es` | 西班牙语 | | `vi` | 越南语 | | | |
+| `it` | 意大利语 | | | | | | |
+| `pt` | 葡萄牙语 | | | | | | |
 
-**罗马音不是独立语言代码**：版本角色由 `kind` 区分（`romanization`），`lang` 填源语言——日语罗马音 = `lang: ja` + `kind: romanization`。
+音译（`kind: romanization`）使用 BCP47 拉丁化标准标签（与 Apple Music TTML 标注一致）：
+
+| 代码 | 含义 |
+| --- | --- |
+| `zh-Latn-jyutping` | 粤拼（粤语罗马音） |
+| `ja-Latn` | 日语罗马音 |
+| `ko-Latn` | 韩语罗马音 |
+
+**音译版本角色由 `kind` 区分**：`lang` 为上述拉丁化标签（TTML 来源）或源语言码（LRC 音译投稿，如日语罗马音 `lang: ja` + `kind: romanization`）。
+
+**语言码按 BCP47 层级匹配**：传基础码会命中其下细分标签——`lyric_lang=zh-Hant` 命中 `zh-Hant-HK` / `zh-Hant-TW`，`lyric_translation_lang=zh` 命中全部中文子标签（含 `zh-Latn-jyutping` 音译）；精确码优先，原文层级命中只取一个版本（避免港繁/台繁两套原文混排）。

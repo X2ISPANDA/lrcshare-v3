@@ -80,11 +80,11 @@
         <el-form label-width="70px" label-position="left">
           <el-form-item label="语言">
             <el-select v-model="handleForm.lang" filterable allow-create default-first-option class="w-full">
-              <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="l" :value="l" />
+              <el-option v-for="l in (handleForm.kind === 'romanization' ? TRANSLIT_LANG_OPTIONS : LYRIC_LANG_OPTIONS)" :key="l" :label="l" :value="l" />
             </el-select>
           </el-form-item>
           <el-form-item label="类型">
-            <el-select v-model="handleForm.kind" class="w-full">
+            <el-select v-model="handleForm.kind" class="w-full" @change="onHandleKindChange">
               <el-option label="原文" value="original" />
               <el-option label="译文" value="translation" />
               <el-option label="罗马音" value="romanization" />
@@ -131,7 +131,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { supabase } from '@/lib/supabase'
-import { loadLyricLines, groupVersions, rowsToLrcText, stripWordTags, LYRIC_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, type LyricVersion, type LyricKind } from '@/lib/lyricLines'
+import { loadLyricLines, groupVersions, rowsToLrcText, stripWordTags, LYRIC_LANG_OPTIONS, TRANSLIT_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, type LyricVersion, type LyricKind } from '@/lib/lyricLines'
 
 /** 存疑清单：展示迁移拆行判不出的行，人工归位 lang/kind + 标记 resolved */
 
@@ -180,6 +180,15 @@ const target = ref<any>(null)
 const targetLines = ref<LyricVersion[]>([])
 const handleForm = reactive({ lang: 'zh', kind: 'translation' as LyricKind, time_ms: '' })
 
+/** 归位类型切换时语言自动归位：罗马音必须是拉丁化方案；原文/译文不能是 Latn 标签 */
+function onHandleKindChange() {
+  if (handleForm.kind === 'romanization') {
+    if (!TRANSLIT_LANG_OPTIONS.includes(handleForm.lang)) handleForm.lang = 'zh-Latn-pinyin'
+  } else if (/Latn/i.test(handleForm.lang)) {
+    handleForm.lang = 'zh'
+  }
+}
+
 /** 解析 raw_text 的行首时间戳（毫秒），非时间戳行返回 null */
 function parseTsOf(raw: string): number | null {
   const m = String(raw || '').match(/^\[(\d{1,3}):(\d{2})[.:](\d{2,3})\]/)
@@ -220,12 +229,18 @@ async function applyHandle() {
   saving.value = true
   try {
     if (hit) {
-      // 行已存在：改 lang/kind（主键含 lang/kind，需先删后插到目标版本）
-      const targetSeq = targetLines.value.filter(v => v.lang === lang && v.kind === kind).flatMap(v => v.rows).length + 1
-      await supabase.from('song_lyric_lines').delete().eq('song_id', target.value.song_id).eq('lang', hit._lang).eq('kind', hit._kind).eq('seq', hit.seq)
-      await supabase.from('song_lyric_lines').insert({
-        song_id: target.value.song_id, lang, kind, seq: targetSeq, time_ms: hit.time_ms, text: hit.text,
+      // 行已存在：RPC 单事务内删旧行→插到目标 lang/kind→标记 resolved（失败整体回滚，不再有删后插失败的丢行）
+      const { error } = await supabase.rpc('resolve_lyric_doubt', {
+        p_doubt_id: target.value.id,
+        p_song_id: target.value.song_id,
+        p_mode: 'relocate',
+        p_lang: lang,
+        p_kind: kind,
+        p_src_lang: hit._lang,
+        p_src_kind: hit._kind,
+        p_src_seq: hit.seq,
       })
+      if (error) throw error
     } else {
       // 行不存在（裸行归位）：用表单时间戳插入新行；无时间戳则按元数据行（裸文本作 time_ms=null）
       const timeMs = handleForm.time_ms.trim() ? parseInt(handleForm.time_ms, 10) : null
@@ -234,12 +249,22 @@ async function applyHandle() {
         ElMessage.warning('该行无法定位且未填时间戳，请填写时间戳（毫秒）后归位，或改用「仅标记已处理」')
         return
       }
-      const targetSeq = targetLines.value.filter(v => v.lang === lang && v.kind === kind).flatMap(v => v.rows).length + 1
-      await supabase.from('song_lyric_lines').insert({
-        song_id: target.value.song_id, lang, kind, seq: targetSeq, time_ms: timeMs, text: stripWordTags(rawText),
+      const { error } = await supabase.rpc('resolve_lyric_doubt', {
+        p_doubt_id: target.value.id,
+        p_song_id: target.value.song_id,
+        p_mode: 'insert',
+        p_lang: lang,
+        p_kind: kind,
+        p_time_ms: timeMs,
+        p_text: stripWordTags(rawText),
       })
+      if (error) throw error
     }
-    await markResolved(lang, kind)
+    // RPC 成功后同步本地状态（与旧 markResolved 的界面更新一致；skip 路径仍走 markResolved）
+    target.value.resolved = true
+    target.value.resolved_lang = lang
+    target.value.resolved_kind = kind
+    showHandle.value = false
     ElMessage.success('已归位并标记处理')
   } catch (e: any) {
     ElMessage.error('处理失败：' + e.message)

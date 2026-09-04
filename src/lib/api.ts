@@ -29,6 +29,9 @@ const ALBUM_CONTRIB_EMBED = 'album_contributors(artist_id)'
 /** 歌曲贡献关系嵌入列 */
 const SONG_CONTRIB_EMBED = 'song_contributors(role,artist_id)'
 
+/** ilike 模式串转义：% _ * 是 PostgREST/PG 通配符、\ 是转义符，用户输入需按字面匹配 */
+const escapeIlike = (s: string) => s.replace(/[\\%_*]/g, '\\$&')
+
 /** 从嵌入的贡献关系行计算角色 → id 列表；artist_ids 取 singer（保持旧列语义） */
 function creditIdsOf(row: { song_contributors?: { role: string; artist_id: string }[] } | null | undefined) {
   const byRole = new Map<string, string[]>()
@@ -356,9 +359,9 @@ export const api = {
     const kwOr = kw.replace(/[(),]/g, ' ').trim()
     const [artistRes, albumRes, songTitleRes, songLrcRes] = await Promise.all([
       // 歌手：仅匹配艺术家名
-      supabase.from('artists').select('*').ilike('name', `%${kw}%`),
+      supabase.from('artists').select('*').ilike('name', `%${escapeIlike(kw)}%`),
       // 专辑：仅匹配专辑名（不含专辑艺术家）
-      supabase.from('albums').select('*').ilike('name', `%${kw}%`),
+      supabase.from('albums').select('*').ilike('name', `%${escapeIlike(kw)}%`),
       // 单曲：匹配歌曲名或别名/译名（search_songs RPC，数组列 ilike 需在库端 unnest）
       supabase.rpc('search_songs', { p_q: kw }).select(songSelect),
       // 歌词：匹配 LRC 或纯文本歌词内容（同一首去重，纯逗号输入时跳过）。
@@ -417,7 +420,7 @@ export const api = {
   }): Promise<null> {
     const { error } = await supabase.from('submissions').insert([
       {
-        id: 'sub' + Date.now() + Math.floor(Math.random() * 1000),
+        id: crypto.randomUUID(),
         user_name: payload.submitter_name || '匿名',
         contact_value: payload.contact_value || {},
         submitter_public_contact: !!payload.submitter_public_contact,

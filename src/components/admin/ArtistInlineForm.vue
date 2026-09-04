@@ -48,12 +48,12 @@
         <div class="w-full space-y-2">
           <div v-for="(row, idx) in form.urlRows" :key="idx" class="flex items-center gap-2">
             <el-select v-model="row.k" filterable allow-create default-first-option class="!w-32 flex-shrink-0" placeholder="平台">
-              <el-option v-for="p in URL_PLATFORMS" :key="p" :label="contactLabel(p)" :value="p" />
+              <el-option v-for="p in ARTIST_URL_PLATFORMS" :key="p" :label="contactLabel(p)" :value="p" />
             </el-select>
             <el-input v-model="row.v" placeholder="https://..." />
             <el-button type="danger" text @click="form.urlRows.splice(idx, 1)">删</el-button>
           </div>
-          <el-button size="small" @click="form.urlRows.push({ k: 'official', v: '' })">+ 添加链接</el-button>
+          <el-button size="small" @click="form.urlRows.push({ k: 'netease', v: '' })">+ 添加链接</el-button>
         </div>
       </el-form-item>
     </el-form>
@@ -68,7 +68,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { adminApi } from '@/lib/adminApi'
-import { contactLabel } from '@/lib/constants'
+import { contactLabel, ARTIST_URL_PLATFORMS } from '@/lib/constants'
 import type { ArtistTag } from '@/lib/types'
 
 /**
@@ -77,7 +77,6 @@ import type { ArtistTag } from '@/lib/types'
  * - 待创建（无 id 或 _new）：手填 ID + 资料，随审核通过/歌曲保存时统一创建
  * 类型（types）不在此编辑：由歌曲/专辑关联自动派生（发布补全、删除重算）
  */
-const URL_PLATFORMS = ['netease', 'qqmusic', 'weibo', 'bilibili', 'instagram', 'spotify', 'youtube', 'x', 'facebook', 'douyin', 'xiaohongshu', 'beatstars', 'official']
 
 const props = defineProps<{ tag: ArtistTag }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', tag: ArtistTag): void }>()

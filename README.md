@@ -89,7 +89,7 @@ npm run docs:dev       # API 文档站（可选）
 - **TTML Hub 同步**：独立 Cloudflare Worker（[cloudflare/ttml-sync/](cloudflare/ttml-sync/)，Worker 名 `lrcshare-ttml-sync`），抓取 LunaBeat TTML 曲库清单并增量下载，未导入条目一律进人工待确认队列；`TTML_HUB_BASE` 为普通变量，需 `wrangler secret put` 配置 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SYNC_TOKEN`（`/__sync?token=` 手动触发令牌）；本地可用 `node scripts/run-ttml-sync.mjs` 手动触发
 - **API 文档站**：Cloudflare Pages（源站 lrcshare-v3.pages.dev），构建命令 `npm run docs:build`，输出目录 `docs/.vitepress/dist`；主入口 [api.lrcshare.com/docs](https://api.lrcshare.com/docs/)（由开放 API Worker 剥 `/docs` 前缀反代，VitePress `base: '/docs/'`）
 - **邮件服务**：独立 Netlify 站点，仅部署 Functions，配置见 [netlify.toml](netlify.toml)，需在 Netlify 环境变量配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`，并通过 `VITE_MAIL_BASE` 指向该站点
-- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md`、歌词版本模型 `phase5-stepB-lyric-versions.md` 及 phase5 系列、版本排序 `phase7-lyric-version-sort.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃
+- **数据库变更**：历史 SQL 脚本存于 `sql/`（口令验证函数、结构化搜索、贡献关系中间表迁移 `phase2-song-contributors.md`、口令拆表 `phase3-song-secrets.md`、搜索两段式检索 `search-recall-two-stage.md`、歌词版本模型 `phase5-stepB-lyric-versions.md` 及 phase5 系列、版本排序 `phase7-lyric-version-sort.md`、歌词写库事务化 `phase6-lyric-write-rpc.md`、语言码统一 `phase7-lang-unify.md` 等），执行记录见各文件头部说明；被取代的历史脚本已在头部标注废弃
 
 ## 目录结构
 
@@ -112,6 +112,21 @@ npm run docs:dev       # API 文档站（可选）
 ```
 
 ## 更新日志
+
+### 2026-09-04
+
+- **后台歌曲管理服务端分页（C4）**：列表不再全表拉取——songs / song_contributors / song_secrets 只按当前页请求（10/20/50 条/页 + 关联行 `in(song_id)` 过滤），曲库增长不拖慢后台；艺术家 / 专辑 / 贡献者等小字典仍一次全量（翻页不重复拉）。搜索下推数据库：新增后台专用 RPC `admin_search_songs`（迁移 `sql/phase8-admin-songs-paginate.md`，整块事务可直接复制执行），跨**歌名 / 歌别名 / 歌手名 / 歌手别名 / 专辑名**模糊匹配（较旧版前端过滤补上歌手别名与专辑名两路），不限状态（草稿 / 隐藏歌后台可搜、前台不受影响）；输入防抖 300ms，翻页 / 排序状态下搜索结果稳定；列表页权限已实测收死（`REVOKE FROM PUBLIC, anon`——Supabase 默认权限会把新函数执行权显式授予 anon，仅收 PUBLIC 不够，这个坑已记入项目记忆）。表格新增「创建时间」列（桌面列头 + 移动端卡片），「歌曲名 / 创建时间」支持列头升降序（点选排序下推数据库，duration 为 "3:45" 文本不参与）；通用组件 AdminTable 透传排序事件并暴露 `clearSelection`（原「取消选择」按钮实际清不掉复选框的旧问题一并修复）
+- **修复 Line 级音译误报「未对应」**：Apple Music TTML 音译分两种形态——Word 级（词级 span 带逐字时间，需 LSU/LSJ 锚点逐字配对）与 Line 级（整行单 span 或纯文本 `<text>`，行对应已由 `for="Ln"` 锚定）；此前 Line 级音译仍按词级跑逐词对齐，整行拼音被拆成 N 个 token 去配正文单词位导致全部落「未对应」，且纯文本 sidecar 音译内容直接提取丢失。现音译行新增行级标记（正文行无词位或音译无词级 span 自动判定）：行级行输入框为干净裸文本（无花括号壳，可随意编辑）、预览整行一个箭头永不报未对应、写回标准 Line 级纯文本 `<text>`；Word 级逐字配对机制原样保留
+- **富文本 XSS 全链路消毒**：`mdToHtml` 输出统一过 isomorphic-dompurify 白名单消毒（浏览器原生 DOM / SSG 构建 jsdom 同构），关于页历史 HTML 内容（marked 转好后存库）经 `sanitizeHtml` 消毒后渲染；`<script>`、`on*` 事件、`javascript:`/`data:` 链接全部剥除，table/style/class/target 等展示标签与属性保留；文章预览、歌曲/专辑简介、投稿预览等 6 处 v-html 入口一并收口
+- **修复歌曲页 TTML 版本单语言 tab 错位**：过滤空 `ttml_text` 条目后用数组索引回查未过滤数组，导致语言 tab 选中与内容错位（现按版本 id 过滤）
+- **开放 API 性能与健壮性**：TTML 解析改为请求级缓存（同一版本在拆行/降级 enhanced+verbatim/顶层兜底处原重复解析 2-3 次，现每请求只解析一次）
+- **语言体系统一：繁体/粤语归并 zh-Hant，音译轨标准化**：繁体地区细分（zh-Hant-HK/TW、zh-HK/MO/TW）与粤语（yue）正文语言码统一为 `zh-Hant`——下游播放器（AMLL）对翻译/音译轨 `xml:lang` 做**精确字符串匹配**（默认请求 zh-Hans/zh-Hant 粗标签），细分标签直接 miss；粤语身份改由 Cantopop 曲风与粤拼音译轨承载。音译轨语言下拉与自然语言彻底分流，只列 BCP47 拉丁化方案：拼音 `zh-Latn-pinyin`（新增，此前缺失）/ 粤拼 `zh-Latn-jyutping` / 日语罗马音 `ja-Latn` / 韩语罗马音 `ko-Latn`；TTML 音译表格、LRC 版本编辑器、投稿版本编辑器、存疑归位弹窗四处统一——选「罗马音」类型时语言列表自动切为拉丁化方案并默认拼音，切回原文/译文自动退出 Latn 标签；解析 TTML 时 `<transliteration>` 上错标的自然语言码（yue/zh/ja/ko）自动纠错为标准标签，灰字保留原 `xml:lang` 提示，重新保存即修复。存量数据迁移 `sql/phase7-lang-unify.md`（行表按 kind 分语境修正、lrc 版本 langs 摘要从行表重聚合、ttml_text 内 xml:lang 按 transliteration 标签 / x-roman 行内 span / 其余兜底三语境正则替换）
+- **歌词写库事务化**：歌词保存与存疑归位的「先删后插」下沉为 SECURITY DEFINER RPC——`save_lyric_lines`（删旧行→批量插新行→刷 langs 摘要）与 `resolve_lyric_doubt`（锁源行→删→目标版本末尾插→标记 resolved），任一步失败整体回滚，杜绝中途失败导致的行表丢失、新旧行并存与误报「已归位」；迁移 `sql/phase6-lyric-write-rpc.md`，前端各改为单次 `supabase.rpc` 调用
+- **后台录歌表单精简与防误改**：歌曲表单移除「专辑艺术家 / 年份」字段（与专辑卡片重复，统一在专辑弹窗编辑，卡片提示文案补全为「封面 / 艺术家 / 年份 / 简介」）；贡献者下拉默认锁定并预选站长（`ct_owner`），新增「修改贡献者」勾选解锁（编辑歌曲保留已绑定投稿者不动，取消勾选恢复打开时值；投稿审核路径本就隐藏下拉、发布时自动绑定投稿人）；艺术家社交链接平台选项抽取为共享常量（艺术家管理弹窗与内联即建表单不再各抄一份），新增链接行默认从「官网」改为「网易云」
+- **邮件服务安全加固**：管理端发信接口（测试 / 审核通过 / 拒绝 / 批量）改为校验 Supabase 登录会话（Authorization Bearer → `/auth/v1/user` 验证），匿名调用返回 401；收件人限制单个合法邮箱（含逗号 / 分号 / 空格即拒绝，锁死群发能力）；CORS 从 `*` 收紧为 `*.lrcshare.com` 反射式回显（公开投稿通知接口不受影响，收件人本就固定站长）
+- **语言码规则三端共享**：新增 `cloudflare/shared/lang.mjs` 单一规则源（xml:lang 归一 / 站内码转 TTML / 文字系统检测），open-api、ttml-sync、前端 lyricLines.ts 共同消费，修复三处手抄已发生的漂移（汉字判定漏 CJK 扩展A、zh 组大小写不容错、词标签偏移上限不一致）；open-api 自此须在 `cloudflare/` 目录用 `wrangler deploy` 打包部署（共享模块经 esbuild 打进 bundle，Dashboard 粘贴单文件方式失效）
+- **修复与健壮性**：风格选项 Contopop → Cantopop 拼写修正（存量数据 `array_replace` 迁移）；全库 14 处手写 ID（`'sub'+Date.now()+随机数` 模式）统一为 `crypto.randomUUID()`；搜索 ilike 过滤器新增通配符转义（`%` / `_` / `\` / `*` 按字面匹配，搜「100%」不再被当通配符）
+- **后端健壮性与安全加固**：open-api 全部上游 fetch 加 8 秒超时、入口 catch 补错误日志、畸形百分号编码（`%zz`）返回 400 而非静默 500；AMLL 解析结果缺 `lines/metadata` 时安全返回空；专辑曲目改翻页拉全（原 500 上限超限静默丢歌）。ttml-sync 同步 fetch 加 15 秒超时、外部索引缺 `songs` 字段归一为空、第三方 hubId 改 URLSearchParams 编码（防过滤器注入误删）、hub 下载地址强制同源校验（防绝对 URL SSRF）、手动触发令牌改 `X-Sync-Token` 请求头（不进 URL/边缘日志）、`/__sync` 失败不再回传堆栈。邮件服务 SMTP 按端口自适应 TLS（465 隐式 / 587 STARTTLS，原硬编码 `secure:true` 导致 587 连不上）；匿名投稿通知接口发信失败只回通用提示（不泄露 SMTP 主机/认证细节）。富文本工具栏插入链接加协议白名单（挡 `javascript:`/`data:`）与 href 属性转义
 
 ### 2026-09-02
 

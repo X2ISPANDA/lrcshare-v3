@@ -5,7 +5,16 @@
     本组件只负责双形态切换，桌面端渲染路径与改造前一致。
   -->
   <div class="hidden md:block">
-    <el-table :data="data" stripe v-loading="loading" :row-key="rowKey" @selection-change="$emit('selection-change', $event)">
+    <el-table
+      ref="tableRef"
+      :data="data"
+      stripe
+      v-loading="loading"
+      :row-key="rowKey"
+      :default-sort="defaultSort"
+      @selection-change="$emit('selection-change', $event)"
+      @sort-change="$emit('sort-change', $event)"
+    >
       <slot />
     </el-table>
   </div>
@@ -24,11 +33,24 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+
 defineProps<{
   data: any[]
   loading?: boolean
   rowKey?: string
+  /** el-table 默认排序（{ prop, order: 'ascending'|'descending' }），列需配 sortable="custom" */
+  defaultSort?: { prop: string; order: 'ascending' | 'descending' }
 }>()
 
-defineEmits<{ (e: 'selection-change', val: any[]): void }>()
+defineEmits<{
+  (e: 'selection-change', val: any[]): void
+  (e: 'sort-change', val: { prop: string | null; order: 'ascending' | 'descending' | null }): void
+}>()
+
+/** 转发 el-table 实例方法（clearSelection 等），供调用方通过组件 ref 调用 */
+const tableRef = ref()
+defineExpose({
+  clearSelection: () => tableRef.value?.clearSelection(),
+})
 </script>

@@ -1226,8 +1226,8 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         action = 'update'
       }
     } else {
-      // 批量发布时连续 insert 可能同毫秒 → 加随机尾保证主键唯一
-      contributorId = 'ct' + Date.now() + Math.floor(Math.random() * 1000)
+      // 批量发布时连续 insert 用 UUID 保证主键唯一
+      contributorId = crypto.randomUUID()
       await adminApi.insert('contributors', {
         id: contributorId,
         name: sub.user_name || '匿名贡献者',
@@ -1247,7 +1247,7 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
     if (!isProfile && !isVersion) {
       let albumId: string | null = sd.album_id || null
       if (!albumId && sd.album) {
-        albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
+        albumId = crypto.randomUUID()
         const albumArtistIds = (sd.album_artists || []).map((a: any) => a.id).filter(Boolean)
         await adminApi.insert('albums', {
           id: albumId,
@@ -1276,7 +1276,7 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       }
 
       // 插入歌曲（贡献关系只写 song_contributors 中间表，不再写旧列）
-      const songId = 's' + Date.now() + Math.floor(Math.random() * 1000)
+      const songId = crypto.randomUUID()
       refs.song_id = songId
       const singerIds = (sd.artists || []).map((a: any) => a.id).filter(Boolean)
       const lyricistIds = (sd.lyricist_arr || []).map((a: any) => a.id).filter(Boolean)

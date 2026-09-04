@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 import { TTMLParser, type TTMLResult, type Syllable } from '@applemusic-like-lyrics/ttml'
+// 语言码规则与两个 Worker 共用单一来源（规则变更只改 shared/lang.mjs）
+import { normalizeTtmlLang, detectLang as detectLangCore, lrcLangToTtml as lrcLangToTtmlCore } from '../../cloudflare/shared/lang.mjs'
 
 /**
  * 多语言歌词行表（song_lyric_lines）前端工具。
@@ -34,7 +36,7 @@ export interface LyricVersion {
 
 export const LYRIC_LANG_OPTIONS = [
   // 常用在前
-  'zh', 'en', 'ja', 'yue', 'ko', 'zh-Hant',
+  'zh', 'en', 'ja', 'ko', 'zh-Hant',
   // 拉丁字母语言（自动检测统一判 en，需手动选）
   'fr', 'de', 'es', 'it', 'pt', 'vi', 'id', 'ms', 'tr', 'nl', 'pl',
   // 独立文字系统（可自动检测）
@@ -42,15 +44,28 @@ export const LYRIC_LANG_OPTIONS = [
   // 特殊
   'en-US',
 ]
+// 注：粤语(yue)/繁中港台(zh-Hant-HK/TW)已统一并入 zh-Hant（下游播放器按 Apple 标准粗标签精确匹配，
+// 细分标签会 miss；yue 正文在 Apple 生态即标 zh-Hant，粤语身份由 Cantopop 曲风与粤拼音译轨承载）。
+// 旧码标签保留在 LYRIC_LANG_LABELS 仅作存量数据友好显示，不再出现在下拉。
+
+/** 音译轨专用语言选项（BCP47 拉丁化方案，跟随 Apple Music TTML 标注；自然语言码不出现在此列） */
+export const TRANSLIT_LANG_OPTIONS = ['zh-Latn-pinyin', 'zh-Latn-jyutping', 'ja-Latn', 'ko-Latn']
 
 /** 语言码 → 中文名（界面展示用，用户友好） */
 export const LYRIC_LANG_LABELS: Record<string, string> = {
-  zh: '中文',
+  zh: '简体中文',
   'zh-Hant': '繁体中文',
+  'zh-Hant-HK': '繁体中文（香港）',
+  'zh-Hant-TW': '繁体中文（台湾）',
   ja: '日语',
   ko: '韩语',
   en: '英语',
   yue: '粤语',
+  // 音译轨 BCP47 拉丁化标签（romanization 版本 lang 原样使用，不折叠站内码）
+  'zh-Latn-pinyin': '拼音（普通话罗马音）',
+  'zh-Latn-jyutping': '粤拼（粤语罗马音）',
+  'ja-Latn': '日语罗马音',
+  'ko-Latn': '韩语罗马音',
   fr: '法语',
   de: '德语',
   es: '西班牙语',
@@ -76,9 +91,23 @@ export const LYRIC_LANG_LABELS: Record<string, string> = {
   'en-US': '英语（美）',
 }
 
-/** 语言码 → 界面展示文本（有中文名则「中文（zh）」，否则原码） */
+/** 语言码 → 界面展示文本（有中文名则「简体中文（zh）」，否则原码） */
 export function langLabel(code: string): string {
   return LYRIC_LANG_LABELS[code] ? `${LYRIC_LANG_LABELS[code]}（${code}）` : code
+}
+
+/** 音译轨 lang 纠错：上游 TTML 把自然语言码错标在 <transliteration> 上时（如 yue/ja/ko），
+ *  映射到 BCP47 拉丁化标准标签；已是 *-Latn-* 标准方案或未知自定义值（如 ru-Latn）原样保留。
+ *  zh-Hant 不自动纠（粤拼/拼音有歧义），留给用户在编辑器手选。 */
+const TRANSLIT_LANG_FIX: Record<string, string> = {
+  yue: 'zh-Latn-jyutping',
+  zh: 'zh-Latn-pinyin', 'zh-hans': 'zh-Latn-pinyin', 'zh-cn': 'zh-Latn-pinyin', 'zh-sg': 'zh-Latn-pinyin',
+  ja: 'ja-Latn', ko: 'ko-Latn',
+}
+export function fixTranslitLang(lang: string | null | undefined): string {
+  if (!lang) return 'und'
+  if (/Latn/i.test(lang)) return lang
+  return TRANSLIT_LANG_FIX[lang.toLowerCase()] || lang
 }
 
 export const LYRIC_KIND_LABEL: Record<LyricKind, string> = {
@@ -432,40 +461,6 @@ function escapeXml(s: string): string {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c] as string))
 }
 
-function formatTtmlTime(ms: number): string {
-  const hh = Math.floor(ms / 3600000)
-  const mm = Math.floor((ms % 3600000) / 60000)
-  const ss = Math.floor((ms % 60000) / 1000)
-  const xxx = ms % 1000
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(xxx).padStart(3, '0')}`
-}
-
-/** 多版本 → TTML（多语言轨道按 lang 分 div，词级 span） */
-export function versionsToTtml(versions: LyricVersion[], credit?: string): string {
-  const divs: string[] = []
-  for (const v of versions) {
-    const timed = v.rows.filter(r => r.time_ms != null).sort((a, b) => a.time_ms! - b.time_ms!)
-    const ps: string[] = []
-    for (let i = 0; i < timed.length; i++) {
-      const line = timed[i]
-      const pBegin = line.time_ms!
-      const pEnd = line.end_ms != null
-        ? line.end_ms
-        : (i + 1 < timed.length ? timed[i + 1].time_ms! : pBegin + 3000)
-      const words = parseWordTags(line.text)
-      const spans = words.map((w, wi) => {
-        const wBegin = pBegin + w.offset_ms
-        const wEnd = wi + 1 < words.length ? pBegin + words[wi + 1].offset_ms : pEnd
-        return `<span begin="${formatTtmlTime(wBegin)}" end="${formatTtmlTime(wEnd)}">${escapeXml(w.text)}</span>`
-      }).join('')
-      ps.push(`<p begin="${formatTtmlTime(pBegin)}" end="${formatTtmlTime(pEnd)}">${spans}</p>`)
-    }
-    divs.push(`<div xml:lang="${escapeXml(v.lang)}">${ps.join('')}</div>`)
-  }
-  const creditP = credit ? `<div><p begin="06:59:19.999" end="06:59:20.999">${escapeXml(credit)}</p></div>` : ''
-  return prettifyTtml(`<tt xmlns="http://www.w3.org/ns/ttml"><body>${divs.join('')}${creditP}</body></tt>`)
-}
-
 /** 解析 text 词标签 → [{text, offset_ms}]；无标签则整行一个词 */
 function parseWordTags(text: string): { text: string; offset_ms: number }[] {
   const s = String(text || '')
@@ -567,7 +562,8 @@ export interface TtmlTranslationTrack {
   lines: { for: string; text: string; bg: string[] }[]
 }
 
-/** 音译轨：行文本用内部约定语法（空格分词、{LSU,词 组} 多字并位、{LSJ,原词,N} 跳词） */
+/** 音译轨：词级行文本用内部约定语法（空格分词、{LSU,词 组} 多字并位、{LSJ,原词,N} 跳词）；
+ *  行级行（lineLevel=true，Line 级 timing / 纯文本 sidecar）整行文本即该行音译，for= 锚定行对应，不做逐字配对 */
 export interface TtmlTranslitTrack {
   ttmlLang: string
   lrcLang: string
@@ -576,6 +572,9 @@ export interface TtmlTranslitTrack {
   lines: {
     for: string
     text: string
+    /** 行级音译：正文行无词位（Line 级 timing/整行单 span）或音译无词级 span（纯文本 sidecar/行内 x-roman）。
+     *  整行对应正文行，预览整行一个箭头、写回纯文本 <text>，不参与 LSU/LSJ 逐词对齐 */
+    lineLevel?: boolean
     /** 和声音译（x-bg 包装 span；保留自己的词级时间与字面括号，compose 原样写回） */
     bg: { text: string; beginRaw: string | null; endRaw: string | null }[]
   }[]
@@ -636,16 +635,12 @@ function cleanTtmlLang(lang: string): string {
   return String(lang || '').replace(/^xml:/, '').trim()
 }
 
-/** BCP47 → 站内语言码（TTML 原值不动，仅表格显示/对齐用） */
+/** TTML xml:lang（BCP47）→ 站内语言码。仅用于正文/译文轨；音译轨直接用原标签（见 parseTtmlForEdit）。
+ *  核心规则在 shared/lang.mjs（大小写不敏感、zh 简繁组归一）；本端再经站内码表校验，
+ *  合法站内码/主子标签直接采用，其余原样透传（保持「未知标签不丢信息」）。 */
 export function ttmlLangToLrc(ttmlLang: string): string {
-  const v = cleanTtmlLang(ttmlLang)
+  const v = normalizeTtmlLang(ttmlLang)
   if (!v) return 'und'
-  const MAP: Record<string, string> = {
-    'zh-Hans': 'zh', 'zh-Hans-CN': 'zh',
-    'zh-Hant-HK': 'zh-Hant', 'zh-Hant-TW': 'zh-Hant', 'zh-Hant-MO': 'zh-Hant',
-    'ja-Latn': 'en',
-  }
-  if (MAP[v]) return MAP[v]
   if (LYRIC_LANG_LABELS[v]) return v
   const base = v.split('-')[0]
   if (LYRIC_LANG_LABELS[base]) return base
@@ -722,7 +717,7 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
 
   // ---- sidecar（方言 A）提取：translations/transliterations → 按 xml:lang 聚合 ----
   interface TransAgg { ttmlLang: string; type: string; entries: Map<string, { text: string; bg: string[] }> }
-  interface RomanAgg { ttmlLang: string; entries: Map<string, { wordSpans: { beginRaw: string; endRaw: string; text: string }[]; bg: { text: string; beginRaw: string | null; endRaw: string | null }[]; extras: string[] }> }
+  interface RomanAgg { ttmlLang: string; entries: Map<string, { plain: string; wordSpans: { beginRaw: string; endRaw: string; text: string }[]; bg: { text: string; beginRaw: string | null; endRaw: string | null }[]; extras: string[] }> }
   const transAggs: TransAgg[] = []
   for (const tr of Array.from(doc.getElementsByTagNameNS('*', 'translation'))) {
     const lang = cleanTtmlLang(xmlLangOf(tr))
@@ -757,7 +752,14 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
       const wordSpans: { beginRaw: string; endRaw: string; text: string }[] = []
       const bg: { text: string; beginRaw: string | null; endRaw: string | null }[] = []
       const extras: string[] = []
-      for (const el of Array.from(textEl.children)) {
+      let plain = ''
+      // 遍历 childNodes（不能只看 children）：Apple Music Line 级 sidecar 音译为整行纯文本
+      // （<text for="L1">zoi cung...</text> 内无词级 span），纯文本节点不在 children 中
+      for (const node of Array.from(textEl.childNodes)) {
+        // 纯空白文本节点 = 格式化换行/缩进，丢弃（同正文/翻译提取逻辑）
+        if (node.nodeType === 3) { const t = node.nodeValue || ''; if (t.trim()) plain += t; continue }
+        if (node.nodeType !== 1) continue
+        const el = node as Element
         if (roleOf(el) === 'x-bg') {
           // 和声音译：x-bg 包装 span，内层 span 带自己的词级时间（文本含字面括号等原样保留）
           for (const inner of Array.from(el.children)) {
@@ -777,7 +779,7 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
         if (el.localName === 'span' && !roleOf(el) && b && e) wordSpans.push({ beginRaw: b, endRaw: e, text: t })
         else extras.push(t)
       }
-      agg.entries.set(forKey, { wordSpans, bg, extras })
+      agg.entries.set(forKey, { plain: plain.trim(), wordSpans, bg, extras })
     }
   }
 
@@ -805,7 +807,7 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
   for (const r of inlineRoman) {
     let agg = romanAggs.find(a => a.ttmlLang === r.lang)
     if (!agg) { agg = { ttmlLang: r.lang, entries: new Map() }; romanAggs.push(agg) }
-    if (!agg.entries.has(r.key)) agg.entries.set(r.key, { wordSpans: [], bg: [], extras: [r.text] })
+    if (!agg.entries.has(r.key)) agg.entries.set(r.key, { plain: '', wordSpans: [], bg: [], extras: [r.text] })
   }
 
   // ---- 翻译表格（每行一条，缺行=空文本） ----
@@ -822,16 +824,29 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
   }))
 
   // ---- 音译表格：音译 span 与原词按 begin 时间戳配对；跳词自动生成 {LSJ,原词,N} 锚点，带空格多字生成 {LSU,...} 并位 ----
-  const transliterations: TtmlTranslitTrack[] = romanAggs.map(agg => ({
+  const transliterations: TtmlTranslitTrack[] = romanAggs.map(agg => {
+    // 音译轨 lang 纠错（如上游错标 yue → zh-Latn-jyutping）：lrcLang 用修正值，origLrcLang 保留原码，
+    // 用户不动下拉保存即输出修正标签；ttmlLang 保留原值用于灰字「xml:lang=yue」提示
+    const fixedLang = fixTranslitLang(agg.ttmlLang)
+    return {
     ttmlLang: agg.ttmlLang,
-    lrcLang: ttmlLangToLrc(agg.ttmlLang),
+    lrcLang: fixedLang,
     origTtmlLang: agg.ttmlLang,
-    origLrcLang: ttmlLangToLrc(agg.ttmlLang),
+    origLrcLang: agg.ttmlLang || 'und',
     lines: lines.map(l => {
       const entry = agg.entries.get(l.key)
-      if (!entry || (!entry.wordSpans.length && !entry.extras.length && !entry.bg.length)) return { for: l.key, text: '', bg: [] }
+      if (!entry || (!entry.wordSpans.length && !entry.extras.length && !entry.bg.length && !entry.plain)) return { for: l.key, text: '', bg: [], lineLevel: false }
+      // 行级音译：正文行无词位（Line 级 timing / 整行单 span），或音译本身无词级 span（纯文本 sidecar / 行内 x-roman）。
+      // 行对应已由 for= 锚定，整行文本即该行音译——不做逐字配对、不包 LSU 壳（词数本来就对不上，逐词对齐无意义）
+      const lineLevel = l.words.length <= 1 || entry.wordSpans.length === 0
+      if (lineLevel) {
+        // 单 span 整行取 span 文本，纯文本 sidecar 取 plain，行内 x-roman 取 extras
+        const text = [entry.plain, ...entry.wordSpans.map(w => w.text), ...entry.extras].filter(Boolean).join(' ').trim()
+        return { for: l.key, text, bg: entry.bg || [], lineLevel: true }
+      }
       const parts: string[] = []
       const extras: string[] = [...entry.extras]
+      if (entry.plain) extras.push(entry.plain) // 混合形态（词级 span + 游离纯文本）：整行文本兜底附后，不丢弃
       const matched: { idx: number; text: string }[] = []
       for (const ws of entry.wordSpans) {
         const ms = ttmlTimeToMs(ws.beginRaw)
@@ -857,9 +872,10 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
         cursor = m.idx + 1
       }
       for (const e of extras) if (e) parts.push(/\s/.test(e) ? `{LSU,${e.trim()}}` : e)
-      return { for: l.key, text: parts.join(' '), bg: entry.bg || [] }
+      return { for: l.key, text: parts.join(' '), bg: entry.bg || [], lineLevel: false }
     }),
-  }))
+    }
+  })
 
   // ---- bodyRaw：剥离翻译/音译 ----
   // 有行内 role 或缺 key → DOM 模式（剥离 span / 补 key / 删 sidecar 后整体序列化）；
@@ -879,9 +895,10 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
       .replace(/<transliterations\b[\s\S]*?<\/transliterations\s*>/g, '')
   }
 
-  // ---- 正文语言：提取 body xml:lang 原码（导出时未改语言则原样写回） ----
+  // ---- 正文语言：优先 <tt> 根 xml:lang（AMLL/Apple 标准位置，旧数据可能只标在 <body> 兜底读取） ----
+  const rootEl = doc.getElementsByTagNameNS('*', 'tt')[0] || doc.documentElement || null
   const bodyEl = doc.getElementsByTagNameNS('*', 'body')[0] || null
-  const origBodyTtmlLang = bodyEl ? cleanTtmlLang(xmlLangOf(bodyEl)) : ''
+  const origBodyTtmlLang = (rootEl ? cleanTtmlLang(xmlLangOf(rootEl)) : '') || (bodyEl ? cleanTtmlLang(xmlLangOf(bodyEl)) : '')
   const origBodyLang = origBodyTtmlLang ? ttmlLangToLrc(origBodyTtmlLang) : ''
 
   return { bodyRaw, bodyLang: origBodyLang, origBodyLang, origBodyTtmlLang, lines, translations, transliterations }
@@ -945,14 +962,14 @@ export function alignTranslitTokens(tokens: TranslitToken[], words: TtmlLineWord
   return { matched, extra, badAnchors }
 }
 
-/** 音译行 → 纯文本（剥锚点，词/并位按空格连接；LRC 降级用） */
-export function translitPlainText(text: string): string {
-  return parseTranslitTokens(text).map(t => (t.kind === 'anchor' ? '' : t.text)).filter(Boolean).join(' ')
+/** 站内语言码 → TTML 输出 BCP47（简体补文字码 zh→zh-Hans；其余站内码已是合法 BCP47 原样；规则在 shared/lang.mjs） */
+export function lrcLangToTtml(lang: string): string {
+  return lrcLangToTtmlCore(lang)
 }
 
-/** 轨道导出语言：用户未改语言 → 原样写回导入时的 BCP47 值；改过 → 写站内码 */
+/** 轨道导出语言：用户未改语言 → 原样写回导入时的 BCP47 值；改过/无原码 → 写站内码的 BCP47 形式 */
 function trackOutLang(t: { ttmlLang: string; lrcLang: string; origTtmlLang: string; origLrcLang: string }): string {
-  return t.lrcLang === t.origLrcLang ? (t.origTtmlLang || t.lrcLang) : t.lrcLang
+  return t.lrcLang === t.origLrcLang ? (t.origTtmlLang || lrcLangToTtml(t.lrcLang)) : lrcLangToTtml(t.lrcLang)
 }
 
 /** body 标签写入 xml:lang（已有则替换值，无则追加属性） */
@@ -966,6 +983,17 @@ function applyBodyLang(xml: string, lang: string): string {
   return xml.replace(tag, tag.replace(/<body\b/, `<body xml:lang="${escapeXml(lang)}"`))
 }
 
+/** <tt> 根标签写入 xml:lang（AMLL/Apple 标准读取位置；已有则替换，无则追加） */
+function applyRootLang(xml: string, lang: string): string {
+  const m = xml.match(/<tt\b[^>]*>/)
+  if (!m) return xml
+  const tag = m[0]
+  if (/\sxml:lang\s*=\s*("[^"]*"|'[^']*')/.test(tag)) {
+    return xml.replace(tag, tag.replace(/\sxml:lang\s*=\s*("[^"]*"|'[^']*')/, ` xml:lang="${escapeXml(lang)}"`))
+  }
+  return xml.replace(tag, tag.replace(/<tt\b/, `<tt xml:lang="${escapeXml(lang)}"`))
+}
+
 /**
  * 编辑模型 → 完整 TTML 原文：bodyRaw 原样 + 翻译/音译合成 Head Sidecar 写回 iTunesMetadata。
  * 音译词按原词继承 begin/end（[ls] 锚点对齐；对不上的词退化为无词级时间的纯文本）。
@@ -975,11 +1003,12 @@ export function composeTtml(model: TtmlEditModel): string {
   let bodyRaw = String(model.bodyRaw || '')
   if (!bodyRaw.trim()) return ''
 
-  // 正文语言写回 body xml:lang：未改语言 → 原码原样（如 zh-Hans 不降级为 zh）；改过/原文无标注 → 写站内码
+  // 正文语言写回 xml:lang：未改语言 → 原码原样（如 zh-Hans 不降级为 zh）；改过/原文无标注 → 写站内码的 BCP47 形式。
+  // <tt> 根标签为 AMLL/Apple 标准读取位置（必写）；<body> 同步同值（历史标注位置，更新而非残留，避免两处不一致）
   const bodyOutLang = model.bodyLang
-    ? (model.bodyLang === model.origBodyLang ? (model.origBodyTtmlLang || model.bodyLang) : model.bodyLang)
+    ? (model.bodyLang === model.origBodyLang ? (model.origBodyTtmlLang || lrcLangToTtml(model.bodyLang)) : lrcLangToTtml(model.bodyLang))
     : ''
-  if (bodyOutLang) bodyRaw = applyBodyLang(bodyRaw, bodyOutLang)
+  if (bodyOutLang) bodyRaw = applyRootLang(applyBodyLang(bodyRaw, bodyOutLang), bodyOutLang)
 
   // 正文重新解析拿行词表（用户可能改过 bodyRaw；key 均已在 parse 时写回正文）
   let bodyLines: TtmlEditLine[] = []
@@ -1011,9 +1040,28 @@ export function composeTtml(model: TtmlEditModel): string {
     const texts: string[] = []
     for (const ln of tr.lines) {
       if (!ln.text.trim() && !ln.bg.length) continue
+      const bgSpans = ln.bg
+        .filter(b => b.text.trim())
+        .map(b => {
+          const inner = b.beginRaw && b.endRaw
+            ? `<span xmlns="http://www.w3.org/ns/ttml" begin="${escapeXml(b.beginRaw)}" end="${escapeXml(b.endRaw)}">${escapeXml(b.text)}</span>`
+            : escapeXml(b.text)
+          return `<span xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="${TTM_NS}" ttm:role="x-bg">${inner}</span>`
+        })
       const line = bodyLines.find(l => l.key === ln.for)
       const words = line?.words || []
+      // 行级音译（Line 级 timing / 纯文本 sidecar）：整行写纯文本 <text>，行时间由 for= 锚定的正文行承载，
+      // 不生成词级 span（Line 级正文无词位时间可挂）
+      if (ln.lineLevel) {
+        if (ln.text.trim() || bgSpans.length) texts.push(`<text for="${escapeXml(ln.for)}">${escapeXml(ln.text.trim())}${bgSpans.join('')}</text>`)
+        continue
+      }
       const { matched, extra } = alignTranslitTokens(parseTranslitTokens(ln.text), words)
+      // 兜底：词级正文但音译一个词都没配上（异常手输），按纯文本写回，保留词间空格
+      if (!matched.length) {
+        if (ln.text.trim() || bgSpans.length) texts.push(`<text for="${escapeXml(ln.for)}">${escapeXml(ln.text.trim())}${bgSpans.join('')}</text>`)
+        continue
+      }
       const spans: string[] = []
       for (const m of matched) {
         const w = words[m.wordIdx]
@@ -1024,13 +1072,7 @@ export function composeTtml(model: TtmlEditModel): string {
         }
       }
       for (const e of extra) spans.push(escapeXml(e))
-      for (const b of ln.bg) {
-        if (!b.text.trim()) continue
-        const inner = b.beginRaw && b.endRaw
-          ? `<span xmlns="http://www.w3.org/ns/ttml" begin="${escapeXml(b.beginRaw)}" end="${escapeXml(b.endRaw)}">${escapeXml(b.text)}</span>`
-          : escapeXml(b.text)
-        spans.push(`<span xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="${TTM_NS}" ttm:role="x-bg">${inner}</span>`)
-      }
+      spans.push(...bgSpans)
       if (spans.length) texts.push(`<text for="${escapeXml(ln.for)}">${spans.join('')}</text>`)
     }
     if (texts.length) romanParts.push(`<transliteration xml:lang="${escapeXml(trackOutLang(tr))}">${texts.join('\n')}</transliteration>`)
@@ -1228,43 +1270,6 @@ export function expandRomanSyntax(romanLrc: string, originalLrc: string): string
   return out.join('\n')
 }
 
-/** TTML 编辑模型 → 多语言行版本（原文行 + 翻译/音译同戳行），供「转为 LRC」双语/三语降级 */
-export function ttmlEditToLrcVersions(model: TtmlEditModel): LyricVersion[] {
-  const origRows = parseTtmlToRows(model.bodyRaw)
-  if (!origRows.length) return []
-  // 原文语言：优先 bodyLang（人工标注/TTML xml:lang，ttmlLangToLrc 归一为站内码）；无标注回落 detectLang
-  // （繁简同为 CJK，detectLang 区分不了，必须用标注）
-  const bodyLang = model.bodyLang && model.bodyLang !== 'und' ? ttmlLangToLrc(model.bodyLang) : ''
-  const d = bodyLang || detectLang(origRows.map(r => r.text).join(' '))
-  const versions: LyricVersion[] = [{ lang: d === 'unknown' ? 'und' : d, kind: 'original', rows: origRows }]
-
-  const lineTime = new Map<string, number>()
-  for (const l of model.lines) {
-    const ms = ttmlTimeToMs(l.beginRaw)
-    if (ms != null) lineTime.set(l.key, ms)
-  }
-  for (const t of model.translations) {
-    const rows = t.lines
-      .filter(ln => ln.text.trim() && lineTime.has(ln.for))
-      .map(ln => ({
-        seq: 0,
-        time_ms: lineTime.get(ln.for)!,
-        end_ms: null,
-        text: ln.bg.length ? `${ln.text} ${ln.bg.map(b => `(${b})`).join('')}` : ln.text,
-      }))
-      .sort((a, b) => a.time_ms - b.time_ms)
-    if (rows.length) versions.push({ lang: t.lrcLang, kind: 'translation', rows })
-  }
-  for (const tr of model.transliterations) {
-    const rows = tr.lines
-      .filter(ln => (ln.text.trim() || ln.bg.length) && lineTime.has(ln.for))
-      .map(ln => ({ seq: 0, time_ms: lineTime.get(ln.for)!, end_ms: null, text: [translitPlainText(ln.text), ...ln.bg.map(b => b.text)].filter(Boolean).join(' ') }))
-      .sort((a, b) => a.time_ms - b.time_ms)
-    if (rows.length) versions.push({ lang: tr.lrcLang, kind: 'romanization', rows })
-  }
-  return versions
-}
-
 // ---------- TTML 结构化渲染（phase5 阶段 F：对唱/和声/语言 渐进增强） ----------
 
 /** TTML 单行渲染结构 */
@@ -1388,13 +1393,21 @@ export function detectTtmlLangs(xml: string): string[] {
         const top = majorityOf(orig.map(l => l.text))
         if (top) langs.add(top)
       }
-      // 译文/音译轨：整轨同一语言，标注归一优先、无标注按文本检测
+      // 译文/音译轨：整轨同一语言，标注优先、无标注按文本检测
       for (const l of struct.lines) {
         if (l.kind === 'original') continue
-        const k = norm(l.lang) || (() => {
+        const byText = () => {
           const d = detectLang(l.text)
           return d && d !== 'unknown' ? d : null
-        })()
+        }
+        let k: string | null
+        if (l.kind === 'romanization') {
+          // 音译轨：BCP47 拉丁化标签原值保留（zh-Latn-jyutping / ja-Latn / ko-Latn），不折叠站内码
+          const raw = cleanTtmlLang(l.lang || '')
+          k = (raw && raw !== 'und') ? raw : byText()
+        } else {
+          k = norm(l.lang) || byText()
+        }
         if (k) langs.add(k)
       }
       return [...langs]
@@ -1406,8 +1419,12 @@ export function detectTtmlLangs(xml: string): string[] {
   const rootM = /<(?:tt|body)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(text)
   const rootLang = norm(rootM ? rootM[1] : null)
   if (rootLang) langs.add(rootLang)
-  // 译文/音译轨：侧车标签（站内 composeTtml 格式）与 div 级 xml:lang（与主体不同者）
-  for (const m of text.matchAll(/<(?:translation|transliteration)\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi)) {
+  // 侧车标签（站内 composeTtml 格式）：音译轨 <transliteration> 取 BCP47 拉丁化标签原值；译文轨 <translation> 归一站内码
+  for (const m of text.matchAll(/<transliteration\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi)) {
+    const raw = cleanTtmlLang(m[1])
+    if (raw && raw !== 'und') langs.add(raw)
+  }
+  for (const m of text.matchAll(/<translation\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/gi)) {
     const k = norm(m[1])
     if (k) langs.add(k)
   }
@@ -1481,26 +1498,9 @@ export async function loadLyricVersionMetas(songId: string, withTtml = false): P
 }
 
 /** 单行语言判定（独立文字系统逐一匹配，拉丁文字统一判 en 不细分 en/fr/罗马音，由用户手动改）：
- *  假名→ja / 谚文→ko / 泰文→th / 老挝文→lo / 藏文→bo / 蒙文→mn / 缅甸文→my / 高棉文→km /
- *  天城文→hi / 阿拉伯文→ar / 希伯来文→he / 希腊文→el / 西里尔→ru / 汉字→zh / 拉丁→en / 其他→unknown */
+ *  规则在 shared/lang.mjs（与两个 Worker 同源；含 CJK 扩展A、重音拉丁），本端把 null 包装为 'unknown' */
 export function detectLang(text: string): string {
-  const s = stripWordTags(text)
-  if (/[ぁ-んァ-ヶー]/.test(s)) return 'ja'
-  if (/[가-힣]/.test(s)) return 'ko'
-  if (/[\u0E00-\u0E7F]/.test(s)) return 'th'
-  if (/[\u0E80-\u0EFF]/.test(s)) return 'lo'
-  if (/[\u0F00-\u0FFF]/.test(s)) return 'bo'
-  if (/[\u1800-\u18AF]/.test(s)) return 'mn'
-  if (/[\u1000-\u109F]/.test(s)) return 'my'
-  if (/[\u1780-\u17FF]/.test(s)) return 'km'
-  if (/[\u0900-\u097F]/.test(s)) return 'hi'
-  if (/[\u0600-\u06FF]/.test(s)) return 'ar'
-  if (/[\u0590-\u05FF]/.test(s)) return 'he'
-  if (/[\u0370-\u03FF]/.test(s)) return 'el'
-  if (/[\u0400-\u04FF]/.test(s)) return 'ru'
-  if (/[一-龥]/.test(s)) return 'zh'
-  if (/[A-Za-z]/.test(s)) return 'en'
-  return 'unknown'
+  return detectLangCore(text) || 'unknown'
 }
 
 /**
@@ -1665,27 +1665,28 @@ export async function resolveDefaultLinesVersionId(songId: string): Promise<stri
   return data[0].id
 }
 
-/** 全量替换一个歌词版本的行表（默认 = 该歌 lrc/enhanced 用户版本；先 DELETE 再 INSERT，幂等） */
+/** 全量替换一个歌词版本的行表（默认 = 该歌 lrc/enhanced 用户版本）。
+ *  写库走 save_lyric_lines RPC：删旧→插新→刷 langs 单事务，中途失败整体回滚（B1 修复） */
 export async function saveLyricLines(songId: string, versions: LyricVersion[], versionId?: string): Promise<void> {
   const vid = versionId || await resolveDefaultLinesVersionId(songId)
-  await supabase.from('song_lyric_lines').delete().eq('version_id', vid)
   const rows: any[] = []
   for (const v of versions) {
     const timed = v.rows.filter(r => r.time_ms != null)
     const meta = v.rows.filter(r => r.time_ms == null)
     const all = [...meta, ...timed]
     all.forEach((r, i) => {
-      rows.push({ version_id: vid, song_id: songId, lang: v.lang, kind: v.kind, seq: i + 1, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
+      rows.push({ lang: v.lang, kind: v.kind, seq: i + 1, time_ms: r.time_ms, end_ms: r.end_ms, text: r.text })
     })
-  }
-  if (rows.length) {
-    const { error } = await supabase.from('song_lyric_lines').insert(rows)
-    if (error) throw error
   }
   // langs 摘要维护：行表变化后同步刷新该版本的语言摘要
   const langs = [...new Set(versions.map(v => v.lang).filter(Boolean))]
-  const { error: langsErr } = await supabase.from('lyric_versions').update({ langs }).eq('id', vid)
-  if (langsErr) throw langsErr
+  const { error } = await supabase.rpc('save_lyric_lines', {
+    p_song_id: songId,
+    p_version_id: vid,
+    p_rows: rows,
+    p_langs: langs,
+  })
+  if (error) throw error
 }
 
 /** 调用 SQL 拆行函数重拆一首歌（编辑 lrc_text 整体改动后用，SECURITY DEFINER 仅 authenticated） */

@@ -71,27 +71,11 @@
               <span v-else class="w-8 h-8 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0 text-sm">💿</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-xs text-gray-700 truncate">{{ form.albumName }}</span>
-                <span class="block text-[11px] text-gray-400">点击{{ form.albumId ? '查看 / 更新专辑信息（保存即写回库）' : '补全专辑信息（保存即入库）' }}（封面 / 年份 / 简介）</span>
+                <span class="block text-[11px] text-gray-400">点击{{ form.albumId ? '查看 / 更新专辑信息（保存即写回库）' : '补全专辑信息（保存即入库）' }}（封面 / 艺术家 / 年份 / 简介）</span>
               </span>
               <el-tag v-if="form.albumId" size="small" type="success" class="shrink-0">已关联</el-tag>
               <el-tag v-else size="small" type="warning" class="shrink-0">新建</el-tag>
             </button>
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <el-row :gutter="16">
-        <el-col :span="16">
-          <el-form-item label="专辑艺术家">
-            <div class="w-full">
-              <ArtistTagInput v-model="form.albumArtists" :artists="artists" tone="gray" admin @artist-saved="onArtistSaved" />
-              <div class="text-xs text-gray-400 mt-1">如唱片公司、音乐平台等；选择已有专辑时自动填充</div>
-            </div>
-          </el-form-item>
-        </el-col>
-        <el-col :span="8">
-          <el-form-item label="年份">
-            <el-input v-model="form.year" placeholder="2024" maxlength="4" />
           </el-form-item>
         </el-col>
       </el-row>
@@ -111,9 +95,12 @@
       <el-row :gutter="16">
         <el-col v-if="!hideContributor" :span="12">
           <el-form-item label="贡献者">
-            <el-select v-model="form.contributor_id" filterable clearable placeholder="歌词提交者（选填）" class="w-full">
-              <el-option v-for="c in contributors" :key="c.id" :label="c.name + '（' + (c.tags?.join(', ') || '歌词贡献') + '）'" :value="c.id" />
-            </el-select>
+            <div class="w-full">
+              <el-select v-model="form.contributor_id" filterable clearable :disabled="!contributorUnlock" placeholder="歌词提交者（选填）" class="w-full">
+                <el-option v-for="c in contributors" :key="c.id" :label="c.name + '（' + (c.tags?.join(', ') || '歌词贡献') + '）'" :value="c.id" />
+              </el-select>
+              <el-checkbox v-model="contributorUnlock" size="small" class="mt-1" @change="onContributorUnlockChange">修改贡献者</el-checkbox>
+            </div>
           </el-form-item>
         </el-col>
         <el-col :span="hideContributor ? 24 : 12">
@@ -149,7 +136,7 @@
               </el-select>
               <span class="text-xs text-gray-500 shrink-0">语言</span>
               <el-select v-model="activeLrcLang" filterable allow-create default-first-option size="small" class="!w-32">
-                <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+                <el-option v-for="l in activeLrcLangOptions" :key="l" :label="langLabel(l)" :value="l" />
               </el-select>
               <span class="text-xs text-gray-500 shrink-0">类型</span>
               <el-select v-model="activeLrcKind" size="small" class="!w-28">
@@ -252,7 +239,7 @@
                 <div class="flex items-center gap-2 mb-2">
                   <span class="text-xs text-gray-500">音译</span>
                   <el-select v-model="tr.lrcLang" filterable allow-create default-first-option size="small" class="!w-40">
-                    <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+                    <el-option v-for="l in TRANSLIT_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
                   </el-select>
                   <span v-if="tr.ttmlLang && tr.ttmlLang !== tr.lrcLang" class="text-xs text-gray-400">xml:lang={{ tr.ttmlLang }}</span>
                   <div class="flex-1"></div>
@@ -344,8 +331,8 @@ import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
 import type { LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
-import { GENRE_OPTIONS, TIP_ICONS } from '@/lib/constants'
-import { loadLyricLines, loadLyricVersionMetas, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, rebuildLyricLines, splitLrcToVersions, detectLang, detectTtmlLangs, LYRIC_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, parseTtmlForEdit, composeTtml, emptyTtmlEditModel, parseTranslitTokens, alignTranslitTokens, generateTtmlVariant, generateLrcVariant, expandRomanSyntax, prettifyTtml, stripWordTags, type LyricKind, type LyricVersion, type TtmlEditModel } from '@/lib/lyricLines'
+import { GENRE_OPTIONS, TIP_ICONS, OWNER_CONTRIBUTOR_ID } from '@/lib/constants'
+import { loadLyricLines, loadLyricVersionMetas, groupVersions, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, rebuildLyricLines, splitLrcToVersions, detectLang, detectTtmlLangs, LYRIC_LANG_OPTIONS, TRANSLIT_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, parseTtmlForEdit, composeTtml, emptyTtmlEditModel, parseTranslitTokens, alignTranslitTokens, generateTtmlVariant, generateLrcVariant, expandRomanSyntax, prettifyTtml, stripWordTags, type LyricKind, type LyricVersion, type TtmlEditModel } from '@/lib/lyricLines'
 import { supabase } from '@/lib/supabase'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
@@ -490,8 +477,20 @@ const activeLrcLang = computed({
 })
 const activeLrcKind = computed({
   get: () => activeLrc.value?.kind || 'original',
-  set: v => { if (activeLrc.value) activeLrc.value.kind = v as LyricKind },
+  set: v => {
+    if (!activeLrc.value) return
+    const k = v as LyricKind
+    activeLrc.value.kind = k
+    // 类型切换时语言自动归位：罗马音类型必须是拉丁化方案；原文/译文不能是 Latn 标签
+    if (k === 'romanization') {
+      if (!TRANSLIT_LANG_OPTIONS.includes(activeLrc.value.lang)) activeLrc.value.lang = 'zh-Latn-pinyin'
+    } else if (/Latn/i.test(activeLrc.value.lang)) {
+      activeLrc.value.lang = 'zh'
+    }
+  },
 })
+/** LRC 语言下拉选项：罗马音类型只列 BCP47 拉丁化方案，其余类型列自然语言 */
+const activeLrcLangOptions = computed(() => activeLrcKind.value === 'romanization' ? TRANSLIT_LANG_OPTIONS : LYRIC_LANG_OPTIONS)
 
 /** 版本 lrc → 纯文本（行主文本，剥词级标签） */
 function plainOfLrc(lrc: string): string {
@@ -849,10 +848,15 @@ function ttmlLineText(key: string): string {
   return ttmlEdit.value.lines.find(l => l.key === key)?.text || ''
 }
 
-/** 音译对应预览：原词→音译 逐词展示；未命中的锚点/多余词提示 */
-function romanPreview(ln: { for: string; text: string }): string {
+/** 音译对应预览：行级音译整行一个箭头（for= 已锚定行对应）；词级音译逐词展示，未命中的锚点/多余词提示 */
+function romanPreview(ln: { for: string; text: string; lineLevel?: boolean }): string {
   const line = ttmlEdit.value.lines.find(l => l.key === ln.for)
   if (!line) return ''
+  // 行级音译（Line 级 timing / 纯文本 sidecar）：整行对应正文行，不存在逐字未对应
+  if (ln.lineLevel) {
+    const t = ln.text.trim()
+    return t ? `${line.text}→${t}` : line.text
+  }
   const { matched, extra, badAnchors } = alignTranslitTokens(parseTranslitTokens(ln.text), line.words)
   const parts = line.words.map((w, i) => {
     const m = matched.find(x => x.wordIdx === i)
@@ -873,7 +877,7 @@ function addTtmlTrack(kind: 'translation' | 'romanization') {
     })
   } else {
     ttmlEdit.value.transliterations.push({
-      ttmlLang: '', lrcLang: 'en', origTtmlLang: '', origLrcLang: 'en',
+      ttmlLang: '', lrcLang: 'zh-Latn-pinyin', origTtmlLang: '', origLrcLang: 'zh-Latn-pinyin',
       lines: ttmlEdit.value.lines.map(l => ({ for: l.key, text: '', bg: [] })),
     })
   }
@@ -908,6 +912,16 @@ const form = reactive({
   is_hidden: false,
   unlock_code: '',
 })
+
+/** 贡献者锁定：默认锁定防误改（新增默认站长 ct_owner / 编辑保留已绑定贡献者），勾「修改贡献者」解锁 */
+const contributorUnlock = ref(false)
+/** 本次打开时的贡献者快照：取消勾选时恢复 */
+const contributorSnapshot = ref<string | null>('')
+
+/** 取消勾选 → 恢复打开时的贡献者 */
+function onContributorUnlockChange(checked: boolean | string | number) {
+  if (!checked) form.contributor_id = contributorSnapshot.value
+}
 
 // ===== 多语言版本管理（声明已上移至 LRC 版本管理区之前） =====
 async function loadVersions(songId: string) {
@@ -1028,6 +1042,12 @@ function resetForm() {
       lang: v.lang, kind: v.kind, lrc: v.lrc,
     })))
   }
+  // 贡献者锁定状态重置：审核模式隐藏下拉不处理；新增默认站长（ct_owner），编辑保留已绑定值
+  contributorUnlock.value = false
+  if (!props.hideContributor) {
+    if (!props.editSongId && !form.contributor_id) form.contributor_id = OWNER_CONTRIBUTOR_ID
+    contributorSnapshot.value = form.contributor_id
+  }
 }
 
 /** 依据 props.initial 填充表单（编辑=整歌对象；新建=预填片段） */
@@ -1142,7 +1162,7 @@ const descPreview = computed(() => {
     const icon = TIP_ICONS[type] || '💡'
     return `<div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:6px;padding:8px 12px;margin:8px 0;display:flex;gap:8px;color:#9a3412;font-size:13px;"><span style="font-size:16px;">${icon}</span><div>${marked.parse(content.trim(), { async: false })}</div></div>`
   })
-  return marked.parse(processed, { async: false }) as string
+  return mdToHtml(processed)
 })
 
 function insertTip(type: string) {
@@ -1356,7 +1376,7 @@ async function save() {
       ElMessage.success('保存成功')
       emit('saved', { id, ...payload })
     } else {
-      payload.id = 's' + Date.now()
+      payload.id = crypto.randomUUID()
       payload.status = 'published'
       await adminApi.insert('songs', payload)
       // TTML 多版本：新增模式只有 INSERT

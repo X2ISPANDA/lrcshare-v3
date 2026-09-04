@@ -90,7 +90,13 @@ export function artistTypeIcons(types: string[] | null | undefined): string {
 }
 
 /** 风格选项（后台歌曲表单与投稿审核共用） */
-export const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Contopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
+export const GENRE_OPTIONS = ['Hip-Hop', 'Chinese Rap', 'Rock', 'Mandopop', 'Cantopop', 'K-Pop', 'J-Pop', '抽象', 'Soundtrack', 'Vocaloid']
+
+/** 站长贡献者固定 id（contributors 表 is_owner=true 的 X2ISPANDA；新增歌曲默认贡献者） */
+export const OWNER_CONTRIBUTOR_ID = 'ct_owner'
+
+/** 艺术家社交链接平台顺序（新增链接行默认 netease 网易云；ArtistsView 弹窗与 ArtistInlineForm 内联表单共用） */
+export const ARTIST_URL_PLATFORMS = ['netease', 'qqmusic', 'weibo', 'bilibili', 'instagram', 'spotify', 'youtube', 'x', 'facebook', 'douyin', 'xiaohongshu', 'beatstars', 'official']
 
 /** Hexo {% tip %} 标签类型 → 图标（前台渲染与后台编辑工具栏共用） */
 export const TIP_ICONS: Record<string, string> = {

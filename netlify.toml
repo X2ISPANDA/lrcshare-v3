@@ -1,6 +1,7 @@
 # LrcShare 邮件服务站点配置（仅部署 Netlify Functions，前台主站走 GitHub Pages）
 # 部署：将本仓库接入 Netlify（站点任意命名），环境变量配置：
-#   SUPABASE_URL / SUPABASE_ANON_KEY
+#   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+#   （mailer 需 service_role 绕过 RLS 读 settings 表的 smtp 配置；anon 读不到会 fail-closed）
 # 前端通过 VITE_MAIL_BASE 指向本站点地址（如 https://mail.lrcshare.netlify.app）
 
 [build]

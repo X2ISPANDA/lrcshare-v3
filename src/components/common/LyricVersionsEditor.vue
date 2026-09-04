@@ -3,9 +3,9 @@
     <div v-for="(v, i) in model" :key="i" class="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
       <div class="flex items-center gap-2 mb-2">
         <el-select v-model="v.lang" filterable allow-create default-first-option class="!w-40" placeholder="语言">
-          <el-option v-for="l in LYRIC_LANG_OPTIONS" :key="l" :label="langLabel(l)" :value="l" />
+          <el-option v-for="l in langOptionsFor(v.kind)" :key="l" :label="langLabel(l)" :value="l" />
         </el-select>
-        <el-select v-model="v.kind" class="!w-28">
+        <el-select v-model="v.kind" class="!w-28" @change="onKindChange(v)">
           <el-option label="原文" value="original" />
           <el-option label="译文" value="translation" />
           <el-option label="罗马音" value="romanization" />
@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { LYRIC_LANG_OPTIONS, langLabel, type LyricKind } from '@/lib/lyricLines'
+import { LYRIC_LANG_OPTIONS, TRANSLIT_LANG_OPTIONS, langLabel, type LyricKind } from '@/lib/lyricLines'
 
 /** 单个歌词版本（lang/kind 明确；lrc 为该版本的文本） */
 export interface LyricVersionForm {
@@ -50,8 +50,26 @@ const props = withDefaults(defineProps<{
 
 const model = defineModel<LyricVersionForm[]>({ required: true })
 
+/** 语言下拉选项：罗马音类型只列 BCP47 拉丁化方案，其余类型列自然语言 */
+function langOptionsFor(kind: LyricKind): string[] {
+  return kind === 'romanization' ? TRANSLIT_LANG_OPTIONS : LYRIC_LANG_OPTIONS
+}
+
+/** 类型切换时语言自动归位：罗马音必须是拉丁化方案；原文/译文不能是 Latn 标签 */
+function onKindChange(v: LyricVersionForm) {
+  if (v.kind === 'romanization') {
+    if (!TRANSLIT_LANG_OPTIONS.includes(v.lang)) v.lang = 'zh-Latn-pinyin'
+  } else if (/Latn/i.test(v.lang)) {
+    v.lang = 'zh'
+  }
+}
+
 function addVersion() {
-  model.value.push({ lang: props.addDefaultLang, kind: props.addDefaultKind, lrc: '' })
+  // 新增罗马音版本：默认语言跟随拉丁化方案（addDefaultLang 是自然语言码时不适用）
+  const lang = props.addDefaultKind === 'romanization' && !TRANSLIT_LANG_OPTIONS.includes(props.addDefaultLang)
+    ? 'zh-Latn-pinyin'
+    : props.addDefaultLang
+  model.value.push({ lang, kind: props.addDefaultKind, lrc: '' })
 }
 function removeVersion(i: number) {
   model.value.splice(i, 1)

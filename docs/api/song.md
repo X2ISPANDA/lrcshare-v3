@@ -94,7 +94,7 @@ curl "https://api.lrcshare.com/v1/song/s_masiwei_002"
 | `track` / `disc` | 曲目号 / 碟号 |
 | `genres` | 流派数组 |
 | `lyricist` / `composer` / `arranger` | 作词 / 作曲 / 编曲（名字数组） |
-| `comment` | 署名，可直接写入 `COMM`/`COMMENT` 标签 |
+| `comment` | 默认版本署名，可直接写入 `COMM`/`COMMENT` 标签；词级歌词（`lyric_lines` / `lyric_format=ttml|enhanced|verbatim`）的署名以歌词版本自带的 `comment` 为准，可能与本字段不同（见[歌词](/api/lyric)） |
 | `lrc` | 默认版本的 LRC 文本（含署名），可直接写入 `USLT`/`LYRICS` 标签 |
 | `lyric_versions` | 所有歌词版本，见[歌词](/api/lyric) |
 

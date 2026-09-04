@@ -225,7 +225,7 @@ async function save() {
       await adminApi.update('sponsors', editing.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('sponsors', { id: 'sp' + Date.now(), ...payload })
+      await adminApi.insert('sponsors', { id: crypto.randomUUID(), ...payload })
       ElMessage.success('新增赞助成功')
     }
     showDialog.value = false

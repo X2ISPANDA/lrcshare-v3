@@ -932,21 +932,19 @@ watch(lrcSourceOptions, opts => {
   }
 }, { immediate: true })
 
-/** 语言 tab：完整版（该源全部语言混合，同戳堆叠）+ 单语言（快速复制）；
- *  zh 与 zh-Hant 并存时标「简体中文」以区分（全局 langLabel 的 zh=中文过于笼统） */
-const lrcLangLabel = (lang: string) => (lang === 'zh' ? '简体中文' : langLabel(lang))
+/** 语言 tab：完整版（该源全部语言混合，同戳堆叠）+ 单语言（快速复制） */
 const lrcLangOptions = computed(() => {
   const src = activeLrcSource.value
   if (!src) return []
   if (src.kind === 'db') {
     return [
       { key: 'full', label: '完整版' },
-      ...versionsOfContainer(src.versionId || '').map(v => ({ key: `${v.lang}|${v.kind}`, label: `${LYRIC_KIND_LABEL[v.kind]} · ${lrcLangLabel(v.lang)}` })),
+      ...versionsOfContainer(src.versionId || '').map(v => ({ key: `${v.lang}|${v.kind}`, label: `${LYRIC_KIND_LABEL[v.kind]} · ${langLabel(v.lang)}` })),
     ]
   }
   return [
     { key: 'full', label: '完整版' },
-    ...src.entries.map(v => ({ key: `ttml:${v.id}`, label: lrcLangLabel(v.langs?.[0] || 'zh') })),
+    ...src.entries.filter(e => e.ttml_text).map(v => ({ key: `ttml:${v.id}`, label: langLabel(v.langs?.[0] || 'zh') })),
   ]
 })
 watch(lrcLangOptions, opts => {
@@ -959,11 +957,12 @@ const selectedVersions = computed<LyricVersion[]>(() => {
   const src = activeLrcSource.value
   if (!src) return []
   if (src.kind === 'ttml') {
+    // map 保留 id：单语言 tab 按 id 过滤（原写法 filter 后用索引 i 回查未过滤的 src.entries，空 ttml_text 条目会导致错位）
     const vs = src.entries
       .filter(e => e.ttml_text)
-      .map(e => ({ lang: e.langs?.[0] || 'zh', kind: 'original' as const, rows: parseTtmlToRows(e.ttml_text!) }))
+      .map(e => ({ id: e.id, lang: e.langs?.[0] || 'zh', kind: 'original' as const, rows: parseTtmlToRows(e.ttml_text!) }))
     if (lrcLangKey.value === 'full') return vs
-    return vs.filter((_, i) => `ttml:${src.entries[i].id}` === lrcLangKey.value)
+    return vs.filter(v => `ttml:${v.id}` === lrcLangKey.value)
   }
   const vs = versionsOfContainer(src.versionId || '')
   if (lrcLangKey.value === 'full') return vs

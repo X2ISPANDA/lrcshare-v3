@@ -15,6 +15,12 @@ export interface GetAllOpts {
   in?: Record<string, unknown[]>
 }
 
+export interface GetPageOpts extends GetAllOpts {
+  /** 页码，1 起 */
+  page?: number
+  pageSize?: number
+}
+
 export const adminApi = {
   async getAll<T = any>(table: string, opts: GetAllOpts = {}): Promise<T[]> {
     let q = supabase.from(table).select(opts.select || '*')
@@ -24,6 +30,43 @@ export const adminApi = {
     const { data, error } = await q
     if (error) throw error
     return (data || []) as T[]
+  },
+
+  /** 分页拉取（服务端 range + exact 总数），用于随业务量增长的大表列表 */
+  async getPage<T = any>(table: string, opts: GetPageOpts = {}): Promise<{ data: T[]; total: number }> {
+    const page = Math.max(1, opts.page ?? 1)
+    const pageSize = opts.pageSize ?? 50
+    let q = supabase.from(table).select(opts.select || '*', { count: 'exact' })
+    if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false })
+    if (opts.eq) for (const [k, v] of Object.entries(opts.eq)) q = q.eq(k, v)
+    if (opts.in) for (const [k, v] of Object.entries(opts.in)) q = q.in(k, v)
+    const from = (page - 1) * pageSize
+    q = q.range(from, from + pageSize - 1)
+    const { data, count, error } = await q
+    if (error) throw error
+    return { data: (data || []) as T[], total: count ?? 0 }
+  },
+
+  /**
+   * 库端函数分页（搜索类 RPC）：数据走 fn（SETOF 表类型），总数走 countFn
+   * （返回 bigint，默认名为 `${fn}_count`）。排序/翻页由 PostgREST 在函数结果集
+   * 外层下推（?order=/limit/offset），与 open-api Worker 调 search_songs 的方式一致。
+   */
+  async rpcPage<T = any>(
+    fn: string,
+    params: Record<string, unknown>,
+    opts: { page?: number; pageSize?: number; order?: string; ascending?: boolean; countFn?: string } = {},
+  ): Promise<{ data: T[]; total: number }> {
+    const page = Math.max(1, opts.page ?? 1)
+    const pageSize = opts.pageSize ?? 50
+    const from = (page - 1) * pageSize
+    let q = supabase.rpc(fn, params)
+    if (opts.order) q = q.order(opts.order, { ascending: opts.ascending !== false })
+    q = q.range(from, from + pageSize - 1)
+    const [pageRes, countRes] = await Promise.all([q, supabase.rpc(opts.countFn || `${fn}_count`, params)])
+    if (pageRes.error) throw pageRes.error
+    if (countRes.error) throw countRes.error
+    return { data: (pageRes.data || []) as T[], total: Number(countRes.data ?? 0) }
   },
 
   async insert<T = any>(table: string, record: Partial<T>): Promise<T | null> {
@@ -85,9 +128,14 @@ export const adminApi = {
   async callMailServer(path: string, body: Record<string, unknown>): Promise<Record<string, any>> {
     const base = import.meta.env.VITE_MAIL_BASE as string | undefined
     if (!base) return { success: true, skipped: true, reason: '未配置邮件服务' }
+    // 管理端动作（test/approve/reject/batch）需携带登录会话供服务端校验；
+    // notify 由服务端免鉴权放行。未登录时无 Authorization 头，服务端返回 401 由调用方提示。
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
     const res = await fetch(base + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     })
     const data = await res.json().catch(() => ({}))

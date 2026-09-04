@@ -1,5 +1,25 @@
 # 更新日志
 
+## v1.4.2 - 2026-09-03
+
+- **音译语言码跟随 BCP47 国际标准**：`kind: romanization` 版本的 `lang` 不再折叠为站内码，直接使用 TTML 源中的拉丁化标签原值——日语罗马音 `ja-Latn`、粤拼 `zh-Latn-jyutping`、韩语罗马音 `ko-Latn`（与 Apple Music TTML 标注一致）；修复日语罗马音被错误归类为英语（`ja-Latn → en`）的历史问题
+- **繁体中文支持地区细分**：新增 `zh-Hant-HK`（繁体中文·香港）/ `zh-Hant-TW`（繁体中文·台湾）两个语言码，后台歌词语言下拉可手动标注；修复 `zh-HK` / `zh-TW` 标签被误归简体中文的问题
+- **语言筛选支持 BCP47 层级匹配**：`lyric_lang` / `lyric_translation_lang` 传基础码自动命中其下细分标签（`zh-Hant` 命中 `zh-Hant-HK/TW`，`zh` 命中全部中文子标签），老客户端无需改动；精确码优先，原文层级命中只取一个版本
+- 全局语言名「中文」改为「简体中文」，与繁体并列时不再混淆
+- **合成 TTML 修复为 Apple sidecar 结构**：`lyric_format=ttml` 与 `lyrics[]` 合成的 TTML 原为无 `itunes:key`、无 `xml:lang`、译文混排 body 的形态，AMLL 等标准库解析结果为**空歌词**（对无 `itunes:key` 的 `<p>` 整行跳过，div `xml:lang` 不被识别）。现重写为苹果标准结构——正文 `<p itunes:key>` + 词级 span，译文/音译进 head `iTunesMetadata` 侧车按行 key 配对，根标签带 `xml:lang`（BCP47）与 `itunes:timing`，已用 AMLL 官方库实测往返完整解析
+- 自行合成 TTML 的语言码符合 BCP47：站内简体码 `zh` 输出到 TTML 时补全为 `zh-Hans`（后台编辑器导出、`versionsToTtml` 同步修正）
+- 修复后台标注的正文语言写在 `<body xml:lang>` 而 AMLL/Apple 标准库只读 `<tt>` 根标签 `xml:lang`，导致 API 拆行语言丢失、合成 TTML 根语言为 `und` 的问题：后台读写改为 `<tt>` 根标签（读取兼容旧 `body` 标注），Worker 对历史库内原文正则兜底读取——历史数据无需重新保存即恢复正确语言
+- 后台 TTML 编辑器修复：Apple Music Line 级 sidecar 中**整行纯文本音译**（`<text>` 内无词级 `<span>`，如粤拼）检测不出来的问题
+
+## v1.4.1 - 2026-09-03
+
+- **歌词署名跟随实际来源版本**：修复词级歌词跨版本合成（如 LunaBeat TTML 原文 + 用户版译文）时署名仍取歌曲顶层 `comment`（默认版本贡献者）的错配——内容来自哪个版本就署哪个版本
+- `lyric_lines=1` 的 `versions[]` 每项新增 `source` / `comment` 字段（版本来源与版本独立署名）；调用方应优先使用版本级 `comment`，不要用歌曲顶层 `comment`
+- `lyric_format` 合成文本（`ttml` / `enhanced` / `verbatim` / `line`）与 `lyrics[]` 的署名按实际参与合成的版本取；跨版本合并时多来源署名去重、多行并列；版本署名缺失时兜底默认版本署名
+- TTML 署名补齐：`lyric_versions[].ttml_text` 与合成 TTML 输出时追加超界署名行 `<p begin="06:59:19.999" end="06:59:20.999">本歌词来自于:...</p>`（与 LRC 的 `[419:19.999]` 同机制——播放器不渲染、打标工具按普通字幕行收录；库内原文不改动，追加幂等）
+- Lyrico 插件 v1.5.1：写入音乐文件 COMMENT 标签的署名改用歌词版本自带 `comment`（多来源时多行并列），修复实际写入 LunaBeat 词级歌词却署用户版贡献者的问题
+- 现有客户端零破坏：顶层 `comment` / LRC 末尾署名语义不变，版本级字段均为纯新增
+
 ## v1.4.0 - 2026-08-30
 
 - **多歌词版本模型开放**：一首歌可挂多个歌词版本（不同格式 / 不同贡献者各自独立）。歌曲详情新增 `lyric_versions` 数组——每项含 `id` / `format` / `source` / `langs` / `is_primary` / `comment`（版本独立署名），按默认展示优先级排序（管理员置顶 > TTML > 逐字 > 行级），**首位即默认版本**，顶层 `comment` 跟随默认版本

@@ -122,7 +122,7 @@ async function save() {
       ElMessage.success('专辑信息已写回数据库')
     } else {
       // 新专辑：当场建库；saved 回传新 id，使用方回填行/表单关联
-      const albumId = 'al' + Date.now() + Math.floor(Math.random() * 1000)
+      const albumId = crypto.randomUUID()
       const name = String(props.albumName).trim()
       await adminApi.insert('albums', {
         id: albumId,

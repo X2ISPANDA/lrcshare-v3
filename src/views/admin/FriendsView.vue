@@ -299,7 +299,7 @@ async function save() {
       await adminApi.update('friends', editing.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('friends', { id: 'fl_' + Date.now(), ...payload })
+      await adminApi.insert('friends', { id: crypto.randomUUID(), ...payload })
       ElMessage.success('新增友链成功')
     }
     showDialog.value = false
@@ -371,7 +371,7 @@ async function saveCategory() {
       await adminApi.update('friend_categories', editingCat.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('friend_categories', { id: 'cat_' + Date.now(), ...payload })
+      await adminApi.insert('friend_categories', { id: crypto.randomUUID(), ...payload })
       ElMessage.success('新增分类成功')
     }
     showCatDialog.value = false

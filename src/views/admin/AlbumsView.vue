@@ -243,7 +243,7 @@ async function save() {
         ids.push(t.id)
       } else {
         const created = await adminApi.insert<Artist>('artists', {
-          id: 'a' + Date.now() + Math.floor(Math.random() * 1000),
+          id: crypto.randomUUID(),
           name: t.name,
           types: [],
           is_show: newArtistShow[t.name] === true,
@@ -269,7 +269,7 @@ async function save() {
       await recomputeArtistTypes(affected)
       ElMessage.success('保存成功')
     } else {
-      const albumId = 'al' + Date.now()
+      const albumId = crypto.randomUUID()
       await adminApi.insert('albums', { id: albumId, ...payload })
       await syncAlbumContributors(albumId, ids)
       await recomputeArtistTypes(ids)

@@ -124,7 +124,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { mdToHtml } from '@/lib/markdown'
 import { adminApi } from '@/lib/adminApi'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
@@ -184,11 +184,7 @@ const form = reactive({
 
 const contentPreview = computed(() => {
   if (!form.content) return '<span style="color:#c0c4cc">预览区</span>'
-  try {
-    return marked.parse(form.content.replace(/^ {4}/gm, ''), { async: false }) as string
-  } catch {
-    return form.content
-  }
+  return mdToHtml(form.content)
 })
 
 function openNew() {
@@ -234,7 +230,7 @@ async function save() {
       await adminApi.update('articles', editing.value.id, payload)
       ElMessage.success('保存成功')
     } else {
-      await adminApi.insert('articles', { id: 'art_' + Date.now(), created_at: new Date().toISOString(), ...payload })
+      await adminApi.insert('articles', { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...payload })
       ElMessage.success('新增文章成功')
     }
     showDialog.value = false
