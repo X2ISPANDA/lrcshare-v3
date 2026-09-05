@@ -113,6 +113,7 @@ const navItems: NavItem[] = [
   { to: '/', label: '首页' },
   { to: '/artists', label: '艺术家库' },
   { to: '/albums', label: '专辑库' },
+  { to: '/songs', label: '歌词库' },
   { to: '/contributors', label: '贡献者' },
   { to: '', label: '搜索', action: 'search' },
   { to: '/posts', label: '逼逼' },

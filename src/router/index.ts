@@ -16,6 +16,7 @@ export default <RouteRecordRaw[]>[
       { path: 'artists', name: 'artists', component: () => import('@/views/ArtistsView.vue') },
       { path: 'artist/:id', name: 'artist', component: () => import('@/views/ArtistView.vue') },
       { path: 'albums', name: 'albums', component: () => import('@/views/AlbumsView.vue') },
+      { path: 'songs', name: 'songs', component: () => import('@/views/SongsView.vue') },
       { path: 'album/:id', name: 'album', component: () => import('@/views/AlbumView.vue') },
       { path: 'contributors', name: 'contributors', component: () => import('@/views/ContributorsView.vue') },
       { path: 'contributor/:id', name: 'contributor', component: () => import('@/views/ContributorView.vue') },

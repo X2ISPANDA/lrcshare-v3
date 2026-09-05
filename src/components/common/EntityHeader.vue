@@ -211,11 +211,20 @@ if (!import.meta.env.SSR) {
   background: linear-gradient(135deg, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.25) 100%);
 }
 .entity-bg-overlay:not(.is-soft) {
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.48) 0%, rgba(0, 0, 0, 0.34) 100%);
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.42) 100%);
 }
 .entity-content {
   position: relative;
   z-index: 2;
+  /* 头部卡为深色背景（封面模糊 / 自定义背景 + 遮罩），插槽文字默认白色：
+     避免调用页只写 opacity-xx 漏写 text-white，导致深色文字继承到深底上隐形 */
+  color: rgba(255, 255, 255, 0.92);
+  /* 浅封面兜底：副标题/标签白字在高亮模糊背景上靠深色阴影勾勒（标题 h1 自带 drop-shadow filter，下面摘掉避免双重阴影） */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+/* slot 内容在父组件作用域，需 :deep 穿透；h1 已有 Tailwind drop-shadow，不再叠加文字阴影 */
+.entity-content :deep(h1) {
+  text-shadow: none;
 }
 
 /* 封面 */
@@ -283,6 +292,8 @@ if (!import.meta.env.SSR) {
   border-radius: 12px;
   padding: 12px 16px 14px;
   width: 100%;
+  /* 深底卡片自带底色，摘掉头部容器的文字阴影 */
+  text-shadow: none;
 }
 .bio-title {
   display: flex;

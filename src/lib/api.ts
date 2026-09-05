@@ -70,6 +70,76 @@ function joinNames(ids: string[] | null | undefined, map: Map<string, string>): 
   return (ids || []).map(id => map.get(id) || '').filter(Boolean).join(' / ')
 }
 
+/** 歌词库/首页卡片行嵌入列：封面 + 专辑名/封面 + 投稿人（不含歌词正文） */
+const SONG_LIBRARY_FIELDS =
+  `id, title, album_id, duration, track, disc, status, is_hidden, cover, contributor_id, created_at, ${SONG_CONTRIB_EMBED}, contributors(id, name, avatar), albums(name, cover)`
+
+/**
+ * 已发布歌曲列表查询（封面/专辑/投稿人嵌入）：
+ * - limit：首页「最新歌词」取前 N 条
+ * - from/to：歌词库服务端 range 分页（count=exact 返回过滤后总数）
+ * 投稿人 embed 依赖外键推断，失败时降级为按 id 批量补拉（与历史行为一致）。
+ */
+async function fetchPublishedSongRows(
+  opts: { limit?: number; from?: number; to?: number } = {},
+): Promise<{ rows: any[]; total: number | null }> {
+  const build = (embedContributor: boolean) => {
+    const fields = embedContributor
+      ? SONG_LIBRARY_FIELDS
+      : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar)', '')
+    let q = supabase
+      .from('songs')
+      .select(fields, { count: opts.from != null ? 'exact' : undefined })
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+    if (opts.limit != null) q = q.limit(opts.limit)
+    if (opts.from != null && opts.to != null) q = q.range(opts.from, opts.to)
+    return q
+  }
+
+  let { data, error, count } = await build(true)
+  if (error) {
+    const fallback = await build(false)
+    if (fallback.error) throw fallback.error
+    data = fallback.data
+    count = fallback.count
+    const cids = [
+      ...new Set(
+        ((data || []) as any[])
+          .map(r => r.contributor_id as string | null)
+          .filter((x): x is string => !!x),
+      ),
+    ]
+    const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
+    if (cids.length) {
+      const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
+      for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
+    }
+    data = ((data || []) as any[]).map(r => ({
+      ...r,
+      contributors: r.contributor_id ? (cMap.get(r.contributor_id) ?? null) : null,
+    }))
+  }
+  return { rows: ((data || []) as any[]), total: count ?? null }
+}
+
+/** 歌曲行装饰：贡献关系 → artist_ids/artist_name；专辑/投稿人展平为卡片字段 */
+async function decorateSongRows(rows: any[]): Promise<SongWithNames[]> {
+  const mapped = rows.map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
+  const nameMap = await getArtistNameMap(mapped.flatMap(s => s.artist_ids || []))
+  return mapped.map(s => {
+    const { albums, contributors, ...rest } = s
+    const c = contributors as { id: string; name: string; avatar: string | null } | null | undefined
+    return {
+      ...rest,
+      artist_name: joinNames(s.artist_ids, nameMap) || '未知',
+      album_name: (albums as unknown as { name?: string })?.name || '',
+      album_cover: (albums as unknown as { cover?: string | null })?.cover || null,
+      contributor: c ? { id: c.id, name: c.name, avatar: c.avatar } : null,
+    } as SongWithNames
+  })
+}
+
 /** 时长格式化（mm:ss） */
 export function formatDuration(d: string | null | undefined): string {
   if (!d || d === 'NULL' || d === 'null') return '--:--'
@@ -261,55 +331,60 @@ export const api = {
 
   /** 歌曲列表（不含 lrc_text；带投稿人昵称/头像） */
   async getSongs(limit?: number): Promise<SongWithNames[]> {
-    const build = (embedContributor: boolean) => {
-      let q = supabase
-        .from('songs')
-        .select(
-          `id, title, album_id, duration, track, disc, status, is_hidden, cover, contributor_id, created_at, ${SONG_CONTRIB_EMBED}${embedContributor ? ', contributors(id, name, avatar)' : ''}, albums(name, cover)`,
-        )
-        .eq('status', 'published')
-        .order('created_at', { ascending: false })
-      if (limit) q = q.limit(limit)
-      return q
-    }
+    const { rows } = await fetchPublishedSongRows({ limit })
+    return decorateSongRows(rows)
+  },
 
-    // 投稿人优先走 embed（依赖外键推断）；若外键缺失/歧义报错，降级为按 id 批量补拉
-    let { data, error } = await build(true)
-    if (error) {
-      const fallback = await build(false)
-      if (fallback.error) throw fallback.error
-      data = fallback.data
-      const cids = [
-        ...new Set(
-          ((data || []) as any[])
-            .map(r => r.contributor_id as string | null)
-            .filter((x): x is string => !!x),
-        ),
-      ]
-      const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
-      if (cids.length) {
-        const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
-        for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
+  /**
+   * 歌词库分页：
+   * - 无关键词：songs 表服务端 range 分页（created_at 倒序，与首页「最新歌词」同口径）
+   * - 有关键词：search_songs 公开 RPC（歌名/别名/歌手/专辑匹配，与全站搜索同函数），
+   *   关键词过滤后结果集天然很小，前端切片分页
+   */
+  async getSongLibraryPage(opts: { page: number; pageSize: number; q?: string }): Promise<{
+    items: SongWithNames[]
+    total: number
+  }> {
+    const kw = (opts.q || '').trim()
+    if (kw) {
+      const build = (embedContributor: boolean) =>
+        supabase
+          .rpc('search_songs', { p_q: kw.toLowerCase() })
+          .select(
+            embedContributor
+              ? SONG_LIBRARY_FIELDS
+              : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar)', ''),
+          )
+      let { data, error } = await build(true)
+      if (error) {
+        const fallback = await build(false)
+        if (fallback.error) throw fallback.error
+        data = fallback.data
+        const cids = [
+          ...new Set(
+            ((data || []) as any[])
+              .map(r => r.contributor_id as string | null)
+              .filter((x): x is string => !!x),
+          ),
+        ]
+        const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
+        if (cids.length) {
+          const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
+          for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
+        }
+        data = ((data || []) as any[]).map(r => ({
+          ...r,
+          contributors: r.contributor_id ? (cMap.get(r.contributor_id) ?? null) : null,
+        }))
       }
-      data = ((data || []) as any[]).map(r => ({
-        ...r,
-        contributors: r.contributor_id ? (cMap.get(r.contributor_id) ?? null) : null,
-      }))
+      const all = await decorateSongRows(((data || []) as any[]))
+      const start = (opts.page - 1) * opts.pageSize
+      return { items: all.slice(start, start + opts.pageSize), total: all.length }
     }
 
-    const rows = ((data || []) as any[]).map(s => ({ ...s, artist_ids: creditIdsOf(s).artist_ids }))
-    const nameMap = await getArtistNameMap(rows.flatMap(s => s.artist_ids || []))
-    return rows.map(s => {
-      const { albums, contributors, ...rest } = s
-      const c = contributors as { id: string; name: string; avatar: string | null } | null | undefined
-      return {
-        ...rest,
-        artist_name: joinNames(s.artist_ids, nameMap) || '未知',
-        album_name: (albums as unknown as { name?: string })?.name || '',
-        album_cover: (albums as unknown as { cover?: string | null })?.cover || null,
-        contributor: c ? { id: c.id, name: c.name, avatar: c.avatar } : null,
-      } as SongWithNames
-    })
+    const from = (opts.page - 1) * opts.pageSize
+    const { rows, total } = await fetchPublishedSongRows({ from, to: from + opts.pageSize - 1 })
+    return { items: await decorateSongRows(rows), total: total ?? rows.length }
   },
 
   async getSong(id: string): Promise<SongWithNames & { artists: Artist[]; credit_artists: Artist[]; credits: { role: string; artist_ids: string[] }[] }> {
