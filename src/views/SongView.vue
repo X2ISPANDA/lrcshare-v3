@@ -380,6 +380,7 @@ import {
   loadLyricVersionMetas,
   parseTtmlStructure,
   parseTtmlToRows,
+  parseTtmlToVersions,
   composeMixedLrc,
   stripWordTags,
   fillCommonRows,
@@ -932,19 +933,35 @@ watch(lrcSourceOptions, opts => {
   }
 }, { immediate: true })
 
+/** TTML 源 → 运行时拆分版本（原文/译文/罗马音，与 Worker parseTtmlVersionsWorker 同规则）；
+ *  同 (lang,kind) 跨 TTML 文件合并，供语言 tab 与 LRC 合成共用（computed 缓存，AMLL 只解析一次） */
+const ttmlSourceVersions = computed<LyricVersion[]>(() => {
+  const src = activeLrcSource.value
+  if (!src || src.kind !== 'ttml') return []
+  const byKey = new Map<string, LyricVersion>()
+  for (const e of src.entries) {
+    if (!e.ttml_text) continue
+    for (const pv of parseTtmlToVersions(e.ttml_text)) {
+      const key = `${pv.lang}|${pv.kind}`
+      const cur = byKey.get(key)
+      if (cur) cur.rows.push(...pv.rows)
+      else byKey.set(key, { lang: pv.lang, kind: pv.kind, rows: [...pv.rows] })
+    }
+  }
+  return [...byKey.values()].map(v => ({
+    ...v,
+    rows: [...v.rows].sort((a, b) => (a.time_ms! - b.time_ms!) || (a.seq - b.seq)),
+  }))
+})
+
 /** 语言 tab：完整版（该源全部语言混合，同戳堆叠）+ 单语言（快速复制） */
 const lrcLangOptions = computed(() => {
   const src = activeLrcSource.value
   if (!src) return []
-  if (src.kind === 'db') {
-    return [
-      { key: 'full', label: '完整版' },
-      ...versionsOfContainer(src.versionId || '').map(v => ({ key: `${v.lang}|${v.kind}`, label: `${LYRIC_KIND_LABEL[v.kind]} · ${langLabel(v.lang)}` })),
-    ]
-  }
+  const groups = src.kind === 'ttml' ? ttmlSourceVersions.value : versionsOfContainer(src.versionId || '')
   return [
     { key: 'full', label: '完整版' },
-    ...src.entries.filter(e => e.ttml_text).map(v => ({ key: `ttml:${v.id}`, label: langLabel(v.langs?.[0] || 'zh') })),
+    ...groups.map(v => ({ key: `${v.lang}|${v.kind}`, label: `${LYRIC_KIND_LABEL[v.kind]} · ${langLabel(v.lang)}` })),
   ]
 })
 watch(lrcLangOptions, opts => {
@@ -952,19 +969,11 @@ watch(lrcLangOptions, opts => {
 })
 
 /** 选中版本（源 + 语言 tab）：完整版 = 该源全部语言；单语言 = 对应语言版本；
- *  行表译文单选时补齐原文公共行（完整可独立渲染） */
+ *  行表/TTML 译文单选时补齐原文公共行（完整可独立渲染） */
 const selectedVersions = computed<LyricVersion[]>(() => {
   const src = activeLrcSource.value
   if (!src) return []
-  if (src.kind === 'ttml') {
-    // map 保留 id：单语言 tab 按 id 过滤（原写法 filter 后用索引 i 回查未过滤的 src.entries，空 ttml_text 条目会导致错位）
-    const vs = src.entries
-      .filter(e => e.ttml_text)
-      .map(e => ({ id: e.id, lang: e.langs?.[0] || 'zh', kind: 'original' as const, rows: parseTtmlToRows(e.ttml_text!) }))
-    if (lrcLangKey.value === 'full') return vs
-    return vs.filter(v => `ttml:${v.id}` === lrcLangKey.value)
-  }
-  const vs = versionsOfContainer(src.versionId || '')
+  const vs = src.kind === 'ttml' ? ttmlSourceVersions.value : versionsOfContainer(src.versionId || '')
   if (lrcLangKey.value === 'full') return vs
   const sel = vs.filter(v => `${v.lang}|${v.kind}` === lrcLangKey.value)
   if (sel.length === 1 && sel[0].kind !== 'original') {

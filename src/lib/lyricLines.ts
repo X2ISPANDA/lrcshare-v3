@@ -521,6 +521,59 @@ function finalizeTtmlRows(rows: LyricRow[]): LyricRow[] {
   return rows.map((r, i) => ({ ...r, seq: i + 1 }))
 }
 
+/**
+ * TTML XML → 多语言版本数组（每个 (lang, kind) 一个版本），与 Worker parseTtmlVersionsWorker 同规则：
+ * original = 主歌词行；translation/romanization = 行内翻译/音译（AMLL 解析已含 head sidecar 配对）。
+ * SSG/Node 无 DOMParser 返回空数组。
+ */
+export function parseTtmlToVersions(xml: string): LyricVersion[] {
+  const result = parseTtmlWithAmll(xml)
+  if (!result || !Array.isArray(result.lines)) return []
+
+  // AMLL 只读 <tt> 根标签 xml:lang；历史数据语言可能标在 <body>（后台编辑器旧写法，AMLL 读不到）→ 正则兜底（与 Worker 一致）
+  const rootLang = (result.metadata?.language ? ttmlLangToLrc(result.metadata.language) : '')
+    || (() => {
+      const m = /<body\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(xml)
+      return m ? ttmlLangToLrc(m[1]) : ''
+    })()
+    || 'und'
+
+  const versions: LyricVersion[] = []
+
+  // original
+  const originalRows = result.lines
+    .filter(l => l.text.trim())
+    .map(l => ({
+      seq: 0,
+      time_ms: l.startTime,
+      end_ms: l.endTime,
+      text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
+    }))
+  if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
+
+  // translation / romanization：按语言分组（译文行时间戳取所在正文行；空语言码回退正文语言，与 Worker 一致）
+  const transMap = new Map<string, LyricRow[]>()
+  const romanMap = new Map<string, LyricRow[]>()
+  for (const l of result.lines) {
+    for (const t of l.translations || []) {
+      const lang = (t.language ? ttmlLangToLrc(t.language) : '') || rootLang
+      const rows = transMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: t.words?.length ? syllablesToText(t.words, l.startTime) : t.text })
+      transMap.set(lang, rows)
+    }
+    for (const r of l.romanizations || []) {
+      const lang = (r.language ? ttmlLangToLrc(r.language) : '') || rootLang
+      const rows = romanMap.get(lang) || []
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: r.words?.length ? syllablesToText(r.words, l.startTime) : r.text })
+      romanMap.set(lang, rows)
+    }
+  }
+  for (const [lang, rows] of transMap) versions.push({ lang, kind: 'translation', rows: finalizeTtmlRows(rows) })
+  for (const [lang, rows] of romanMap) versions.push({ lang, kind: 'romanization', rows: finalizeTtmlRows(rows) })
+
+  return versions
+}
+
 // ---------- TTML 编辑模型（翻译/音译表格化：方言 A/B 统一为 Head Sidecar） ----------
 
 const TTM_NS = 'http://www.w3.org/ns/ttml#metadata'

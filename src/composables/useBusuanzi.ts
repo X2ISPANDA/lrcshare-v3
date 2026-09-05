@@ -19,6 +19,13 @@ export function useBusuanzi() {
   function refresh() {
     if (typeof document === 'undefined') return
     document.getElementById(SCRIPT_ID)?.remove()
+    // 清空回填目标 span：残留上一页数值会让轮询第一次就读到旧 site_pv 而提前终止，
+    // 并把上一页 page_pv 旧数字当新值写入响应式（本页浏览量定格为上一页）。
+    // 清空后轮询等到新 JSONP 真正回填才读数；等待期响应式仍保留上一轮站点总量展示。
+    for (const id of ['busuanzi_value_site_pv', 'busuanzi_value_site_uv', 'busuanzi_value_page_pv']) {
+      const el = document.getElementById(id)
+      if (el) el.textContent = ''
+    }
     const s = document.createElement('script')
     s.id = SCRIPT_ID
     s.async = true
