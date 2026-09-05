@@ -40,10 +40,9 @@
         <el-table-column label="贡献者" width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ contributorMap.get(row.contributor_id)?.name || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="215" align="center">
+        <el-table-column label="操作" width="175" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link size="small" @click="viewLyrics(row)">歌词</el-button>
             <el-button link type="warning" size="small" @click="openSort(row)">版本</el-button>
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </template>
@@ -63,7 +62,6 @@
           </div>
           <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link size="small" @click="viewLyrics(row)">歌词</el-button>
             <el-button link type="warning" size="small" @click="openSort(row)">版本</el-button>
             <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
           </div>
@@ -86,11 +84,6 @@
         />
       </div>
     </div>
-
-    <!-- 歌词预览 -->
-    <el-dialog v-model="showLyrics" :title="viewing?.title + ' - 歌词'" width="640px">
-      <pre class="text-[13px] text-gray-600 whitespace-pre-wrap max-h-96 overflow-y-auto m-0 font-mono">{{ viewing?.lrc_text || viewing?.lyrics_text || '（无歌词）' }}</pre>
-    </el-dialog>
 
     <!-- 歌词版本排序弹窗 -->
     <VersionSortDialog v-model="showSort" :song="sortingSong" />
@@ -262,14 +255,6 @@ onMounted(async () => {
 function clearSelection() {
   tableRef.value?.clearSelection()
   selected.value = []
-}
-
-// ============ 歌词预览 ============
-const showLyrics = ref(false)
-const viewing = ref<any>(null)
-function viewLyrics(row: any) {
-  viewing.value = row
-  showLyrics.value = true
 }
 
 // ============ 歌词版本排序 ============

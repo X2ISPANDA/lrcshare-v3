@@ -12,43 +12,36 @@
     </div>
 
     <template v-else-if="song">
-      <!-- Header Card -->
-      <div class="gradient-header rounded-3xl p-8 text-white shadow-2xl mb-6">
-        <div class="flex items-center gap-6 flex-col md:flex-row">
-          <div class="w-32 h-32 md:w-40 md:h-40 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center shadow-xl flex-shrink-0 overflow-hidden">
-            <img
-              v-if="cover"
-              :src="cover"
-              alt="封面"
-              class="w-full h-full rounded-2xl cursor-zoom-in"
-              :class="cover === LOGO_URL ? 'object-contain p-2' : 'object-cover'"
-              @click="ui.openPreview([cover], 0)"
-            />
-            <span v-else class="text-5xl">💿</span>
-          </div>
-          <div class="flex-1 text-center md:text-left">
-            <h1 class="text-3xl md:text-4xl font-bold mb-2" :title="songTitleFull">{{ song.title }}<span v-if="song.aliases?.length" class="text-lg md:text-xl font-normal opacity-70 ml-2">{{ song.aliases.join(' / ') }}</span></h1>
-            <div class="text-lg opacity-90">
-              <template v-if="song.artists.length">
-                <template v-for="(a, i) in song.artists" :key="a.id">
-                  <span v-if="i > 0"> / </span>
-                  <RouterLink :to="`/artist/${a.id}`" class="hover:underline">{{ a.name }}</RouterLink>
-                </template>
-              </template>
-              <span v-else>未知</span>
-              ·
-              <RouterLink v-if="song.album_id" :to="`/album/${song.album_id}`" class="hover:underline">{{ song.album_name || '未知' }}</RouterLink>
-              <span v-else>未知</span>
-              <span v-if="song.album_year"> · {{ song.album_year }}</span>
-              <span v-if="song.disc && song.disc > 1" class="text-sm bg-white/20 px-2 py-0.5 rounded ml-1">Disc {{ song.disc }}</span>
-              <span v-if="song.track && song.track > 0" class="text-sm bg-white/20 px-2 py-0.5 rounded ml-1">曲目 {{ song.track }}</span>
-            </div>
-            <div v-if="song.genres?.length" class="flex flex-wrap gap-2 mt-3 justify-center md:justify-start">
-              <span v-for="g in song.genres" :key="g" class="text-xs bg-white/20 px-2.5 py-1 rounded-full">{{ g }}</span>
-            </div>
-          </div>
+      <!-- Header Card（实体页统一头部：封面模糊铺底 + 右侧「歌曲简介」面板） -->
+      <EntityHeader
+        :cover="cover"
+        cover-shape="square"
+        :cover-contain="cover === LOGO_URL"
+        :bg-image="cover"
+        intro-title="歌曲简介"
+        :intro-html="descriptionHtml"
+        class="mb-6"
+      >
+        <h1 class="text-3xl md:text-4xl font-bold text-white drop-shadow mb-2" :title="songTitleFull">{{ song.title }}<span v-if="song.aliases?.length" class="text-lg md:text-xl font-normal opacity-70 ml-2">{{ song.aliases.join(' / ') }}</span></h1>
+        <div class="text-lg opacity-90">
+          <template v-if="song.artists.length">
+            <template v-for="(a, i) in song.artists" :key="a.id">
+              <span v-if="i > 0"> / </span>
+              <RouterLink :to="`/artist/${a.id}`" class="hover:underline">{{ a.name }}</RouterLink>
+            </template>
+          </template>
+          <span v-else>未知</span>
+          ·
+          <RouterLink v-if="song.album_id" :to="`/album/${song.album_id}`" class="hover:underline">{{ song.album_name || '未知' }}</RouterLink>
+          <span v-else>未知</span>
+          <span v-if="song.album_year"> · {{ song.album_year }}</span>
+          <span v-if="song.disc && song.disc > 1" class="text-sm bg-white/20 px-2 py-0.5 rounded ml-1">Disc {{ song.disc }}</span>
+          <span v-if="song.track && song.track > 0" class="text-sm bg-white/20 px-2 py-0.5 rounded ml-1">曲目 {{ song.track }}</span>
         </div>
-      </div>
+        <div v-if="song.genres?.length" class="flex flex-wrap gap-2 mt-3 justify-center md:justify-start">
+          <span v-for="g in song.genres" :key="g" class="text-xs bg-white/20 px-2.5 py-1 rounded-full">{{ g }}</span>
+        </div>
+      </EntityHeader>
 
       <!-- Info Bar -->
       <div class="bg-white rounded-2xl shadow-sm p-4 mb-6">
@@ -74,24 +67,6 @@
             <div class="font-medium text-gray-700">
               <RouterLink :to="`/contributor/${contributor.id}`" class="text-pink-600 hover:underline">{{ contributor.name }}</RouterLink>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 歌曲简介（毛玻璃渐变卡：粉色微渐变底 + blur + 顶部渐变高光条，标志性现代卡片） -->
-      <div v-if="song.description" class="mb-6">
-        <div class="relative overflow-hidden rounded-2xl border border-pink-200/60
-                    bg-gradient-to-br from-pink-50/90 via-white to-purple-50/70
-                    backdrop-blur-sm shadow-[0_2px_12px_-4px_rgba(236,72,153,0.15)]">
-          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-pink-400 via-pink-300 to-purple-300"></div>
-          <div class="flex items-start gap-3 px-5 pt-5 pb-5 md:px-6">
-            <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-400 to-pink-500 text-white flex items-center justify-center shadow-sm flex-shrink-0">
-              <svg class="w-4.5 h-4.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
-                <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
-              </svg>
-            </span>
-            <div class="text-sm text-gray-600 leading-relaxed article-content min-w-0" v-html="descriptionHtml"></div>
           </div>
         </div>
       </div>
@@ -370,7 +345,6 @@ import { useElementVisibility } from '@vueuse/core'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
-import { useUiStore } from '@/stores/ui'
 import { LOGO_URL, TIP_ICONS } from '@/lib/constants'
 import { copyText } from '@/lib/clipboard'
 import {
@@ -401,7 +375,6 @@ import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
 const route = useRoute()
 const router = useRouter()
 const songId = route.params.id as string
-const ui = useUiStore()
 
 const HIDDEN_PLACEHOLDER_IMG = 'https://i0.hdslb.com/bfs/openplatform/6e065deeee2d046c05347d3f76592b6fb39c66a8.png'
 
@@ -1043,10 +1016,6 @@ function shareSong() {
 </script>
 
 <style scoped>
-.gradient-header {
-  background: linear-gradient(135deg, #1e1b4b 0%, #7c3aed 50%, #ec4899 100%);
-}
-
 /* YouTube 悬浮小窗：容器 fixed 到右下角（iframe 不卸载，播放不中断） */
 .video-mini {
   position: fixed;
@@ -1094,27 +1063,4 @@ function shareSong() {
 .song-card:hover {
   background: linear-gradient(90deg, #fdf2f8 0%, #faf5ff 100%);
 }
-
-/* Hexo Tip Box（歌曲简介，迁移自 v2） */
-.tip-box {
-  border-radius: 8px;
-  padding: 14px 18px;
-  margin: 16px 0;
-  border: 1px solid transparent;
-  display: flex;
-  gap: 12px;
-  line-height: 1.7;
-  font-size: 0.95rem;
-}
-.tip-box .tip-icon { font-size: 20px; flex-shrink: 0; }
-.tip-box .tip-content { flex: 1; }
-.tip-box.tip-bell { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
-.tip-box.tip-info { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
-.tip-box.tip-success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-.tip-box.tip-warning { background: #fefce8; border-color: #fde68a; color: #854d0e; }
-.tip-box.tip-danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
-.tip-box.tip-tip { background: #f0f9ff; border-color: #bae6fd; color: #075985; }
-.tip-box.tip-note { background: #faf5ff; border-color: #e9d5ff; color: #6b21a8; }
-.tip-box.tip-important { background: #fdf4ff; border-color: #f5d0fe; color: #86198f; }
-.tip-box p { margin: 0; }
 </style>

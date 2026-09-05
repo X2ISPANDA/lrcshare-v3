@@ -21,6 +21,27 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-09-06",
+    "entries": [
+      {
+        "title": "新增「更新日志」页",
+        "body": "导航栏新增更新日志入口（/changelog）：按日期归档，每条更新一行标题、点击折叠展开详情，移动端卡片流自适应。本页为更新日志唯一数据源，GitHub README 的日志章节由提交钩子自动同步生成，两处不再手动双写"
+      },
+      {
+        "title": "新增「开发文档」页",
+        "body": "站内新增开发文档（/docs）：数据库架构演进文档 9 篇（贡献者关系、搜索函数、口令安全、歌词行表、多版本 TTML Hub、歌词运维、投稿邮件、联系方式与友链、加固总纲），由 sql/ 目录文档在构建时内联打包，改文档随发布自动上线；桌面左侧目录栏 + 上下篇导航，移动端收为下拉选择"
+      },
+      {
+        "title": "后台歌曲管理移除「歌词」预览按钮",
+        "body": "操作列「歌词」按钮对纯 TTML 歌曲显示「无歌词」（列表接口不返回 ttml_text），而新增/编辑弹窗内本就有 TTML/LRC 最终入库内容的只读预览，该入口冗余且误导，整列移除（桌面表格 + 移动端卡片同步精简），操作列宽度收窄"
+      },
+      {
+        "title": "修复邮件服务无法更新（管理端发信 CORS 拦截）",
+        "body": "邮件站（Netlify）检测到仓库内遗留的 pnpm-lock.yaml 后改用 pnpm 安装，与日常维护的 package-lock.json 双 lockfile 分叉，CI frozen-lockfile 校验失败导致新版邮件函数长期部署不上线——管理端发信请求带 Authorization 头，被旧版 CORS 预检拦截、邮件发不出去且发信日志无记录。删除 pnpm-lock.yaml 全项目统一 npm 后，邮件站可正常部署最新代码，发信与失败日志链路随之恢复"
+      }
+    ]
+  },
+  {
     "date": "2026-09-05",
     "entries": [
       {

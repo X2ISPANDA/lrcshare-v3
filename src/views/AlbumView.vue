@@ -2,55 +2,31 @@
   <main class="max-w-4xl mx-auto px-4 py-8">
     <div v-if="loading" class="w-full text-center py-16 text-gray-400">加载中...</div>
 
-    <div v-else-if="album" class="bg-white rounded-2xl shadow-sm overflow-hidden">
-      <!-- 渐变头部 -->
-      <div class="bg-gradient-to-r from-purple-500 to-pink-500 p-6 md:p-8 text-white">
-        <div class="flex items-center gap-6">
-          <div class="w-24 h-24 md:w-32 md:h-32 bg-white/20 rounded-xl flex items-center justify-center text-4xl md:text-6xl shadow-lg overflow-hidden flex-shrink-0">
-            <img
-              v-if="cover"
-              :src="cover"
-              alt="专辑封面"
-              class="w-full h-full rounded-xl cursor-zoom-in"
-              :class="cover === LOGO_URL ? 'object-contain p-2' : 'object-cover'"
-              @click="ui.openPreview([cover], 0)"
-            />
-            <span v-else>💿</span>
-          </div>
-          <div class="min-w-0 text-center md:text-left">
-            <h1 class="text-2xl md:text-3xl font-bold mb-2">{{ album.name }}</h1>
-            <div class="text-base md:text-lg opacity-90">
-              <template v-if="album.artists.length">
-                <template v-for="(a, i) in album.artists" :key="a.id">
-                  <span v-if="i > 0"> / </span>
-                  <RouterLink :to="`/artist/${a.id}`" class="hover:underline">{{ a.name }}</RouterLink>
-                </template>
-              </template>
-              <span v-else>{{ album.artist_name || '未知' }}</span>
-            </div>
-            <div class="text-xs md:text-sm opacity-75 mt-2">{{ album.year || '' }}</div>
-          </div>
+    <template v-else-if="album">
+      <!-- Header Card（实体页统一头部：封面模糊铺底 + 右侧「专辑简介」面板） -->
+      <EntityHeader
+        :cover="cover"
+        cover-shape="square"
+        :cover-contain="cover === LOGO_URL"
+        :bg-image="cover"
+        intro-title="专辑简介"
+        :intro-html="descriptionHtml"
+        class="mb-6"
+      >
+        <h1 class="text-2xl md:text-3xl font-bold text-white drop-shadow mb-2 truncate" :title="album.name">{{ album.name }}</h1>
+        <div class="text-base md:text-lg opacity-90">
+          <template v-if="album.artists.length">
+            <template v-for="(a, i) in album.artists" :key="a.id">
+              <span v-if="i > 0"> / </span>
+              <RouterLink :to="`/artist/${a.id}`" class="hover:underline">{{ a.name }}</RouterLink>
+            </template>
+          </template>
+          <span v-else>{{ album.artist_name || '未知' }}</span>
         </div>
-      </div>
+        <div class="text-xs md:text-sm opacity-75 mt-2">{{ album.year || '' }}</div>
+      </EntityHeader>
 
-      <!-- 专辑介绍（毛玻璃渐变卡，与歌曲简介同款样式） -->
-      <div v-if="descriptionHtml" class="mx-4 md:mx-6 mt-5">
-        <div class="relative overflow-hidden rounded-2xl border border-pink-200/60
-                    bg-gradient-to-br from-pink-50/90 via-white to-purple-50/70
-                    backdrop-blur-sm shadow-[0_2px_12px_-4px_rgba(236,72,153,0.15)]">
-          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-pink-400 via-pink-300 to-purple-300"></div>
-          <div class="flex items-start gap-3 px-5 pt-5 pb-5 md:px-6">
-            <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-400 to-pink-500 text-white flex items-center justify-center shadow-sm flex-shrink-0">
-              <svg class="w-4.5 h-4.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
-                <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
-              </svg>
-            </span>
-            <div class="text-sm text-gray-600 leading-relaxed article-content min-w-0" v-html="descriptionHtml"></div>
-          </div>
-        </div>
-      </div>
-
+      <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
       <!-- 歌曲列表（多碟专辑按 Disc 分组，单碟维持原样） -->
       <template v-if="songs.length">
         <div v-for="group in discGroups" :key="group.disc">
@@ -123,7 +99,8 @@
         </div>
       </template>
       <div v-else class="p-8 text-center text-gray-400">暂无歌曲</div>
-    </div>
+      </div>
+    </template>
   </main>
 </template>
 
@@ -134,13 +111,11 @@ import { useHead } from '@unhead/vue'
 import { api, formatDuration } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
-import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
 import type { AlbumWithArtists, Artist, SongWithNames } from '@/lib/types'
 
 const route = useRoute()
 const albumId = route.params.id as string
-const ui = useUiStore()
 
 interface AlbumPageData {
   album: AlbumWithArtists
