@@ -1,0 +1,12 @@
+#!/bin/sh
+# pre-commit：本次提交包含 src/data/changelog.ts 时，
+# 自动把更新日志同步进 README.md 并并入本次提交（唯一数据源 = changelog.ts，无需手跑 npm run changelog:sync）
+if git diff --cached --name-only | grep -q '^src/data/changelog\.ts$'; then
+  echo "[pre-commit] 检测到 changelog.ts 变更，自动同步 README 更新日志章节..."
+  node scripts/sync-readme-changelog.mjs || {
+    echo "[pre-commit] 同步脚本执行失败，提交已中止（修复后重新 commit 即可）"
+    exit 1
+  }
+  git add README.md
+  echo "[pre-commit] README.md 已同步并加入本次提交"
+fi

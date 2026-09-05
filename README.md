@@ -81,7 +81,7 @@ npm run docs:dev       # API 文档站（可选）
 | `npm run type-check`   | vue-tsc 类型检查         |
 | `npm run docs:dev`     | API 文档站本地开发        |
 | `npm run docs:build`   | API 文档站构建           |
-| `npm run changelog:sync` | 更新日志同步：`src/data/changelog.ts` → README「更新日志」章节 |
+| `npm run changelog:sync` | 更新日志同步：`src/data/changelog.ts` → README「更新日志」章节（通常无需手跑——提交含 changelog.ts 时 git pre-commit 钩子自动执行，钩子由 `npm install` 后 postinstall 自动启用） |
 
 ## 部署
 

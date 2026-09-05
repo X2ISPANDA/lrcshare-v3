@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/setup-git-hooks.mjs",
     "dev": "vite",
     "build": "vite-ssg build",
     "preview": "vite preview",

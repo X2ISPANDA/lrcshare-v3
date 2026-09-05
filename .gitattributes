@@ -1,0 +1,2 @@
+# git hooks 必须 LF 换行，否则 Windows 检出成 CRLF 后 sh 无法执行
+.githooks/* text eol=lf
