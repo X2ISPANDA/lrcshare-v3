@@ -232,6 +232,50 @@ function humanizeMailError(err) {
 // 预检需放行 Authorization（管理端会话令牌）。
 // 注意：CORS 只约束浏览器，非浏览器工具本就无视——真正的防线是管理端 action 的会话校验（assertAdmin）。
 const ALLOWED_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*lrcshare\.com$/
+// ============ 发信日志（mail_logs 表） ============
+// 所有写操作 try-catch 包裹，**日志失败绝不阻塞发信**——日志是诊断，不能让日志挂了邮件也发不出去。
+// 使用 service_role key，不走浏览器 anon key（mail_logs RLS 对 anon 拒绝）。
+
+/** 向 mail_logs 表插入一条 pending 记录，返回日志 id（写失败返回 null） */
+async function _insertMailLog(partial) {
+  try {
+    const url = process.env.SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return null
+    const res = await fetch(`${url}/rest/v1/mail_logs`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ status: 'pending', ...partial }),
+    })
+    if (!res.ok) return null
+    const rows = await res.json()
+    return rows?.[0]?.id ?? null
+  } catch { return null }
+}
+
+/** 更新 mail_logs 状态（写失败静默忽略） */
+async function _updateMailLog(id, status, error) {
+  if (!id) return
+  try {
+    const url = process.env.SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) return
+    const body = { status }
+    if (error !== undefined) body.error = error
+    await fetch(`${url}/rest/v1/mail_logs?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify(body),
+    })
+  } catch { /* 静默 */ }
+}
+
+/** 记录 skipped 状态（早期 return 点用：SMTP 未配置 / 未留邮箱等） */
+async function _logSkipped(action, toEmail, songTitle, reason) {
+  const id = await _insertMailLog({ action, to_email: toEmail || '', song_title: songTitle || '', status: 'skipped', error: reason })
+  return id // 可以忽略
+}
+
 function corsHeaders(req) {
   const origin = req.headers.get('Origin') || ''
   const h = {
@@ -249,6 +293,7 @@ export default async (req) => {
   if (req.method !== 'POST') return json(req, 405, { success: false, error: 'Method not allowed' })
   // action 提至 try 外记录：catch 里据此区分匿名 notify 与已鉴权管理端 action 的错误返回粒度
   let action = ''
+  let logId = null
   try {
     const body = await req.json()
     action = body.action
@@ -263,7 +308,7 @@ export default async (req) => {
     const subjTitle = cleanSubjectText(song_title)
 
     const smtp = await loadSmtp()
-    if (!smtp) return json(req, 200, { success: true, skipped: true, reason: 'SMTP 未配置' })
+    if (!smtp) { await _logSkipped(action, to, song_title, 'SMTP 未配置'); return json(req, 200, { success: true, skipped: true, reason: 'SMTP 未配置' }) }
 
     // 端口决定 TLS 模式：465 隐式 TLS（secure）；587 STARTTLS（requireTLS 强制升级）；其余端口不加密直连
     const port = Number(smtp.port) || 465
@@ -283,19 +328,19 @@ export default async (req) => {
       mail = { to, subject: '【LrcShare】测试邮件', html: generateEmailHTML({ type: 'approve', user_name: '管理员', song_title: '测试歌曲', admin_email: smtp.admin_email }) }
     } else if (action === 'notify') {
       // 新投稿通知：收件人固定为 settings 的 admin_email（防滥用：不接受外部 to 参数）
-      if (!smtp.admin_email) return json(req, 200, { success: true, skipped: true, reason: '未配置 admin_email' })
+      if (!smtp.admin_email) { await _logSkipped(action, '', song_title, '未配置 admin_email'); return json(req, 200, { success: true, skipped: true, reason: '未配置 admin_email' }) }
       mail = { to: smtp.admin_email, subject: subjTitle ? `【LrcShare】新投稿：《${subjTitle}》待审核` : '【LrcShare】收到新投稿', html: generateEmailHTML({ type: 'notify', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'approve') {
-      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!to) { await _logSkipped(action, to, song_title, '投稿未留邮箱'); return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' }) }
       if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       mail = { to, subject: subjTitle ? `【LrcShare】恭喜！《${subjTitle}》审核通过` : '【LrcShare】恭喜！歌词审核通过', html: generateEmailHTML({ type: 'approve', user_name, song_title, admin_email: smtp.admin_email }) }
     } else if (action === 'reject') {
-      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!to) { await _logSkipped(action, to, song_title, '投稿未留邮箱'); return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' }) }
       if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       mail = { to, subject: subjTitle ? `【LrcShare】很遗憾，《${subjTitle}》审核未通过` : '【LrcShare】歌词提交审核结果通知', html: generateEmailHTML({ type: 'reject', user_name, song_title, reject_reason, admin_email: smtp.admin_email }) }
     } else if (action === 'batch') {
       // 批次合并通知：一次批量投稿的逐首结果合成一封邮件（items: [{ title, result, reason? }]）
-      if (!to) return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' })
+      if (!to) { await _logSkipped(action, to, song_title, '投稿未留邮箱'); return json(req, 200, { success: true, skipped: true, reason: '投稿未留邮箱' }) }
       if (!isSingleEmail(to)) return json(req, 400, { success: false, error: 'to 必须为单个合法邮箱地址' })
       if (!Array.isArray(items) || !items.length) return json(req, 400, { success: false, error: '缺少 items' })
       const total = items.length
@@ -310,10 +355,22 @@ export default async (req) => {
       return json(req, 400, { success: false, error: '未知 action: ' + action })
     }
 
+    // 主流程：sendMail 前先插 pending 日志，成功改 sent、失败改 failed
+    logId = await _insertMailLog({
+      action,
+      to_email: mail.to || '',
+      subject: mail.subject || '',
+      song_title: song_title || '',
+      user_name: user_name || '',
+    })
+
     await transporter.sendMail({ from: smtp.user, ...mail })
+    await _updateMailLog(logId, 'sent')
     return json(req, 200, { success: true })
   } catch (err) {
     console.error('mailer error:', err)
+    // sendMail 失败时更新 pending 那条为 failed；insert 也失败了（logId=null）则忽略
+    await _updateMailLog(logId, 'failed', humanizeMailError(err))
     // notify 是匿名公开接口（投稿通知站长），不回传 SMTP 主机名/greeting/认证细节；
     // 管理端 action（test/approve/reject/batch）已过会话校验，返回中文结论+原始错误便于排查
     if (action === 'notify') return json(req, 500, { success: false, error: '邮件发送失败，请稍后重试' })

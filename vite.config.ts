@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readdirSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -84,9 +85,13 @@ export default defineConfig(({ mode }) => {
     // vite-ssg：动态路由实体清单（构建时执行）。
     // paths 含未解析的路由模式（如 song/:id）与空串，需过滤后与实体页合并；
     // /admin 为纯 SPA 管理后台，排除预渲染。
+    // 站内开发文档（/docs/:slug）：slug 构建期从 sql/ 目录的 md 文件名派生，不依赖数据库。
     ssgOptions: {
       includedRoutes: async paths => [
         ...paths.filter(p => p && !p.includes(':') && !p.startsWith('/admin')),
+        ...readdirSync(fileURLToPath(new URL('./sql', import.meta.url)))
+          .filter(f => f.endsWith('.md'))
+          .map(f => `/docs/${f.replace(/\.md$/, '')}`),
         ...(await collectDynamicRoutes(env)),
       ],
     },

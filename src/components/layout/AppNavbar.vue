@@ -7,11 +7,11 @@
       </RouterLink>
 
       <!-- 桌面端导航 -->
-      <nav class="desktop-nav gap-6 text-gray-600">
+      <nav class="desktop-nav gap-4 text-gray-600 text-sm">
         <template v-for="item in navItems" :key="item.label">
           <button
             v-if="item.action === 'search'"
-            class="hover:text-pink-600"
+            class="hover:text-pink-600 whitespace-nowrap"
             @click="ui.openSearch()"
           >
             {{ item.label }}
@@ -21,7 +21,7 @@
             :href="item.href"
             target="_blank"
             rel="noopener"
-            class="hover:text-pink-600"
+            class="hover:text-pink-600 whitespace-nowrap"
           >{{ item.label }}</a>
           <RouterLink
             v-else
@@ -31,6 +31,7 @@
           >
             <a
               :href="href"
+              class="whitespace-nowrap"
               :class="isActive ? 'hover:text-pink-600 font-medium text-pink-600' : 'hover:text-pink-600'"
               @click="navigate"
             >{{ item.label }}</a>
@@ -101,7 +102,7 @@ import { LOGO_URL } from '@/lib/constants'
 const ui = useUiStore()
 const menuOpen = ref(false)
 
-/** 导航项：to 为路由地址；action=search 时打开全局搜索；href 为外部链接 */
+/** 导航项：to 为路由地址；action=search 时打开全局搜索；href 为外部链接（to 给空串占位） */
 interface NavItem {
   to: string
   label: string
@@ -115,6 +116,8 @@ const navItems: NavItem[] = [
   { to: '/contributors', label: '贡献者' },
   { to: '', label: '搜索', action: 'search' },
   { to: '/posts', label: '逼逼' },
+  { to: '/changelog', label: '更新日志' },
+  { to: '/docs', label: '开发文档' },
   { to: '/submit', label: '我要投稿' },
   { to: '/support', label: '赞助' },
   { to: '/about', label: '关于' },
@@ -154,7 +157,7 @@ watch(menuOpen, open => {
 @keyframes nav-3d-shake { 0%,100%{transform:scale(1.15) rotateY(20deg) rotateX(10deg) rotateZ(0deg)} 25%{transform:scale(1.18) rotateY(-15deg) rotateX(-5deg) rotateZ(-5deg)} 75%{transform:scale(1.18) rotateY(25deg) rotateX(15deg) rotateZ(5deg)} }
 
 /* 移动端导航 */
-.desktop-nav { display: flex; }
+.desktop-nav { display: flex; align-items: center; flex-wrap: nowrap; }
 .mobile-menu-btn { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; transition: background 0.2s; z-index: 60; background: none; border: none; }
 .mobile-menu-btn:hover { background: #f3f4f6; }
 .mobile-menu-btn span { display: block; width: 22px; height: 2px; background: #6b7280; position: relative; transition: all 0.3s; }
@@ -205,7 +208,7 @@ watch(menuOpen, open => {
 }
 .mobile-menu-overlay.is-open { opacity: 1; pointer-events: auto; }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .desktop-nav { display: none !important; }
   .mobile-menu-btn { display: flex !important; }
 }

@@ -119,6 +119,16 @@ export const adminApi = {
     if (error) throw error
   },
 
+  /** 读取 mail_logs 表（发信日志），按 created_at desc 排序；数据量小，全拉 + 前端筛选 */
+  async getMailLogs(): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('mail_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return data || []
+  },
+
   /**
    * 调用邮件服务（Netlify Functions，netlify/functions/mailer.mjs）。
    * 端点统一为 /api/mailer，body: { action: 'test'|'approve'|'reject', ... }；

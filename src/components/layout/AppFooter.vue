@@ -16,10 +16,12 @@
       </p>
       <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-gray-400 text-sm">
         <RouterLink to="/posts" class="hover:text-white">逼逼</RouterLink>
+        <RouterLink to="/changelog" class="hover:text-white">更新日志</RouterLink>
         <RouterLink to="/about" class="hover:text-white">关于</RouterLink>
         <RouterLink to="/contributors" class="hover:text-white">贡献者</RouterLink>
         <RouterLink to="/links" class="hover:text-white">友链</RouterLink>
         <RouterLink to="/support" class="hover:text-white">赞助</RouterLink>
+        <RouterLink to="/docs" class="hover:text-white">开发文档</RouterLink>
         <a href="https://api.lrcshare.com/docs/" target="_blank" rel="noopener" class="hover:text-white">API</a>
         <RouterLink to="/admin" class="hover:text-white">管理后台</RouterLink>
       </div>

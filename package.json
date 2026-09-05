@@ -10,7 +10,8 @@
     "type-check": "vue-tsc --noEmit",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "changelog:sync": "node scripts/sync-readme-changelog.mjs"
   },
   "dependencies": {
     "@applemusic-like-lyrics/ttml": "^1.0.1",
