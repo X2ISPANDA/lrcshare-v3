@@ -120,7 +120,6 @@ npm run docs:dev       # API 文档站（可选）
 
 ### 2026-09-04
 
-- **测试**：测试
 - **后台歌曲管理服务端分页（C4）**：列表不再全表拉取——songs / song_contributors / song_secrets 只按当前页请求（10/20/50 条/页 + 关联行 `in(song_id)` 过滤），曲库增长不拖慢后台；艺术家 / 专辑 / 贡献者等小字典仍一次全量（翻页不重复拉）。搜索下推数据库：新增后台专用 RPC `admin_search_songs`（迁移 `sql/phase8-admin-songs-paginate.md`，整块事务可直接复制执行），跨**歌名 / 歌别名 / 歌手名 / 歌手别名 / 专辑名**模糊匹配（较旧版前端过滤补上歌手别名与专辑名两路），不限状态（草稿 / 隐藏歌后台可搜、前台不受影响）；输入防抖 300ms，翻页 / 排序状态下搜索结果稳定；列表页权限已实测收死（`REVOKE FROM PUBLIC, anon`——Supabase 默认权限会把新函数执行权显式授予 anon，仅收 PUBLIC 不够，这个坑已记入项目记忆）。表格新增「创建时间」列（桌面列头 + 移动端卡片），「歌曲名 / 创建时间」支持列头升降序（点选排序下推数据库，duration 为 "3:45" 文本不参与）；通用组件 AdminTable 透传排序事件并暴露 `clearSelection`（原「取消选择」按钮实际清不掉复选框的旧问题一并修复）
 - **修复 Line 级音译误报「未对应」**：Apple Music TTML 音译分两种形态——Word 级（词级 span 带逐字时间，需 LSU/LSJ 锚点逐字配对）与 Line 级（整行单 span 或纯文本 `<text>`，行对应已由 `for="Ln"` 锚定）；此前 Line 级音译仍按词级跑逐词对齐，整行拼音被拆成 N 个 token 去配正文单词位导致全部落「未对应」，且纯文本 sidecar 音译内容直接提取丢失。现音译行新增行级标记（正文行无词位或音译无词级 span 自动判定）：行级行输入框为干净裸文本（无花括号壳，可随意编辑）、预览整行一个箭头永不报未对应、写回标准 Line 级纯文本 `<text>`；Word 级逐字配对机制原样保留
 - **富文本 XSS 全链路消毒**：`mdToHtml` 输出统一过 isomorphic-dompurify 白名单消毒（浏览器原生 DOM / SSG 构建 jsdom 同构），关于页历史 HTML 内容（marked 转好后存库）经 `sanitizeHtml` 消毒后渲染；`<script>`、`on*` 事件、`javascript:`/`data:` 链接全部剥除，table/style/class/target 等展示标签与属性保留；文章预览、歌曲/专辑简介、投稿预览等 6 处 v-html 入口一并收口

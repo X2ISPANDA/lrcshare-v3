@@ -24,10 +24,6 @@ export const changelog: ChangelogDate[] = [
     "date": "2026-09-04",
     "entries": [
       {
-        "title": "测试",
-        "body": "测试"
-      },
-      {
         "title": "后台歌曲管理服务端分页（C4）",
         "body": "列表不再全表拉取——songs / song_contributors / song_secrets 只按当前页请求（10/20/50 条/页 + 关联行 `in(song_id)` 过滤），曲库增长不拖慢后台；艺术家 / 专辑 / 贡献者等小字典仍一次全量（翻页不重复拉）。搜索下推数据库：新增后台专用 RPC `admin_search_songs`（迁移 `sql/phase8-admin-songs-paginate.md`，整块事务可直接复制执行），跨**歌名 / 歌别名 / 歌手名 / 歌手别名 / 专辑名**模糊匹配（较旧版前端过滤补上歌手别名与专辑名两路），不限状态（草稿 / 隐藏歌后台可搜、前台不受影响）；输入防抖 300ms，翻页 / 排序状态下搜索结果稳定；列表页权限已实测收死（`REVOKE FROM PUBLIC, anon`——Supabase 默认权限会把新函数执行权显式授予 anon，仅收 PUBLIC 不够，这个坑已记入项目记忆）。表格新增「创建时间」列（桌面列头 + 移动端卡片），「歌曲名 / 创建时间」支持列头升降序（点选排序下推数据库，duration 为 \"3:45\" 文本不参与）；通用组件 AdminTable 透传排序事件并暴露 `clearSelection`（原「取消选择」按钮实际清不掉复选框的旧问题一并修复）"
       },
