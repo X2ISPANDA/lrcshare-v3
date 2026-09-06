@@ -164,9 +164,11 @@ async function loadDicts() {
   contributors.value = c
 }
 
-/** 歌曲页：无关键词走表分页，有关键词走库端 admin_search_songs（歌名/歌手/专辑全字段） */
-async function loadSongs() {
-  loading.value = true
+/** 歌曲页：无关键词走表分页，有关键词走库端 admin_search_songs（歌名/歌手/专辑全字段）。
+ *  manageLoading=false 时由调用方（reloadAll 并行流程）统一管遮罩，避免并行中提前撤遮罩露出 UUID */
+async function loadSongs(opts: { manageLoading?: boolean } = {}) {
+  const manageLoading = opts.manageLoading !== false
+  if (manageLoading) loading.value = true
   try {
     const kw = searchKw.value.trim()
     const pageOpts = { page: page.value, pageSize: pageSize.value, order: sortField.value, ascending: sortAsc.value }
@@ -206,18 +208,23 @@ async function loadSongs() {
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
   } finally {
-    loading.value = false
+    if (manageLoading) loading.value = false
   }
 }
 
-/** 增删改后刷新：字典可能新增艺术家/专辑，一并重拉（字典失败不阻塞歌曲列表） */
+/** 增删改后刷新：字典可能新增艺术家/专辑，一并重拉（字典失败不阻塞歌曲列表）。
+ *  字典与歌曲无依赖（歌曲页只返回 id，名字在渲染时才由字典翻译），并行发出：
+ *  总耗时 = max(字典, 歌曲) 而非两者相加；遮罩转到两边都齐才撤，避免露出 UUID/横杠 */
 async function reloadAll() {
+  loading.value = true
   try {
-    await loadDicts()
-  } catch (e: any) {
-    ElMessage.error('字典加载失败：' + e.message)
+    await Promise.all([
+      loadDicts().catch(e => ElMessage.error('字典加载失败：' + e.message)),
+      loadSongs({ manageLoading: false }),
+    ])
+  } finally {
+    loading.value = false
   }
-  await loadSongs()
 }
 
 /** 列头排序：再次点击同列切换升降序，取消排序回到默认（创建时间倒序） */

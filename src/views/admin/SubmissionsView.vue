@@ -239,7 +239,7 @@
     <!-- 批量审核弹窗：Excel 式表格（行=投稿、列=字段），列头⚡统一填充（勾选行则仅填充勾选行），单元格直接改，底部一键全部发布 -->
     <el-dialog v-model="showBatchReview" title="批量审核" width="min(1500px, 94vw)" :close-on-click-modal="false" append-to-body>
       <div class="text-xs text-gray-400 mb-3 hidden md:block">
-        行首勾选后，列头「⚡」只应用到勾选的行（不勾 = 全部行）；歌手/作词/作曲/编曲/专辑单元格可点击编辑该行；▶ 展开歌词。
+        行首勾选后，列头「⚡」只应用到勾选的行（不勾 = 全部行）；歌手/作词/作曲/编曲/专辑/风格单元格可点击编辑该行；▶ 展开歌词。
         行状态「就绪」= 数据完整可提交；「待补 ID」= 有新建艺术家未填 ID（悬停看明细，点击徽标直达补全）；存在待补行时无法提交。移动端自动切卡片视图，能力一致。
       </div>
       <!-- 桌面：Excel 式表格（<768px 由下方卡片形态接管，同一份 batchRows 与编辑弹窗） -->
@@ -348,7 +348,11 @@
           <template #header>
             <div class="flex items-center gap-1">风格<el-button link size="small" type="primary" @click="openFill('genres')">⚡</el-button></div>
           </template>
-          <template #default="{ row }">{{ row.sd.genres.join('、') || '—' }}</template>
+          <template #default="{ row, $index }">
+            <el-button link size="small" class="!ml-0 w-full justify-start" @click="openFill('genres', $index)">
+              <span class="truncate">{{ row.sd.genres.join('、') || '+ 设置' }}</span>
+            </el-button>
+          </template>
         </el-table-column>
         <el-table-column label="行状态" width="160" align="center">
           <template #default="{ row, $index }">
