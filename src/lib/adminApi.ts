@@ -75,10 +75,16 @@ export const adminApi = {
     return data
   },
 
-  async update<T = any>(table: string, id: string, record: Partial<T>): Promise<T | null> {
-    const { data, error } = await supabase.from(table).update(record as any).eq('id', id).select().single()
+  /** 条件更新：opts.filters 附加等值条件（如 { status: 'pending' } 做状态门控）。
+   *  条件命中 0 行时返回 null（不抛错），调用方可据此识别"已被处理过"的重复提交 */
+  async update<T = any>(table: string, id: string, record: Partial<T>, opts?: { filters?: Record<string, unknown> }): Promise<T | null> {
+    let q = supabase.from(table).update(record as any).eq('id', id)
+    if (opts?.filters) {
+      for (const [k, v] of Object.entries(opts.filters)) q = q.eq(k, v as any)
+    }
+    const { data, error } = await q.select()
     if (error) throw error
-    return data
+    return (data?.[0] as T) ?? null
   },
 
   async remove(table: string, id: string): Promise<void> {

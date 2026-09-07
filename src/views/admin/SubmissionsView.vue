@@ -1102,7 +1102,8 @@ function onAlbumSaved(p: { albumId: string; name: string; year: number | null; c
 async function approve(sub: ReviewItem | null) {
   if (!sub) return
   const res = await publishSubmission(sub, newArtistsList.value)
-  if (res === 'ok') {
+  // ok 正常完成；stale = 该投稿已被处理过（重复点击/并发），提示由 publishSubmission 内部给出，同样关弹窗刷新
+  if (res === 'ok' || res === 'stale') {
     showReview.value = false
     showSongReview.value = false
     await load()
@@ -1113,7 +1114,7 @@ async function approve(sub: ReviewItem | null) {
  *  单曲审核与批量通过共用；silent 时逐条静默（批量场景由调用方汇总结果）。
  *  skipMail：批量按批合并邮件场景跳过单曲邮件（由调用方统一发 batch 邮件）。
  *  返回 'ok' | 'missing'（新建艺术家未填 ID）| 'error' */
-async function publishSubmission(sub: any, newList: { item: any; types: string[] }[], silent = false, skipMail = false): Promise<'ok' | 'missing' | 'error'> {
+async function publishSubmission(sub: any, newList: { item: any; types: string[] }[], silent = false, skipMail = false): Promise<'ok' | 'missing' | 'error' | 'stale'> {
   const sd = sub.edited_data
   const isProfile = sd?.type === 'profile'
   // 补充歌词版本：只挂版本到已有歌曲，全程跳过建艺术家/专辑/歌曲
@@ -1145,8 +1146,15 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
   const refs: { song_id?: string; album_id?: string; artist_ids: string[]; contributor_id?: string; lyric_version_ids?: string[] } = { artist_ids: [] }
 
   try {
-    // 2. 更新投稿状态
-    await adminApi.update('submissions', sub.id, { status: 'approved', approved_at: new Date().toISOString() })
+    // 2. 更新投稿状态（条件更新：仅 pending 可被处理。重复触发时行已非 pending → 命中 0 行
+    //    返回 null → 立即中止整条发布链，不建实体、不发邮件，从数据库层杜绝重复发布/重复通知）
+    const updated = await adminApi.update('submissions', sub.id,
+      { status: 'approved', approved_at: new Date().toISOString() },
+      { filters: { status: 'pending' } })
+    if (!updated) {
+      if (!silent) ElMessage.warning('该投稿已处理过，自动跳过（未重复发信）')
+      return 'stale'
+    }
 
     // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
     if (!skipMail) {
@@ -1457,11 +1465,19 @@ async function reject(sub: ReviewItem | null) {
       inputPattern: /.+/,
       inputErrorMessage: '拒绝原因不能为空',
     })
-    await adminApi.update('submissions', sub.id, {
+    // 条件更新：仅 pending 可拒绝，已处理过的行命中 0 行 → 不发邮件
+    const upd = await adminApi.update('submissions', sub.id, {
       status: 'rejected',
       reject_reason: value,
       rejected_at: new Date().toISOString(),
-    })
+    }, { filters: { status: 'pending' } })
+    if (!upd) {
+      ElMessage.warning('该投稿已处理过，自动跳过（未重复发信）')
+      showReview.value = false
+      showSongReview.value = false
+      await load()
+      return
+    }
     const to = await emailOf(sub)
     notifyByEmail({ action: 'reject', to, user_name: sub.user_name, song_title: sub.song_data?.title, reject_reason: value }, '拒绝', sub.user_name)
     ElMessage.success('已拒绝')
@@ -1726,6 +1742,7 @@ async function batchReject() {
     reason = value
   } catch { return }
   let ok = 0
+  let stale = 0
   const failed: string[] = []
   /** 邮箱一次性解析（投稿记录优先，回退贡献者资料），避免逐行查询 */
   const emailMap = await emailMapOf(rows)
@@ -1733,16 +1750,20 @@ async function batchReject() {
   const mailGroups = new Map<string, { to: string; user_name: string; items: { title: string; result: 'reject'; reason?: string }[] }>()
   for (const row of rows) {
     try {
-      await adminApi.update('submissions', row.id, {
+      // 条件更新 status='pending'：已处理过的行命中 0 行 → 跳过，不计入、不发信
+      const upd = await adminApi.update('submissions', row.id, {
         status: 'rejected',
         reject_reason: reason,
         rejected_at: new Date().toISOString(),
-      })
+      }, { filters: { status: 'pending' } })
+      if (!upd) { stale++; const local = submissions.value.find(s => s.id === row.id); if (local) local.status = 'rejected'; continue }
       const to = emailMap.get(row.id) || ''
       const key = `${row.user_name}||${to || ''}`
       if (!mailGroups.has(key)) mailGroups.set(key, { to, user_name: row.user_name, items: [] })
       mailGroups.get(key)!.items.push({ title: row.song_data?.title || '资料更新', result: 'reject', reason })
       ok++
+      const local = submissions.value.find(s => s.id === row.id)
+      if (local) local.status = 'rejected'
     } catch (e: any) {
       failed.push(`「${row.song_data?.title || row.user_name}」`)
     }
@@ -1756,8 +1777,9 @@ async function batchReject() {
     console.warn('[邮件未通知] 未留邮箱且资料无邮箱:', noMail.join('、'))
     ElMessage.warning(`未通知邮件（未留邮箱）：${noMail.join('、')}`)
   }
-  if (failed.length) ElMessageBox.alert(`成功拒绝 ${ok} 条，失败 ${failed.length} 条：${failed.join('、')}`, '批量拒绝结果', { type: 'warning' })
-  else ElMessage.success(`已拒绝 ${ok} 条投稿`)
+  const staleTip = stale ? `，已处理过自动跳过 ${stale} 条（未重复发信）` : ''
+  if (failed.length) ElMessageBox.alert(`成功拒绝 ${ok} 条${staleTip}，失败 ${failed.length} 条：${failed.join('、')}`, '批量拒绝结果', { type: 'warning' })
+  else ElMessage.success(`已拒绝 ${ok} 条投稿${staleTip}`)
   clearSelection()
   await load()
 }
@@ -1976,6 +1998,13 @@ async function publishBatch() {
   let rejected = 0
   const skipped: string[] = []
   const failed: string[] = []
+  let stale = 0
+  /** 乐观更新：处理成功的行本地立即改状态，pending 列表即时移除该行，不等 load() 刷新
+   *  （网络卡顿时避免用户以为没成功而重复提交；load() 回来后与服务端状态一致） */
+  const markLocal = (id: string, status: string) => {
+    const local = submissions.value.find(s => s.id === id)
+    if (local) local.status = status
+  }
   /** 邮箱一次性解析（投稿记录优先，回退贡献者资料），避免逐行查询 */
   const emailMap = await emailMapOf(batchRows.value.map(b => b.row))
   /** 按提交人聚合的邮件结果（一封合并邮件覆盖该提交人本次被处理的所有投稿） */
@@ -1986,18 +2015,20 @@ async function publishBatch() {
     if (!mailGroups.has(key)) mailGroups.set(key, { to: emailMap.get(row.id) || '', user_name: row.user_name, items: [] })
     mailGroups.get(key)!.items.push({ title, result, reason })
   }
-  // 1) 拒绝行：直接落库（邮件合并到批尾发）
+  // 1) 拒绝行：直接落库（邮件合并到批尾发）。条件更新 status='pending'：已处理过的行命中 0 行，跳过不发信
   for (const { row, sd, decision, rejectReason } of batchRows.value) {
     if (decision !== 'reject') continue
     const title = sd.title || row.user_name
     try {
-      await adminApi.update('submissions', row.id, {
+      const upd = await adminApi.update('submissions', row.id, {
         status: 'rejected',
         reject_reason: rejectReason,
         rejected_at: new Date().toISOString(),
-      })
+      }, { filters: { status: 'pending' } })
+      if (!upd) { stale++; markLocal(row.id, 'rejected'); continue }
       addMailItem(row, title, 'reject', rejectReason)
       rejected++
+      markLocal(row.id, 'rejected')
     } catch {
       failed.push(`「${title}」（拒绝失败）`)
     }
@@ -2022,8 +2053,10 @@ async function publishBatch() {
     if (res === 'ok') {
       ok++
       addMailItem(row, title, 'approve')
+      markLocal(row.id, 'approved')
     }
     else if (res === 'missing') skipped.push(`「${title}」新建艺术家未填 ID`)
+    else if (res === 'stale') { stale++; markLocal(row.id, 'approved') }
     else failed.push(`「${title}」`)
   }
   // 3) 邮件：按提交人合并成一封（未留邮箱的组汇总提示，不再静默）
@@ -2041,6 +2074,7 @@ async function publishBatch() {
   const parts: string[] = []
   if (ok) parts.push(`成功发布 ${ok} 条`)
   if (rejected) parts.push(`拒绝 ${rejected} 条`)
+  if (stale) parts.push(`已处理过自动跳过 ${stale} 条（未重复发信）`)
   if (skipped.length) parts.push(`跳过 ${skipped.length} 条：${skipped.join('、')}`)
   if (failed.length) parts.push(`失败 ${failed.length} 条：${failed.join('、')}（详见控制台）`)
   if (skipped.length || failed.length) ElMessageBox.alert(parts.join('\n'), '批量审核结果', { type: 'warning', customStyle: { whiteSpace: 'pre-line' } as any })
