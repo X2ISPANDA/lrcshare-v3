@@ -38,6 +38,10 @@ export const changelog: ChangelogDate[] = [
       {
         "title": "开放 API lyric_lines 透出行级扩展与 head 元数据",
         "body": "`lyric_lines=1` 响应新增可选扩展字段（不传/无数据时输出结构与原先完全一致）：TTML 源拆行的 rows 每行按需携带 agent（ttm:agent 演唱者引用）与 song_part（div itunes:songPart 段落标注）；顶层按需携带 agents（head <ttm:agent> 列表，含 id/type/name）与 metadata（head 元数据元素树：songwriters 按官方结构重建、自定义 amll:meta 从解析结果还原为同级重复元素）。供 Lyrico 歌词插件结构化协议（structured 扩展位）消费，实现多人演唱者、段落标注、创作者署名全链路透传"
+      },
+      {
+        "title": "开放 API 行表升级为 TTML 全量投影（词长/全量属性/段落时间窗/amll:meta 全量）",
+        "body": "行表对 TTML 源从「歌词行便捷视图」升级为「歌词行语义全量投影」，投稿者写入歌词的每一个歌词语义信息都不再丢失：词标签升级双值格式 <偏移:词长>（词长=演唱时长，首词也携带，消费方可精确还原每个字的结束时间，导出 TTML 与源文件逐毫秒一致；旧格式无词长时消费方按下一词起始派生，行为不变）；rows 每行按需携带 attrs（<p> 标签上除时间外的全部属性原样透传：ttm:agent / ttm:role / itunes:key / xml:space / 自定义 key，「投稿什么返回什么」）；段首行携带 div_begin / div_end（段落时间窗，供重建 <div> 还原段落时间）；顶层按需携带 timing（根 itunes:timing 词级标志）。head 元数据 amll:meta 改为从 TTML 源正则全量提取——官方 key（musicName / artists / album / isrc / ttmlAuthorGithub 等全部）与自定义 key 一视同仁原样透传，重复出现的 key（如多位 artists）原样多条（原先依赖解析库 rawProperties 会丢官方 key 与重复 key）。LRC 合成链路（line / enhanced / verbatim / ttml 导出）同步兼容双值词标签，词级导出 span 结束时间优先词长"
       }
     ]
   },

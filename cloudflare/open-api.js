@@ -614,16 +614,17 @@ function formatLyricTime(ms) {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(xxx).padStart(3, '0')}`
 }
 
-/** 剥词标签（<偏移毫秒> → 只留文本），line 格式用 */
+/** 剥词标签（<偏移毫秒[:词长毫秒]> → 只留文本），line 格式用（双值词长标签一并剥除） */
 function stripWordTags(text) {
-  return String(text || '').replace(/<\d{1,6}>/g, '')
+  return String(text || '').replace(/<\d{1,6}(?::\d{1,6})?>/g, '')
 }
 
-/** 词标签相对偏移 → 绝对时间（enhanced 格式用）：<偏移毫秒> → <mm:ss.xxx绝对>；首个词补行时间标签 */
+/** 词标签相对偏移 → 绝对时间（enhanced 格式用）：<偏移毫秒> → <mm:ss.xxx绝对>；首个词补行时间标签。
+ *  词长（:<词长>）在 enhanced LRC 中无表达位，忽略之（偏移绝对化不受影响） */
 function composeEnhancedText(text, timeMs, endMs) {
   const s = String(text || '')
-  if (!/<\d{1,6}>/.test(s)) return s // 无词标签 → 降级为 line（原样）
-  const converted = s.replace(/<(\d{1,6})>/g, (_, off) => `<${formatLyricTime(timeMs + Number(off))}>`)
+  if (!/<\d{1,6}(?::\d{1,6})?>/.test(s)) return s // 无词标签 → 降级为 line（原样）
+  const converted = s.replace(/<(\d{1,6})(?::\d{1,6})?>/g, (_, off) => `<${formatLyricTime(timeMs + Number(off))}>`)
   // 首词绝对时间=行首时不重复前置行时间标签（与前端 lyricLines.ts 同逻辑，往返幂等）
   const firstTag = converted.match(/^<(\d{1,3}):(\d{2})[.:](\d{2,3})>/)
   let noDupHead = false
@@ -646,10 +647,11 @@ function composeEnhancedText(text, timeMs, endMs) {
   return out
 }
 
-/** 词标签相对偏移 → 绝对时间（verbatim 格式用）：每词前补 [mm:ss.xxx绝对]，无独立行首、无行尾（末词结束由播放器兜底） */
+/** 词标签相对偏移 → 绝对时间（verbatim 格式用）：每词前补 [mm:ss.xxx绝对]，无独立行首、无行尾（末词结束由播放器兜底）。
+ *  词长在 verbatim LRC 中无表达位，忽略之（偏移绝对化不受影响） */
 function composeVerbatimText(text, timeMs, endMs) {
   const s = String(text || '')
-  if (!/<\d{1,6}>/.test(s)) {
+  if (!/<\d{1,6}(?::\d{1,6})?>/.test(s)) {
     // 无词标签 → 降级为 line（单词 verbatim 与 line 同形）
     return `[${formatLyricTime(timeMs)}]${s}`
   }
@@ -836,20 +838,29 @@ function escapeXml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]))
 }
 
-/** 解析 text 词标签 → [{text, offset_ms}]；无标签则整行一个词 */
+/** 解析 text 词标签 → [{text, offset_ms, duration_ms}]；无标签则整行一个词。
+ *  双值标签 <偏移:词长> 解析词长（演唱时长，用于 TTML span end 精确还原）；
+ *  旧格式 <偏移> 词长为 0（消费方按下一词起始派生，行为与原先一致） */
 function parseWordTags(text) {
   const s = String(text || '')
-  const tokens = s.split(/<(\d{1,6})>/)
+  const tokens = s.split(/<(\d{1,6})(?::(\d{1,6}))?>/)
   const words = []
   let offset = 0
+  let duration = 0
+  // split 带捕获组分隔：tokens[i%3===0] 是文本位（前置标签由其前面的 tokens[i-2]/tokens[i-1] 承载），
+  // tokens[i%3===1] 偏移、tokens[i%3===2] 词长——标签作用于其后的下一个文本（首文本无前置标签 = 偏移 0）
   for (let i = 0; i < tokens.length; i++) {
-    if (i % 2 === 0) {
-      if (tokens[i]) words.push({ text: tokens[i], offset_ms: offset })
+    const tok = tokens[i]
+    if (i % 3 === 0) {
+      if (tok) words.push({ text: tok, offset_ms: offset, duration_ms: duration })
+    } else if (i % 3 === 1) {
+      offset = Number(tok)
+      duration = 0 // 旧格式无词长，默认 0（词长位若参与捕获会在 i%3===2 覆盖）
     } else {
-      offset = Number(tokens[i])
+      duration = tok != null ? Number(tok) : 0
     }
   }
-  if (words.length === 0) words.push({ text: s, offset_ms: 0 })
+  if (words.length === 0) words.push({ text: s, offset_ms: 0, duration_ms: 0 })
   return words
 }
 
@@ -888,7 +899,11 @@ function composeTtml(versions, credits) {
     const words = parseWordTags(line.text)
     const spans = words.map((w, wi) => {
       const wBeginMs = pBeginMs + w.offset_ms
-      const wEndMs = wi + 1 < words.length ? pBeginMs + words[wi + 1].offset_ms : pEndMs
+      // 词结束时间：优先词长（双值标签携带的演唱时长，保真导出）；
+      // 无词长（旧格式）按下一词起始派生（间隙覆盖，Apple Music 风格），末词兜底行结束
+      const wEndMs = w.duration_ms > 0
+        ? wBeginMs + w.duration_ms
+        : (wi + 1 < words.length ? pBeginMs + words[wi + 1].offset_ms : pEndMs)
       return `<span begin="${formatTtmlTime(wBeginMs)}" end="${formatTtmlTime(wEndMs)}">${escapeXml(w.text)}</span>`
     }).join('')
     ps.push(`<p begin="${formatTtmlTime(pBeginMs)}" end="${formatTtmlTime(pEndMs)}" itunes:key="${key}">${spans}</p>`)
@@ -959,12 +974,16 @@ function appendTtmlCredit(xml, credit) {
 /** 复用的 AMLL 解析器（Worker 无 DOMParser，注入 xmldom） */
 const amllParser = new TTMLParser({ domParser: new DOMParser() })
 
-/** 逐字音节 → text（词标签 <偏移毫秒>；endsWithSpace 补空格） */
+/** 逐字音节 → text（词标签 <偏移毫秒:词长毫秒>；endsWithSpace 补空格）。
+ *  词长 = 演唱时长（endTime - startTime），消费方可据此精确还原词结束时间（导出保真）；
+ *  无词长（旧数据/endTime 缺失）退化为旧格式 <偏移毫秒>，向后兼容。
+ *  注意：有词长时偏移为 0 也写标签（<0:596>），否则首词词长丢失 */
 function syllablesToText(words, lineStart) {
   return words.map(w => {
     const wordText = w.endsWithSpace ? w.text + ' ' : w.text
     const off = w.startTime - lineStart
-    return off === 0 ? wordText : `<${off}>${wordText}`
+    const dur = typeof w.endTime === 'number' && w.endTime > w.startTime ? w.endTime - w.startTime : 0
+    return off === 0 && dur <= 0 ? wordText : `<${off}:${dur}>${wordText}`
   }).join('')
 }
 
@@ -972,6 +991,70 @@ function syllablesToText(words, lineStart) {
 function finalizeTtmlRows(rows) {
   rows.sort((a, b) => a.time_ms - b.time_ms)
   return rows.map((r, i) => ({ ...r, seq: i + 1 }))
+}
+
+/** TTML 时间属性 → 毫秒（认 h:mm:ss(.fff) / m:ss(.fff) / 纯秒数三种形态），无法解析返回 null */
+function parseTtmlTimeToMs(str) {
+  if (str == null) return null
+  const s = String(str).trim()
+  let m = /^(\d{1,3}):(\d{2}):(\d{2}(?:\.\d{1,3})?)$/.exec(s)
+  if (m) return Math.round((Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3])) * 1000)
+  m = /^(\d{1,3}):(\d{2}(?:\.\d{1,3})?)$/.exec(s)
+  if (m) return Math.round((Number(m[1]) * 60 + parseFloat(m[2])) * 1000)
+  m = /^(\d+(?:\.\d{1,3})?)$/.exec(s)
+  if (m) return Math.round(parseFloat(m[1]) * 1000)
+  return null
+}
+
+/** TTML 原文 → p 级全量属性与 div 段落信息（xmldom 解析，document order）。
+ *  返回 { byBegin: Map<beginMs, entry[]> }，entry = { attrs, divBeginMs, divEndMs }：
+ *  - attrs：该 <p> 上除 begin/end 外的全部属性原样透传（ttm:agent / ttm:role / xml:space /
+ *    itunes:key / 自定义 key 全收——「投稿什么返回什么」，begin/end 由行 time_ms/end_ms 承载不重复）
+ *  - divBeginMs/divEndMs：仅段落首行携带（div 变化后的第一个 p），值为祖先 div 的 begin/end 毫秒数，
+ *    段内其余行 div 信息为 null（消费方按段首行分组重建）
+ *  同 begin 多个 p 按文档序入队，消费方按 AMLL 行 startTime 匹配 shift 对齐。
+ *  解析失败返回 null（属性透传为纯增量，失败不影响行表基础输出） */
+function collectTtmlAttrs(xml) {
+  try {
+    const doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
+    const body = doc.getElementsByTagName('body')[0]
+    if (!body) return null
+    const byBegin = new Map()
+    let prevDivEl = null
+    const walk = (node, divEl) => {
+      for (const child of node.childNodes || []) {
+        if (!child.nodeType || child.nodeType !== 1) continue // 只处理元素节点
+        const local = child.localName || String(child.nodeName || '').split(':').pop()
+        if (local === 'p') {
+          const beginMs = parseTtmlTimeToMs(child.getAttribute('begin'))
+          if (beginMs == null) continue
+          const attrs = {}
+          for (const attr of Array.from(child.attributes || [])) {
+            if (attr.name === 'begin' || attr.name === 'end') continue
+            attrs[attr.name] = attr.value
+          }
+          // 段落变化检测：div 元素引用不同 = 新段落，该 p 为段首行，携带 div 时间窗
+          const isDivStart = divEl !== prevDivEl
+          prevDivEl = divEl
+          const entry = { attrs, divBeginMs: null, divEndMs: null }
+          if (isDivStart && divEl) {
+            entry.divBeginMs = parseTtmlTimeToMs(divEl.getAttribute('begin'))
+            entry.divEndMs = parseTtmlTimeToMs(divEl.getAttribute('end'))
+          }
+          const queue = byBegin.get(beginMs) || []
+          queue.push(entry)
+          byBegin.set(beginMs, queue)
+        } else {
+          const nextDivEl = local === 'div' ? child : divEl
+          walk(child, nextDivEl)
+        }
+      }
+    }
+    walk(body, null)
+    return { byBegin }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -1013,6 +1096,10 @@ function parseTtmlVersionsWorker(xml, cache) {
 
   const versions = []
 
+  // p 级全量属性 + div 段落信息（xmldom 解析，按 AMLL 行 startTime 对齐挂载；
+  // 解析失败/对不上为纯增量缺失，不影响行表基础输出）
+  const pAttrs = collectTtmlAttrs(key)
+
   // original
   const originalRows = result.lines
     .filter(l => l.text.trim())
@@ -1028,6 +1115,19 @@ function parseTtmlVersionsWorker(xml, cache) {
       // 仅存在时携带（老数据/无扩展 TTML 输出结构与原先一致）
       if (l.agentId) row.agent = l.agentId
       if (l.songPart) row.song_part = l.songPart
+      // p 级全量属性 + div 时间窗（「投稿什么返回什么」）：
+      // attrs = <p> 上除 begin/end 外的全部属性原样（ttm:agent/ttm:role/xml:space/itunes:key/自定义 key）；
+      // div_begin/div_end = 段首行携带祖先 div 时间窗（ms），供导出重建 <div> 时还原段落时间
+      if (pAttrs) {
+        const queue = pAttrs.byBegin.get(l.startTime)
+        if (queue && queue.length) {
+          const entry = queue.shift()
+          const attrKeys = Object.keys(entry.attrs)
+          if (attrKeys.length) row.attrs = entry.attrs
+          if (entry.divBeginMs != null) row.div_begin = entry.divBeginMs
+          if (entry.divEndMs != null) row.div_end = entry.divEndMs
+        }
+      }
       return row
     })
   if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
@@ -1058,14 +1158,14 @@ function parseTtmlVersionsWorker(xml, cache) {
 
 /**
  * TTML head 扩展信息（→ Lyrico structured 扩展协议顶层 agents/metadata 数据源）。
- * AMLL 解析器把 head 元数据平铺进 result.metadata（agents/songwriters/rawProperties），
- * 此处重建为宿主 LyricsMetadataElement 元素树形态（plugin-functions.md 扩展字段协议）：
- * - agents：head <ttm:agent> 列表（id/type/name，仅存在字段携带）
- * - metadata：songwriters 按官方结构重建（songwriters 包裹带文本的 songwriter children）；
- *   自定义 amll:meta key 被 AMLL 平铺为 rawProperties（key → 值数组），还原为同级重复的 amll:meta 元素
- *   （namespace 为 AMLL 库 NS.AMLL 定义值 "http://www.example.com/ns/amll"）
- * 已知 amll:meta key（musicName/artists/album/isrc 等）AMLL 归入结构化字段、不在 rawProperties，
- * 与 tags（ti/ar/al）信息重复故不重建。解析失败返回 null（head 扩展为纯增量，失败不影响行表输出）。
+ * - agents：head <ttm:agent> 列表（id/type/name，仅存在字段携带），AMLL 解析提取；
+ * - metadata：songwriters 按官方结构重建（songwriters 包裹带文本的 songwriter children，AMLL 解析提取）；
+ *   amll:meta 全量正则直接从 XML 源提取——不依赖 AMLL rawProperties（已知 key 如 musicName/artists/
+ *   album/isrc/ttmlAuthorGithub 会被 AMLL 吸收进结构化字段而丢失、重复出现的 artists 也保不住，
+ *   正则提取官方 key 与自定义 key（如微博 ID）一视同仁原样透传，重复 key 原样多条）；
+ * - timing：根 <tt> 的 itunes:timing 属性（如 "Word"），词级时间标志，导出还原根属性用。
+ * amll:meta 的 namespace 取源 XML 根上 xmlns:amll 声明的 URI（取不到时用 AMLL 库 NS.AMLL 定义值）。
+ * 解析失败返回 null（head 扩展为纯增量，失败不影响行表输出）。
  * cache 与 parseTtmlVersionsWorker 共用请求级 Map，key 加 'head:' 前缀区分。
  */
 function parseTtmlHeadWorker(xml, cache) {
@@ -1090,12 +1190,24 @@ function parseTtmlHeadWorker(xml, cache) {
     if (Array.isArray(meta.songwriters) && meta.songwriters.length) {
       metadata.push({ name: 'songwriters', children: meta.songwriters.map(s => ({ name: 'songwriter', text: s })) })
     }
-    for (const [k, values] of Object.entries(meta.rawProperties || {})) {
-      for (const v of values || []) {
-        metadata.push({ name: 'amll:meta', namespace: 'http://www.example.com/ns/amll', attributes: { key: k, value: v } })
-      }
+    // amll:meta 全量提取：正则匹配所有 <amll:meta ...> 开标签，逐个取 key/value 属性（单双引号都认）
+    const amllNsMatch = /xmlns:amll\s*=\s*["']([^"']+)["']/.exec(key)
+    const amllNs = amllNsMatch ? amllNsMatch[1] : 'http://www.example.com/ns/amll'
+    const attrOf = (s, name) => {
+      const m = new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`).exec(s)
+      return m ? m[1] : null
+    }
+    const amllMetaRe = /<amll:meta\b([^>]*)>/g
+    let mm
+    while ((mm = amllMetaRe.exec(key)) !== null) {
+      const mk = attrOf(mm[1], 'key')
+      const mv = attrOf(mm[1], 'value')
+      if (mk != null) metadata.push({ name: 'amll:meta', namespace: amllNs, attributes: { key: mk, value: mv != null ? mv : '' } })
     }
     if (metadata.length) head.metadata = metadata
+    // 根属性 itunes:timing（如 "Word"）：词级时间标志，导出还原 <tt itunes:timing="..."> 用
+    const timingMatch = /<tt\b[^>]*\bitunes:timing\s*=\s*["']([^"']+)["']/.exec(key)
+    if (timingMatch) head.timing = timingMatch[1]
   } catch {
     head = null
   }
@@ -1232,14 +1344,14 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
             comment: (v.source_vid && versionCredits.get(v.source_vid)) || null,
           }))
         const lyricLinesOut = { primary_lang: primaryLang, versions: outVersions }
-        // TTML 源 head 扩展（演唱者 agents / 创作者与自定义元数据 metadata）挂顶层：
-        // 行级扩展已在 rows（agent/song_part，拆行时提取），此处补文档级；
+        // TTML 源 head 扩展（演唱者 agents / 创作者与自定义元数据 metadata / 词级 timing 标志）挂顶层：
+        // 行级扩展已在 rows（agent/song_part/attrs/div 时间窗，拆行时提取），此处补文档级；
         // 取第一个 TTML 容器（与 mergeVersionsForWord 的 ttml 最优先占坑序一致），
         // 仅存在时携带——无扩展或解析失败时输出结构与原先一致
         const ttmlSource = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
         if (ttmlSource) {
           const head = parseTtmlHeadWorker(ttmlSource.ttml_text, ttmlCache)
-          if (head && (head.agents || head.metadata)) Object.assign(lyricLinesOut, head)
+          if (head && (head.agents || head.metadata || head.timing)) Object.assign(lyricLinesOut, head)
         }
         fields.lyricLines = lyricLinesOut
       }
@@ -1254,7 +1366,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
           fields.lrc = null
         } else if (lyricFormat === 'ttml') {
           // 资格规则：逐行数据（无词标签）没资格升 ttml → null；逐字/ttml 才合成
-          const hasWord = selected.some(v => (v.rows || []).some(r => /<\d{1,6}>/.test(String(r.text))))
+          const hasWord = selected.some(v => (v.rows || []).some(r => /<\d{1,6}(?::\d{1,6})?>/.test(String(r.text))))
           fields.lrc = hasWord ? composeTtml(selected, mergedCredits) : null
         } else {
           const composed = composeLrc(selected, lyricFormat)
@@ -1270,7 +1382,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
             const credit = (v.source_vid && versionCredits.get(v.source_vid)) || defaultComment
             let text
             if (lyricFormat === 'ttml') {
-              const hasWord = (v.rows || []).some(r => r.time_ms != null && /<\d{1,6}>/.test(String(r.text)))
+              const hasWord = (v.rows || []).some(r => r.time_ms != null && /<\d{1,6}(?::\d{1,6})?>/.test(String(r.text)))
               text = hasWord ? composeTtml([v], [credit]) : null
             } else {
               text = composeLrc([v], lyricFormat)
