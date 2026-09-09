@@ -396,7 +396,7 @@
 
           <div v-if="lyricParsed" class="mt-3">
             <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认（可增删改）：</div>
-            <LyricVersionsEditor v-model="lyricVersions" />
+            <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" />
           </div>
         </div>
 
@@ -590,6 +590,8 @@ const song = reactive({
 // 歌词多语言版本：贴 LRC/TTML → 自动拆分 → 版本列表（对齐后台版本管理），投稿人可确认/调整
 const lyricVersions = ref<LyricVersionForm[]>([])
 const lyricParsed = ref(false)
+// 含音译标记：投稿人勾选后，同戳组末行按音译拆分（2 行组也生效）；切换即重拆
+const hasRoman = ref(false)
 
 function parseLyrics(silent = false) {
   const raw = song.lrcText.trim()
@@ -607,7 +609,7 @@ function parseLyrics(silent = false) {
     }
     lrc = rowsToLrcText(rows)
   }
-  const versions = splitLrcToVersions(lrc)
+  const versions = splitLrcToVersions(lrc, { hasRoman: hasRoman.value })
   // 拆分不出任何有内容的行（纯文本/空）→ 视为未解析（不设版本，提交走原样）
   if (!versions.some(v => v.rows.length > 0)) {
     if (!silent) ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
@@ -627,6 +629,10 @@ watch(() => song.lrcText, (val) => {
     return
   }
   parseTimer = setTimeout(() => parseLyrics(true), 600)
+})
+// 「含音译」勾选切换：已有粘贴内容时按新规则静默重拆（与后台编辑器一致，重拆覆盖手工微调）
+watch(hasRoman, () => {
+  if (song.lrcText.trim()) parseLyrics(true)
 })
 
 // 会话内新建艺术家共享池：从各字段当前值实时派生（id 为 null 即本次新建），删除 tag 后自动出池
@@ -820,6 +826,7 @@ function continueSubmit() {
   Object.assign(song, { title: '', artists: [], albumArtists: [], lyricists: [], composers: [], arrangers: [], duration: '', track: '', lrcText: '', videoUrl: '' })
   lyricVersions.value = []
   lyricParsed.value = false
+  hasRoman.value = false
   albumName.value = ''
   albumYear.value = ''
   albumId.value = null

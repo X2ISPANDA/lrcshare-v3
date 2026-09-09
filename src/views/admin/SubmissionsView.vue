@@ -252,7 +252,9 @@
               <div class="text-xs text-gray-400">歌词（LRC 全文，可直接修改）<el-tag v-if="row.sd.ttml_text" size="small" type="warning" class="ml-1">TTML</el-tag><span v-if="row.sd.ttml_text" class="ml-1">投稿含 TTML 原文，发布时独立成版本落盘</span></div>
               <el-input v-model="row.sd.lrc_text" type="textarea" :autosize="{ minRows: 8, maxRows: 24 }" class="font-mono" />
               <div class="text-xs text-gray-400">多语言版本（{{ row.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
-              <LyricVersionsEditor v-model="row.sd.versions" />
+              <LyricVersionsEditor v-model="row.sd.versions"
+                :has-roman="!!row.sd.versions?.some((v: any) => v.kind === 'romanization')"
+                @update:has-roman="(v: boolean) => resplitSdVersions(row.sd, v)" />
             </div>
           </template>
         </el-table-column>
@@ -499,7 +501,9 @@
                 <div class="text-xs text-gray-400"><el-tag v-if="r.sd.ttml_text" size="small" type="warning">TTML</el-tag><span v-if="r.sd.ttml_text" class="ml-1">投稿含 TTML 原文，发布时独立成版本落盘</span></div>
                 <el-input v-model="r.sd.lrc_text" type="textarea" :autosize="{ minRows: 6, maxRows: 16 }" class="font-mono" />
                 <div class="text-xs text-gray-400">多语言版本（{{ r.sd.versions?.length || 0 }} 个，留空发布时按 LRC 自动拆分）</div>
-                <LyricVersionsEditor v-model="r.sd.versions" />
+                <LyricVersionsEditor v-model="r.sd.versions"
+                  :has-roman="!!r.sd.versions?.some((v: any) => v.kind === 'romanization')"
+                  @update:has-roman="(v: boolean) => resplitSdVersions(r.sd, v)" />
               </div>
             </div>
           </div>
@@ -878,6 +882,15 @@ function albumArtistTags(ids: string[] | null | undefined): { id: string; name: 
 /** 歌手名拼接（song_data.artists 数组，唯一格式；v2 裸键 artist 已在 phase2-B ⑨ 规范化清除） */
 const artistNamesOf = (sd: any) =>
   (Array.isArray(sd?.artists) ? sd.artists : []).map((a: any) => a?.name).filter(Boolean).join('、')
+
+/** 审核行内「含音译」勾选切换：按投稿 LRC 全文以新规则重拆 versions（与后台编辑器同口径；无全文时提示手动调整）。
+ *  勾选状态无独立字段，直接由 versions 是否含音译轨派生（勾选即时重拆，状态自洽） */
+function resplitSdVersions(sd: any, hasRoman: boolean) {
+  const text = (sd?.lrc_text || '').trim()
+  if (!text) { ElMessage.info('该投稿无 LRC 全文，无法自动重拆，请手动调整各轨类型/语言'); return }
+  const vers = splitLrcToVersions(text, { hasRoman })
+  sd.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+}
 
 /** 深拷贝 song_data 并规范化：补数组字段、_new 标记、按名自动绑定已入库艺术家/专辑（大小写不敏感，
  *  艺术家同名多人 / 专辑同名多张且年份无法唯一消歧时保留待创建态）。单曲审核与批量通过共用 */

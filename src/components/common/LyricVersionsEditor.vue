@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-3">
+    <el-checkbox v-model="hasRoman" size="small">含音译（勾选后同戳组最后一行按音译拆分，2 行组也生效；不勾则除首行外均为翻译）</el-checkbox>
     <div v-for="(v, i) in model" :key="i" class="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
       <div class="flex items-center gap-2 mb-2">
         <el-select v-model="v.lang" filterable allow-create default-first-option class="!w-40" placeholder="语言">
@@ -49,6 +50,8 @@ const props = withDefaults(defineProps<{
 })
 
 const model = defineModel<LyricVersionForm[]>({ required: true })
+/** 含音译标记：父级粘贴/重拆时传 splitLrcToVersions(lrc, { hasRoman })；勾选 = 同戳组末行判音译 */
+const hasRoman = defineModel<boolean>('hasRoman', { default: false })
 
 /** 语言下拉选项：罗马音类型只列 BCP47 拉丁化方案，其余类型列自然语言 */
 function langOptionsFor(kind: LyricKind): string[] {

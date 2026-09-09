@@ -147,7 +147,7 @@
             />
             <!-- 第二层：TTML 结构化渲染（对唱分列 + 段落 + 和声斜体 + 翻译随行） -->
             <div v-else-if="ttmlStructure" class="text-left">
-              <div v-if="ttmlVersions.length > 1 || ttmlKindOptions.length > 1" class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div v-if="ttmlVersions.length > 1 || ttmlKindOptions.length > 1 || ttmlLangOptions.length > 1 || ttmlHasRuby" class="flex items-center gap-3 mb-3 flex-wrap">
                 <select
                   v-if="ttmlVersions.length > 1"
                   v-model="ttmlVersionId"
@@ -166,6 +166,18 @@
                     {{ k === 'all' ? '全部' : LYRIC_KIND_LABEL[k] }}
                   </option>
                 </select>
+                <select
+                  v-if="ttmlLangOptions.length > 1"
+                  v-model="ttmlLangFilter"
+                  class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+                >
+                  <option value="all">全部语言</option>
+                  <option v-for="l in ttmlLangOptions" :key="l" :value="l">{{ langLabel(l) }}</option>
+                </select>
+                <label v-if="ttmlHasRuby" class="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+                  <input type="checkbox" v-model="ttmlRubyOn" class="accent-pink-500 cursor-pointer" />
+                  注音
+                </label>
               </div>
               <div v-if="ttmlGroups.length" class="ttml-view flex flex-col gap-4 py-2">
                 <div
@@ -175,9 +187,20 @@
                   :class="ttmlGroupAlign(g)"
                 >
                   <p
-                    class="text-lg leading-relaxed font-medium whitespace-pre-wrap"
+                    class="text-lg leading-relaxed font-medium"
+                    :class="g.romanUnits ? '' : 'whitespace-pre-wrap'"
                     :style="{ color: ttmlAgentColor(g.line.agent) }"
-                  >{{ g.line.text }}</p>
+                  >
+                    <template v-if="g.romanUnits">
+                      <span
+                        v-for="(u, ui) in g.romanUnits"
+                        :key="ui"
+                        class="ttml-ruby-unit"
+                        :class="{ 'ttml-ruby-gap': u.gap }"
+                      ><span class="ttml-ruby-py">{{ u.roman }}</span><span class="ttml-ruby-hz">{{ u.char }}</span></span>
+                    </template>
+                    <template v-else>{{ g.line.text }}</template>
+                  </p>
                   <p
                     v-for="(b, bi) in g.line.bg"
                     :key="`bg${bi}`"
@@ -190,7 +213,43 @@
               <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
               <p v-if="ttmlCredit" class="text-center text-xs text-gray-400 mt-4">{{ ttmlCredit }}</p>
             </div>
-            <!-- 第三层：LRC 提取纯文本（无标签，逐行） -->
+            <!-- 第三层：LRC 行表结构化渲染（原文大字 + 译文/音译灰字随行；无行表时回退 lrc_text 提取纯文本） -->
+            <div v-else-if="textLrcStructured" class="text-left">
+              <div v-if="textLrcKindOptions.length > 1 || textLrcLangOptions.length > 1" class="flex items-center gap-3 mb-3 flex-wrap">
+                <select
+                  v-if="textLrcKindOptions.length > 1"
+                  v-model="textLrcKindFilter"
+                  class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+                >
+                  <option v-for="k in textLrcKindOptions" :key="k" :value="k">
+                    {{ k === 'all' ? '全部' : LYRIC_KIND_LABEL[k] }}
+                  </option>
+                </select>
+                <select
+                  v-if="textLrcLangOptions.length > 1"
+                  v-model="textLrcLangFilter"
+                  class="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 focus:outline-none focus:border-pink-300 cursor-pointer"
+                >
+                  <option value="all">全部语言</option>
+                  <option v-for="l in textLrcLangOptions" :key="l" :value="l">{{ langLabel(l) }}</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-3 py-2">
+                <div v-for="(g, gi) in textLrcGroups" :key="gi" class="flex flex-col items-center">
+                  <p
+                    v-for="(m, mi) in g.mains"
+                    :key="`m${mi}`"
+                    class="text-lg leading-relaxed font-medium text-gray-800 whitespace-pre-wrap text-center"
+                  >{{ m }}</p>
+                  <p
+                    v-for="(sb, si) in g.subs"
+                    :key="`s${si}`"
+                    class="text-sm text-gray-400 leading-snug whitespace-pre-wrap text-center"
+                  >{{ sb }}</p>
+                </div>
+              </div>
+            </div>
+            <!-- 第三层回退：无行表数据 → lrc_text 提取纯文本（无标签，逐行；元数据行已过滤） -->
             <RichContentView
               v-else
               :html="textLyricsHtml"
@@ -357,6 +416,7 @@ import {
   parseTtmlToVersions,
   composeMixedLrc,
   stripWordTags,
+  metaKeyOf,
   fillCommonRows,
   rowsHaveWordTags,
   langLabel,
@@ -364,6 +424,7 @@ import {
   type LyricVersion,
   type LyricVersionMeta,
   type TtmlRenderLine,
+  type TtmlRomanUnit,
   type TtmlStructure,
 } from '@/lib/lyricLines'
 import RewardModal from '@/components/common/RewardModal.vue'
@@ -662,13 +723,16 @@ const textLyricsSource = computed(() => {
     const text = rows.map(r => stripWordTags(r.text).trim()).filter(Boolean).join('\n')
     if (text) return text
   }
-  // LRC 提取：剥行时间标签 + 词级标签（<00:10.850> 绝对 / <123> 偏移）
+  // LRC 提取：先丢元数据行（[ti:]/[ar:] 等，剥时间标签会泄漏标题/艺术家），再剥行时间标签 + 词级标签（<00:10.850> 绝对 / <123> 偏移）
   const text = (s.lrc_text || '')
-    .replace(/\[\d{1,2}:\d{1,2}(?:\.\d{1,3})?\]/g, '')
-    .replace(/<\/?\d{1,2}:\d{1,2}(?:\.\d{1,3})?>/g, '')
-    .replace(/<\d{1,6}>/g, '')
     .split('\n')
     .map(line => line.trim())
+    .filter(line => line && !metaKeyOf(line))
+    .map(line => line
+      .replace(/\[\d{1,2}:\d{1,2}(?:\.\d{1,3})?\]/g, '')
+      .replace(/<\/?\d{1,2}:\d{1,2}(?:\.\d{1,3})?>/g, '')
+      .replace(/<\d{1,6}>/g, '')
+      .trim())
     .filter(line => line)
     .join('\n')
   return text
@@ -768,16 +832,39 @@ const ttmlKindOptions = computed(() => {
   return all.filter(k => k === 'all' || kinds.has(k))
 })
 
-/** 渲染分组：original 为一行，translation/romanization 作随行（同 begin 关联） */
-interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[] }
+/** 结构化视图语言切换：all = 全部；选定后只随行该语言的翻译/音译（原文始终保留作锚点） */
+const ttmlLangFilter = ref<string>('all')
+/** 注音开关：开 = 音译逐字配对融合进原文行做拼音读本；关 = 音译回退独立灰字随行 */
+const ttmlRubyOn = ref(true)
+/** 语言下拉选项：结构内出现过的非空语言（>1 种才显示） */
+const ttmlLangOptions = computed<string[]>(() => {
+  const st = ttmlStructure.value
+  if (!st) return []
+  const langs: string[] = []
+  for (const l of st.lines) if (l.lang && !langs.includes(l.lang)) langs.push(l.lang)
+  return langs
+})
+/** 是否存在音译行（注音开关仅此时有意义） */
+const ttmlHasRuby = computed(() => !!ttmlStructure.value?.lines.some(l => l.kind === 'romanization'))
+// 切版本后语言选项变化：失效的语言筛选回「全部」
+watch(ttmlLangOptions, opts => {
+  if (ttmlLangFilter.value !== 'all' && !opts.includes(ttmlLangFilter.value)) ttmlLangFilter.value = 'all'
+})
+
+/** 渲染分组：original 为一行，translation/romanization 作随行（同 begin 关联）；
+ *  注音开 + 音译逐字配对成功（romanUnits）时融合进原文行做拼音读本注音；注音关则音译回退独立灰字随行 */
+interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[]; romanUnits?: TtmlRomanUnit[] }
 const ttmlGroups = computed<TtmlGroup[]>(() => {
   const st = ttmlStructure.value
   if (!st) return []
   const filter = ttmlKindFilter.value
+  const lang = ttmlLangFilter.value
   const groups: TtmlGroup[] = []
   const beginIndex = new Map<number, number>()
   for (const l of st.lines) {
     if (filter !== 'all' && l.kind !== filter) continue
+    // 语言筛选：「全部类型」视图下原文行始终保留（锚点）；翻译/音译行按语言过滤
+    if (lang !== 'all' && l.lang !== lang && !(l.kind === 'original' && filter === 'all')) continue
     if (l.kind === 'original') {
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
@@ -789,13 +876,25 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
     } else {
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
-        groups[gi].translations.push(l)
+        if (ttmlRubyOn.value && l.kind === 'romanization' && l.romanUnits && !groups[gi].romanUnits) groups[gi].romanUnits = l.romanUnits
+        else groups[gi].translations.push(l)
       } else {
         groups.push({ line: l, translations: [] })
       }
     }
   }
   return groups
+})
+
+/** TTML 结构化视图当前筛选下的纯文本（「全部复制」导出与显示同源；和声行带（合）前缀） */
+const ttmlGroupsPlainText = computed(() => {
+  const out: string[] = []
+  for (const g of ttmlGroups.value) {
+    out.push(g.line.text)
+    for (const b of g.line.bg) out.push(`（合）${b}`)
+    for (const t of g.translations) out.push(t.text)
+  }
+  return out.filter(Boolean).join('\n')
 })
 
 /** 声部调色板（最多 10 个声部按首次出现取色；无 agent 的齐唱行用合唱灰） */
@@ -906,6 +1005,76 @@ watch(lrcSourceOptions, opts => {
   }
 }, { immediate: true })
 
+// ============ 文本歌词 tab 第三层：LRC 行表结构化渲染（原文大字 + 译文/音译灰字随行） ============
+// 注意：本块必须在 lrcSourceOptions 声明之后——watch 注册时会立即求值源 computed，
+// 声明在前会触发 TDZ（Cannot access 'lrcSourceOptions' before initialization）
+/** 文本层主容器：按 sort_order 首个 lrc/enhanced 源（独立于 LRC tab 的源选择；无行表时回退 lrc_text） */
+const textLrcSource = computed<LrcSourceOption | null>(
+  () => lrcSourceOptions.value.find(o => o.kind === 'db') || null,
+)
+/** 主容器全部版本（(lang,kind) 各一） */
+const textLrcVersions = computed<LyricVersion[]>(() => {
+  const src = textLrcSource.value
+  return src ? versionsOfContainer(src.versionId || '') : []
+})
+/** 类型筛选（对齐 TTML 结构化层）：全部 / 原文 / 译文 / 音译 */
+const textLrcKindFilter = ref<'all' | 'original' | 'translation' | 'romanization'>('all')
+/** 语言筛选：all = 全部；选定后只显示该语言行（「全部类型」视图原文始终保留作锚点） */
+const textLrcLangFilter = ref<string>('all')
+const textLrcKindOptions = computed(() => {
+  const kinds = new Set(textLrcVersions.value.map(v => v.kind))
+  return (['all', 'original', 'translation', 'romanization'] as const)
+    .filter(k => k === 'all' || kinds.has(k))
+})
+const textLrcLangOptions = computed<string[]>(() => {
+  const langs: string[] = []
+  for (const v of textLrcVersions.value) if (!langs.includes(v.lang)) langs.push(v.lang)
+  return langs
+})
+watch(textLrcKindOptions, opts => {
+  if (!opts.includes(textLrcKindFilter.value)) textLrcKindFilter.value = 'all'
+})
+watch(textLrcLangOptions, opts => {
+  if (textLrcLangFilter.value !== 'all' && !opts.includes(textLrcLangFilter.value)) textLrcLangFilter.value = 'all'
+})
+
+interface LrcTextGroup { time: number; mains: string[]; subs: string[] }
+/** 按时间戳分组：同戳原文为主行（大字），翻译/音译为副行（灰字）；
+ *  指定类型筛选时该类型行升为主行（独立显示，对齐 TTML 层行为）；副行与主行文本相同则去重；
+ *  元数据行（time_ms=null 的 [ti:] 等）不进结构化视图 */
+const textLrcGroups = computed<LrcTextGroup[]>(() => {
+  const kindFilter = textLrcKindFilter.value
+  const langFilter = textLrcLangFilter.value
+  const byTime = new Map<number, LrcTextGroup>()
+  for (const v of textLrcVersions.value) {
+    if (kindFilter !== 'all' && v.kind !== kindFilter) continue
+    for (const r of v.rows) {
+      if (r.time_ms == null) continue
+      const text = stripWordTags(r.text || '').trim()
+      if (!text) continue
+      // 语言筛选：「全部类型」视图原文行始终保留（锚点）
+      if (langFilter !== 'all' && v.lang !== langFilter && !(v.kind === 'original' && kindFilter === 'all')) continue
+      let g = byTime.get(r.time_ms)
+      if (!g) { g = { time: r.time_ms, mains: [], subs: [] }; byTime.set(r.time_ms, g) }
+      const isMain = kindFilter !== 'all' || v.kind === 'original'
+      if (isMain) {
+        if (!g.mains.includes(text)) g.mains.push(text)
+      } else if (!g.mains.includes(text) && !g.subs.includes(text)) {
+        g.subs.push(text)
+      }
+    }
+  }
+  return [...byTime.values()].sort((a, b) => a.time - b.time)
+})
+/** 结构化层可用：主容器存在且有带时间戳的行（否则回退 lrc_text 纯文本） */
+const textLrcStructured = computed(() => textLrcGroups.value.some(g => g.mains.length || g.subs.length))
+/** 当前筛选下的纯文本（「全部复制」导出与显示同源） */
+const textLrcPlainText = computed(() => {
+  const out: string[] = []
+  for (const g of textLrcGroups.value) out.push(...g.mains, ...g.subs)
+  return out.join('\n')
+})
+
 /** TTML 源 → 运行时拆分版本（原文/译文/罗马音，与 Worker parseTtmlVersionsWorker 同规则）；
  *  同 (lang,kind) 跨 TTML 文件合并，供语言 tab 与 LRC 合成共用（computed 缓存，AMLL 只解析一次） */
 const ttmlSourceVersions = computed<LyricVersion[]>(() => {
@@ -992,10 +1161,17 @@ function copyCurrentLrc() {
   copyText(lrcText.value, { attribution: true }).then(() => ElMessage.success('歌词已复制到剪贴板！'))
 }
 
-/** 文本歌词复制：lyrics_text 原文（或 LRC 提取纯文本），与页面显示同源 */
+/** 文本歌词复制：与当前显示同源——lyrics_text 原文 / TTML 结构化筛选结果 / LRC 行表结构化筛选结果 / LRC 提取纯文本 */
 function copyCurrentText() {
-  if (!textLyricsSource.value) return
-  copyText(textLyricsSource.value, { attribution: true }).then(() => ElMessage.success('歌词已复制到剪贴板！'))
+  const s = song.value
+  if (!s) return
+  let text = ''
+  if (s.lyrics_text) text = s.lyrics_text
+  else if (ttmlStructure.value) text = ttmlGroupsPlainText.value
+  else if (textLrcStructured.value) text = textLrcPlainText.value
+  else text = textLyricsSource.value
+  if (!text) return
+  copyText(text, { attribution: true }).then(() => ElMessage.success('歌词已复制到剪贴板！'))
 }
 
 /** TTML 视图悬浮复制：当前选中版本的 TTML 原文 */
@@ -1050,6 +1226,25 @@ function shareSong() {
 }
 .lyric-code::-webkit-scrollbar { width: 6px; }
 .lyric-code::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 3px; }
+/* 音译逐字注音（拼音读本：拼音在字正上方，长拼音自然撑开字距并自动换行；无拼音字留等高空位） */
+.ttml-ruby-unit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: bottom;
+}
+.ttml-ruby-py {
+  font-size: 0.58em;
+  line-height: 1.15;
+  min-height: 1.15em;
+  /* 水平内边距：拼音音节通常比汉字宽，列宽由拼音撑开后相邻音节仍需保留最小间隙避免粘连 */
+  padding: 0 0.15em;
+  color: #9ca3af;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.ttml-ruby-hz { line-height: 1.35; }
+.ttml-ruby-gap { margin-right: 0.35em; }
 .tab-btn { transition: all 0.2s; }
 .tab-active { color: #ec4899; border-bottom: 2px solid #ec4899; }
 .tab-inactive { color: #9ca3af; border-bottom: 2px solid transparent; }

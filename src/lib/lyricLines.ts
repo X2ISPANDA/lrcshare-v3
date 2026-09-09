@@ -151,7 +151,7 @@ export function stripWordTags(text: string): string {
 }
 
 /** 元数据行 key（[ti:xxx] → ti；非元数据 → ''） */
-function metaKeyOf(text: string): string {
+export function metaKeyOf(text: string): string {
   const m = String(text).match(/^\[([A-Za-z][A-Za-z0-9]*):/)
   return m ? m[1].toLowerCase() : ''
 }
@@ -322,6 +322,50 @@ export function fillCommonRows(versions: LyricVersion[]): LyricVersion[] {
   })
 }
 
+/** 一个 LRC 容器（= lyric_versions 一行 = 一个投稿版本）内的全部轨；
+ *  versionId 为空表示行表未挂容器的老数据（保存时落到默认容器） */
+export interface LrcContainer {
+  versionId: string | null
+  versions: LyricVersion[]
+}
+
+/** 行表按容器（version_id）分组，容器内再按 (lang,kind) 分轨。
+ *  容器顺序按行表中首次出现序（调用方通常用 lyric_versions 元数据排序后再 join） */
+export function groupVersionsByContainer(rows: LyricLineRow[]): LrcContainer[] {
+  const order: string[] = []
+  const map = new Map<string, LyricLineRow[]>()
+  for (const r of rows) {
+    const key = r.version_id ?? ''
+    if (!map.has(key)) { map.set(key, []); order.push(key) }
+    map.get(key)!.push(r)
+  }
+  return order.map(k => ({
+    versionId: k || null,
+    versions: groupVersions(map.get(k)!),
+  }))
+}
+
+/** 解析翻译/音译轨输入框文本 → 单轨 LyricVersion。
+ *  轨框展示的是「API 切片形态」（公共头 + 同戳原文行 + 本轨行，读取/保存两端不一致由这里收敛）：
+ *  - 元数据行（[ti:] 等，time_ms 为空）非原文轨一律不收（元数据只归原文）
+ *  - 与原文轨【同时间戳且剥标签文本相同】的行剔除（头部署名行/空清屏点/同戳原文锚点行）
+ *  - 只贴本轨独有行（如 [00:04]HELLO）则全部保留 */
+export function parseTrackBox(lrc: string, lang: string, kind: LyricKind, original: LyricVersion | null): LyricVersion {
+  const renumber = (rs: LyricRow[]): LyricRow[] => rs.map((r, i) => ({ ...r, seq: i + 1 }))
+  const rows = parseLrcToRows(lrc)
+  if (kind === 'original' || !original) return { lang, kind, rows: renumber(rows) }
+  const anchor = new Set<string>()
+  for (const r of original.rows) {
+    if (r.time_ms == null) continue
+    anchor.add(`${r.time_ms}|${stripWordTags(r.text).trim()}`)
+  }
+  const kept = rows.filter(r => {
+    if (r.time_ms == null) return false
+    return !anchor.has(`${r.time_ms}|${stripWordTags(r.text).trim()}`)
+  })
+  return { lang, kind, rows: renumber(kept) }
+}
+
 // ---------- 复制投稿查重（前 3 句行开始时间戳毫秒级比对） ----------
 
 /** 取版本组前 n 个【不同】的行开始时间（time_ms 升序）；不足 n 行返回 null（宁漏勿冤）。
@@ -417,7 +461,9 @@ export function rowsHaveWordTags(rows: Pick<LyricRow, 'text'>[]): boolean {
   return rows.some(r => /<\d{1,6}>/.test(String(r.text || '')))
 }
 
-/** 多版本合成 LRC（元数据头部去重 + 全部版本歌词合并稳定排序 + 格式化），供写回 lrc_text */
+/** 多版本合成 LRC（元数据头部去重 + 同戳同文本行去重 + 全部版本歌词合并稳定排序 + 格式化），供写回 lrc_text。
+ *  同时间戳+剥标签文本相同的行只保留排序最前者（original rank 最高→公共行/重复堆行以原文为准），
+ *  兜底「同一版本内补翻译/音译时连头部公共行一起贴入」造成的重复 */
 export function composeMixedLrc(versions: LyricVersion[], format: 'line' | 'enhanced' | 'verbatim' = 'line'): string {
   const meta: string[] = []
   const timed: { time_ms: number; end_ms: number | null; kind: LyricKind; lang: string; text: string }[] = []
@@ -432,7 +478,15 @@ export function composeMixedLrc(versions: LyricVersion[], format: 'line' | 'enha
     const rank = (k: LyricKind) => (k === 'original' ? 0 : k === 'translation' ? 1 : 2)
     return rank(a.kind) - rank(b.kind) || a.lang.localeCompare(b.lang)
   })
-  const body = timed.map(l => {
+  // 同戳同文本去重（剥词标签后比较；排序后 original 在最前，重复行以原文为准）
+  const seenLine = new Set<string>()
+  const lines = timed.filter(l => {
+    const key = `${l.time_ms}|${stripWordTags(l.text).trim()}`
+    if (seenLine.has(key)) return false
+    seenLine.add(key)
+    return true
+  })
+  const body = lines.map(l => {
     if (format === 'verbatim') return composeVerbatimText(l.text, l.time_ms, l.end_ms)
     const text = format === 'enhanced' ? composeEnhancedText(l.text, l.time_ms, l.end_ms) : stripWordTags(l.text)
     return `[${formatLyricTime(l.time_ms)}]${text}`
@@ -554,6 +608,8 @@ export function parseTtmlToVersions(xml: string): LyricVersion[] {
   // translation / romanization：按语言分组（译文行时间戳取所在正文行；空语言码回退正文语言，与 Worker 一致）
   const transMap = new Map<string, LyricRow[]>()
   const romanMap = new Map<string, LyricRow[]>()
+  // 行内 x-roman（方言 B）音节：AMLL 对该路径丢弃词表，需自行扫 DOM 补齐
+  const inlineRoman = extractInlineRomanByKey(xml)
   for (const l of result.lines) {
     for (const t of l.translations || []) {
       const lang = (t.language ? ttmlLangToLrc(t.language) : '') || rootLang
@@ -561,10 +617,23 @@ export function parseTtmlToVersions(xml: string): LyricVersion[] {
       rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: t.words?.length ? syllablesToText(t.words, l.startTime) : t.text })
       transMap.set(lang, rows)
     }
+    // 音译：逐字音节按空格分隔（普通 LRC 剥词标签后仍可读；增强/逐字格式词级时间标签保留，空格不影响时间轴）。
+    // 行内 x-roman 无 AMLL 词表 → DOM 自扫音节（带 begin 生成偏移标签）；整行纯文本 sidecar 沿用 r.text
+    const inlineTracks = (l.id ? inlineRoman.get(l.id) : undefined) || []
+    let inlineIdx = 0
     for (const r of l.romanizations || []) {
       const lang = (r.language ? ttmlLangToLrc(r.language) : '') || rootLang
       const rows = romanMap.get(lang) || []
-      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text: r.words?.length ? syllablesToText(r.words, l.startTime) : r.text })
+      let text: string
+      if (r.words?.length) {
+        text = romanSyllablesToText(r.words.map(w => ({ text: w.text, beginMs: w.startTime })), l.startTime)
+      } else {
+        const syl = inlineTracks[inlineIdx]
+        // 行内项在 romanizations 数组前部（AMLL 先解析行内再合并 sidecar），仅消费无词表的前 N 项
+        if (syl) { inlineIdx++; text = syl.length ? romanSyllablesToText(syl, l.startTime) : r.text }
+        else text = r.text
+      }
+      rows.push({ seq: 0, time_ms: l.startTime, end_ms: l.endTime, text })
       romanMap.set(lang, rows)
     }
   }
@@ -572,6 +641,61 @@ export function parseTtmlToVersions(xml: string): LyricVersion[] {
   for (const [lang, rows] of romanMap) versions.push({ lang, kind: 'romanization', rows: finalizeTtmlRows(rows) })
 
   return versions
+}
+
+/**
+ * 行内 ttm:role="x-roman"（方言 B）音节提取：AMLL 解析行内 subcontent 时 ignoreWords=true 丢弃词表，
+ * 音译音节 span 被无分隔拼成整串（zoengcing…）。此处直接扫 body <p> 内的行内 x-roman 主轨 span，
+ * 按 itunes:key 返回该行每个 x-roman span 的音节数组（内层带 begin 的 span；x-bg 子树跳过）。
+ * sidecar（方言 A）词表由 AMLL words 承载，不在此处理。
+ */
+function extractInlineRomanByKey(xml: string): Map<string, { text: string; beginMs: number | null }[][]> {
+  const map = new Map<string, { text: string; beginMs: number | null }[][]>()
+  if (typeof DOMParser === 'undefined') return map
+  let doc: Document
+  try {
+    doc = new DOMParser().parseFromString(String(xml || ''), 'text/xml')
+    if (doc.querySelector('parsererror') || doc.getElementsByTagName('parsererror').length) return map
+  } catch { return map }
+  for (const p of Array.from(doc.getElementsByTagNameNS('*', 'p'))) {
+    const key = itunesKeyOf(p)
+    if (!key) continue
+    const tracks: { text: string; beginMs: number | null }[][] = []
+    // AMLL extractNodeState 只遍历 p 的直接子节点，x-roman 必须是 p 直接子元素
+    for (const node of Array.from(p.childNodes)) {
+      if (node.nodeType !== 1) continue
+      const el = node as Element
+      if (roleOf(el) !== 'x-roman') continue
+      if (!(el.textContent || '').trim()) continue // 与 AMLL 空内容不 push 对齐
+      const syllables: { text: string; beginMs: number | null }[] = []
+      const walk = (parent: Element) => {
+        for (const cn of Array.from(parent.childNodes)) {
+          if (cn.nodeType !== 1) continue
+          const cel = cn as Element
+          if (roleOf(cel) === 'x-bg') continue // 和声音译不进主轨（展示层本就不渲染 bg roman）
+          if (cel.localName === 'span' && cel.getAttribute('begin')) {
+            const t = (cel.textContent || '').trim()
+            if (t) syllables.push({ text: t, beginMs: ttmlTimeToMs(cel.getAttribute('begin')) })
+          } else {
+            walk(cel)
+          }
+        }
+      }
+      walk(el)
+      tracks.push(syllables)
+    }
+    if (tracks.length) map.set(key, tracks)
+  }
+  return map
+}
+
+/** 音译音节 → 带词级偏移标签的行文本（音节间空格分隔；与 syllablesToText 同标签规则，
+ *  区别：音译每个音节都分隔，原文/译文不能加空格故不复用 syllablesToText） */
+function romanSyllablesToText(syls: { text: string; beginMs: number | null }[], lineStart: number): string {
+  return syls.map(s => {
+    const off = s.beginMs != null ? s.beginMs - lineStart : 0
+    return off === 0 ? s.text : `<${off}>${s.text}`
+  }).join(' ')
 }
 
 // ---------- TTML 编辑模型（翻译/音译表格化：方言 A/B 统一为 Head Sidecar） ----------
@@ -839,7 +963,7 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
   // ---- 行内 role（方言 B）提取：合并进聚合（同语言 sidecar 未覆盖的行才补，避免重复） ----
   const inlineEls: Element[] = []
   const inlineTrans: { lang: string; key: string; text: string }[] = []
-  const inlineRoman: { lang: string; key: string; text: string }[] = []
+  const inlineRoman: { lang: string; key: string; text: string; wordSpans: { beginRaw: string; endRaw: string; text: string }[] }[] = []
   for (const el of Array.from(doc.getElementsByTagNameNS('*', 'span'))) {
     const role = roleOf(el)
     if (role !== 'x-translation' && role !== 'x-roman') continue
@@ -848,9 +972,32 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
     const key = p ? keyMap.get(p) || '' : ''
     if (!key) continue
     inlineEls.push(el)
-    const rec = { lang: cleanTtmlLang(xmlLangOf(el)), key, text: (el.textContent || '').trim() }
-    if (role === 'x-translation') inlineTrans.push(rec)
-    else inlineRoman.push(rec)
+    const lang = cleanTtmlLang(xmlLangOf(el))
+    const text = (el.textContent || '').trim()
+    if (role === 'x-translation') {
+      inlineTrans.push({ lang, key, text })
+    } else {
+      // x-roman：内部带 begin/end 的词级 span 收集为 wordSpans（与 sidecar 词级同路径逐字配对，
+      // 避免 textContent 无分隔拼接成 zoengcing… 一串）；无词级 span 则整行纯文本（lineLevel）
+      const wordSpans: { beginRaw: string; endRaw: string; text: string }[] = []
+      const walkRoman = (parent: Element) => {
+        for (const cn of Array.from(parent.childNodes)) {
+          if (cn.nodeType !== 1) continue
+          const cel = cn as Element
+          if (roleOf(cel) === 'x-bg') continue // 和声音译不进主轨
+          const cb = cel.getAttribute('begin')
+          const ce = cel.getAttribute('end')
+          if (cel.localName === 'span' && cb && ce) {
+            const ct = (cel.textContent || '').trim()
+            if (ct) wordSpans.push({ beginRaw: cb, endRaw: ce, text: ct })
+          } else {
+            walkRoman(cel)
+          }
+        }
+      }
+      walkRoman(el)
+      inlineRoman.push({ lang, key, text, wordSpans })
+    }
   }
   for (const r of inlineTrans) {
     let agg = transAggs.find(a => a.ttmlLang === r.lang)
@@ -860,7 +1007,8 @@ export function parseTtmlForEdit(xml: string): TtmlEditModel | null {
   for (const r of inlineRoman) {
     let agg = romanAggs.find(a => a.ttmlLang === r.lang)
     if (!agg) { agg = { ttmlLang: r.lang, entries: new Map() }; romanAggs.push(agg) }
-    if (!agg.entries.has(r.key)) agg.entries.set(r.key, { plain: '', wordSpans: [], bg: [], extras: [r.text] })
+    // 有词级 span → 走逐字配对（配不上的词自动落 extras）；无 → 整行纯文本兜底
+    if (!agg.entries.has(r.key)) agg.entries.set(r.key, { plain: '', wordSpans: r.wordSpans, bg: [], extras: r.wordSpans.length ? [] : [r.text] })
   }
 
   // ---- 翻译表格（每行一条，缺行=空文本） ----
@@ -1325,6 +1473,16 @@ export function expandRomanSyntax(romanLrc: string, originalLrc: string): string
 
 // ---------- TTML 结构化渲染（phase5 阶段 F：对唱/和声/语言 渐进增强） ----------
 
+/** 音译逐字注音单元（拼音读本式渲染：roman 在 char 上方，按时间戳配对） */
+export interface TtmlRomanUnit {
+  /** 原文字（一个字/词 span） */
+  char: string
+  /** 对应音译音节（跳词未配对时为空串） */
+  roman: string
+  /** 该字后是否有词间间隙（原文字 endsWithSpace） */
+  gap?: boolean
+}
+
 /** TTML 单行渲染结构 */
 export interface TtmlRenderLine {
   begin: number | null
@@ -1338,6 +1496,8 @@ export interface TtmlRenderLine {
   lang: string | null
   /** 行类型：original（正文）/ translation（<translation>）/ romanization（<transliteration>） */
   kind: LyricKind
+  /** 音译逐字注音单元（仅 romanization 行；与原文字时间配对成功才有，渲染为拼音读本；失败回退 text 整行） */
+  romanUnits?: TtmlRomanUnit[]
 }
 
 /** TTML 结构化解析结果 */
@@ -1351,6 +1511,53 @@ export interface TtmlStructure {
   hasWordTiming: boolean
   /** 是否有注音（ruby / ttm:role="x-ruby"） */
   hasRuby: boolean
+}
+
+/**
+ * 音译音节与原文字按时间配对 → 逐字注音单元（拼音读本式）。
+ * 算法复刻 AMLL 库内部 alignRomanization：① 起始时间 ±2ms 完全相同走快速通道；
+ * ② 否则时间区间交并比 IoU ≥ 0.1 取最优；音节搜索指针单调推进保证顺序不回退。
+ * 配对覆盖率不足音节数一半时判定不可靠（行级音译/时间轴错位），返回 null 回退整行文本。
+ */
+function buildRomanUnits(
+  chars: { text: string; startTime: number; endTime: number; endsWithSpace?: boolean }[],
+  syls: { text: string; startTime: number; endTime?: number }[],
+): TtmlRomanUnit[] | null {
+  if (!chars.length || !syls.length) return null
+  const romanOf = new Array<string>(chars.length).fill('')
+  let searchStart = 0
+  let matched = 0
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]
+    let pick = -1
+    // ① 快速通道：起始时间相同（±2ms 浮点容差）
+    for (let j = searchStart; j < syls.length; j++) {
+      if (Math.abs(ch.startTime - syls[j].startTime) <= 2) { pick = j; break }
+      if (syls[j].startTime > ch.startTime + 2) break
+    }
+    // ② IoU 通道（需音节有 endTime；行内 DOM 提取的音节无 end 时跳过）
+    if (pick < 0) {
+      let maxIou = 0.1
+      for (let j = searchStart; j < syls.length; j++) {
+        const s = syls[j]
+        if (s.endTime == null) continue
+        const inter = Math.max(0, Math.min(ch.endTime, s.endTime) - Math.max(ch.startTime, s.startTime))
+        if (inter > 0) {
+          const union = Math.max(ch.endTime, s.endTime) - Math.min(ch.startTime, s.startTime)
+          const iou = inter / Math.max(1, union)
+          if (iou > maxIou) { maxIou = iou; pick = j }
+        }
+        if (s.startTime >= ch.endTime) break
+      }
+    }
+    if (pick >= 0) {
+      romanOf[i] = syls[pick].text
+      searchStart = pick + 1
+      matched++
+    }
+  }
+  if (matched < Math.ceil(syls.length / 2)) return null
+  return chars.map((w, i) => ({ char: w.text, roman: romanOf[i], gap: !!w.endsWithSpace }))
 }
 
 /**
@@ -1381,6 +1588,8 @@ export function parseTtmlStructure(xml: string): TtmlStructure {
   let hasAgent = false
   let hasWordTiming = false
   let hasRuby = false
+  // 行内 x-roman（方言 B）音节：AMLL 对该路径丢弃词表，需自行扫 DOM 补齐
+  const inlineRoman = extractInlineRomanByKey(xml)
 
   for (const l of result.lines) {
     if (l.agentId) hasAgent = true
@@ -1401,8 +1610,32 @@ export function parseTtmlStructure(xml: string): TtmlStructure {
     for (const t of l.translations || []) {
       lines.push({ begin: l.startTime, agent: null, text: t.text, bg: [], lang: t.language || null, kind: 'translation' })
     }
+    // 音译：逐字音节按空格重组 text（r.text 是音节 span 无分隔拼接，直接显示会挤成 zoengcing… 一串）；
+    // 与原文字时间配对成功再生成 romanUnits 注音单元（拼音读本式渲染），配对失败回退整行随行；
+    // 行内 x-roman 无 AMLL 词表 → DOM 自扫音节；整行纯文本 sidecar / 行内纯文本沿用 r.text
+    const inlineTracks = (l.id ? inlineRoman.get(l.id) : undefined) || []
+    let inlineIdx = 0
+    const charWords = l.words || []
     for (const r of l.romanizations || []) {
-      lines.push({ begin: l.startTime, agent: null, text: r.text, bg: [], lang: r.language || null, kind: 'romanization' })
+      let text: string
+      let units: TtmlRomanUnit[] | null = null
+      if (r.words?.length) {
+        text = r.words.map(w => w.text).join(' ')
+        units = charWords.length ? buildRomanUnits(charWords, r.words) : null
+      } else {
+        const syl = inlineTracks[inlineIdx]
+        // 行内项在 romanizations 数组前部（AMLL 先解析行内再合并 sidecar），仅消费无词表的前 N 项
+        if (syl) {
+          inlineIdx++
+          text = syl.length ? syl.map(s => s.text).join(' ') : r.text
+          if (syl.length && charWords.length) {
+            units = buildRomanUnits(charWords, syl.map(s => ({ text: s.text, startTime: s.beginMs ?? l.startTime })))
+          }
+        } else {
+          text = r.text
+        }
+      }
+      lines.push({ begin: l.startTime, agent: null, text, bg: [], lang: r.language || null, kind: 'romanization', romanUnits: units || undefined })
     }
   }
 
@@ -1565,11 +1798,17 @@ export function detectLang(text: string): string {
  *   单一阈值即可区分，且不依赖语言检测（粤→普、法→英 同文字系统靠「成对」识别）。
  *   - 翻译歌：组内真歌词行按行序拆，第 1 行 original，第 2~N 行 translation（同语言组也拆，
  *     如 Hello→Hello、粤→普，语言标注由用户手动修正）
+ *   - opts.hasRoman（投稿者/管理员显式勾选「含音译」）：同戳组【最后一行】判为 romanization
+ *         （不看行数、不看文字系统——勾选即声明末行为音译；2 行组的末行也照判），
+ *     音译语言按原文语言给默认值（ja→ja-Latn、ko→ko-Latn、其余→zh-Latn-pinyin），可手动改
  *   - 非翻译歌：多行组视为注解堆叠，全归 original
- * - 非歌词行（空/符号/创作者信息）不参与判定与拆分，恒为 original
+ * - 非歌词行（空/符号/创作者信息）不参与判定与拆分，恒为 original（公共行；
+ *   显示/API 由 fillCommonRows 给各译文/音译补齐，底层只存一份）
+ * - 同戳组内与首行剥标签文本完全相同的后续行跳过（制作失误堆重的保险）
  * - 单行（非同戳）→ original(primary)；元数据行归 primary 的 original
  */
-export function splitLrcToVersions(lrc: string): LyricVersion[] {
+export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {}): LyricVersion[] {
+  const hasRoman = !!opts.hasRoman
   const rows = parseLrcToRows(lrc)
   const meta = rows.filter(r => r.time_ms == null)
   const timed = rows.filter(r => r.time_ms != null)
@@ -1601,8 +1840,8 @@ export function splitLrcToVersions(lrc: string): LyricVersion[] {
   }
 
   // 非歌词行识别：空行（清屏点）、纯符号行（间奏表情符）、创作者信息行（词/曲/编等前奏署名）
-  // —— 三者都从「翻译歌判定」里剔除（避免污染成对占比）；但拆分时只有空行/符号恒归原文，
-  //    创作者信息在翻译歌里按行序拆（译文的 Lyrics By 等跟着译文版本走）
+  // —— 三者都从「翻译歌判定」里剔除（避免污染成对占比），且拆分时恒归原文（公共行，
+  //    显示/API 由 fillCommonRows 给各译文/音译补齐，底层只存一份）
   const isEmptyRow = (r: LyricRow) => !stripWordTags(r.text).trim()
   const isSymbolRow = (r: LyricRow) => {
     const s = stripWordTags(r.text).trim()
@@ -1643,30 +1882,40 @@ export function splitLrcToVersions(lrc: string): LyricVersion[] {
     }
   }
 
-  // 逐行分配 lang/kind
-  const assigned = timed.map(r => {
+  // 音译轨默认语言：原文日语→ja-Latn、韩语→ko-Latn、其余（中文/粤语）→拼音；用户可在轨道下拉改
+  const romanLangOf = (orig: string) => (orig === 'ja' ? 'ja-Latn' : orig === 'ko' ? 'ko-Latn' : 'zh-Latn-pinyin')
+
+  // 逐行分配 lang/kind（null = 重复行跳过，不入任何轨）
+  const assigned: ({ lang: string; kind: LyricKind } | null)[] = timed.map(r => {
     const g = byTs.get(r.time_ms!)!
-    // 空行/纯符号（清屏点/间奏表情符）：恒归原文，无翻译概念
-    if (isEmptyRow(r) || isSymbolRow(r)) {
+    // 空行/纯符号/创作者信息（清屏点/间奏表情符/作词作曲编曲）：公共行恒归原文，
+    // 显示与 API 由 fillCommonRows 给各译文/音译补齐
+    if (isEmptyRow(r) || isSymbolRow(r) || isCreditRow(r)) {
       return { lang: origLang, kind: 'original' as LyricKind }
     }
-    // 非翻译歌 → 归原文（含创作者信息、注解堆叠、角色标注）
+    // 非翻译歌 → 归原文（含注解堆叠、角色标注）
     if (!isTranslationSong) {
       return { lang: primary, kind: 'original' as LyricKind }
     }
-    // 翻译歌：组内非空非符号行按行序拆（第 1 行原文，其余译文）。
-    // 创作者信息（作词/Lyrics By）也按行序走——译文的创作者信息跟着译文版本，不被归原文
-    const parts = g.filter(x => !isEmptyRow(x) && !isSymbolRow(x))
+    // 翻译歌：组内真歌词行按行序拆（第 1 行原文，其余译文；勾选含音译时末行为音译）
+    const parts = g.filter(x => !isEmptyRow(x) && !isSymbolRow(x) && !isCreditRow(x))
     if (parts.length < 2) {
-      // 单行组 = 公共行（No nonono 等），归原文（显示/API 由 fillCommonRows 补进各译文）
+      // 单行组 = 公共行（No nonono 等），归原文
       return { lang: origLang, kind: 'original' as LyricKind }
     }
     const pos = parts.findIndex(x => x.seq === r.seq) + 1
+    // 与首行文本完全相同的后续行 = 制作失误堆重，跳过
+    if (pos > 1 && stripWordTags(r.text).trim() === stripWordTags(parts[0].text).trim()) return null
+    if (pos === 1) {
+      const l = detectLang(r.text)
+      return { lang: l === 'unknown' ? origLang : l, kind: 'original' as LyricKind }
+    }
+    // 勾选「含音译」：组内最后一行判音译（不管 2 行还是 3+ 行，勾选即声明）
+    if (hasRoman && pos === parts.length) {
+      return { lang: romanLangOf(origLang), kind: 'romanization' as LyricKind }
+    }
     const l = detectLang(r.text)
-    const lang = l === 'unknown' ? origLang : l
-    return pos === 1
-      ? { lang, kind: 'original' as LyricKind }
-      : { lang, kind: 'translation' as LyricKind }
+    return { lang: l === 'unknown' ? origLang : l, kind: 'translation' as LyricKind }
   })
 
   // 组装 versions（按 lang+kind 分组，元数据行归原文版本）
@@ -1678,7 +1927,7 @@ export function splitLrcToVersions(lrc: string): LyricVersion[] {
     return v
   }
   for (const m of meta) ensure(origLang, 'original').rows.push(m)
-  assigned.forEach((a, i) => ensure(a.lang, a.kind).rows.push(timed[i]))
+  assigned.forEach((a, i) => { if (a) ensure(a.lang, a.kind).rows.push(timed[i]) })
 
   const versions = [...map.values()]
   for (const v of versions) {

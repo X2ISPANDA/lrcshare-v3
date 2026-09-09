@@ -96,6 +96,7 @@
       <div class="text-xs mt-1" :class="lyrics ? (isTtml ? 'text-blue-500' : 'text-green-600') : 'text-gray-400'">
         {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : '✓ 识别为 LRC') : '支持自动识别格式' }}
       </div>
+      <el-checkbox v-if="!isTtml" v-model="hasRoman" size="small" class="mt-1">含音译（勾选后同戳组最后一行按音译拆分，2 行组也生效；不勾则除首行外均为翻译）</el-checkbox>
     </div>
 
     <el-button type="primary" class="w-full" :loading="submitting" @click="handleSubmit">
@@ -207,6 +208,8 @@ function onContributorChange() { /* el-select 选择/新建后响应式自动处
 
 // ============ 歌词输入 ============
 const lyrics = ref('')
+// 含音译标记：勾选后 LRC 同戳组末行按音译拆分（2 行组也生效）；TTML 不涉及
+const hasRoman = ref(false)
 const email = ref('')
 const isTtml = computed(() => {
   const raw = lyrics.value.trim()
@@ -266,7 +269,7 @@ async function handleSubmit() {
     lrcText = rowsToLrcText(rows)
     parsedGroups = [{ lang: 'und', kind: 'original', rows }]
   } else {
-    const split = splitLrcToVersions(raw)
+    const split = splitLrcToVersions(raw, { hasRoman: hasRoman.value })
     const vers = split
       .filter(v => v.rows.some(r => r.time_ms != null && r.text.trim()))
       .map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
@@ -348,6 +351,7 @@ async function handleSubmit() {
     ElMessage.success('补充版本已提交，进入审核队列')
     // 重置歌词（歌曲/贡献者保留，同人连投常用）
     lyrics.value = ''
+    hasRoman.value = false
     emit('submitted')
   } catch (e: any) {
     console.error(e)

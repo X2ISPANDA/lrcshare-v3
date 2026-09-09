@@ -140,7 +140,7 @@
               </div>
               <div>
                 <div class="text-xs text-gray-500 mb-1">多语言版本（{{ row.versions?.length || 0 }} 个，已自动拆分，可调整）</div>
-                <LyricVersionsEditor v-model="row.versions" />
+                <LyricVersionsEditor v-model="row.versions" :has-roman="!!row.hasRoman" @update:has-roman="(v: boolean) => resplitRowVersions(row, v)" />
               </div>
             </div>
           </template>
@@ -289,6 +289,8 @@ interface BatchRow {
   fileName: string
   /** 多语言版本（上传时自动拆分，展开行可调整） */
   versions: LyricVersionForm[]
+  /** 含音译标记：勾选后同戳组末行按音译拆分（2 行组也生效），切换即按 lrcText 重拆 */
+  hasRoman: boolean
   /** 行级覆盖：留空/空数组 = 用①公共信息 */
   overrides: BatchOverrides
 }
@@ -341,9 +343,20 @@ function pushRow(lrcText: string, fileName: string) {
     lrcText: text,
     fileName,
     versions: vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) })),
+    hasRoman: false,
     overrides: emptyOverrides(),
   })
   return true
+}
+
+/** 「含音译」勾选切换：按该行 LRC 全文以新规则重拆（覆盖手工微调，与后台编辑器一致）。
+ *  参数用 any：el-table 展开行插槽的 row 推断为 element-plus DefaultRow，实际即 BatchRow */
+function resplitRowVersions(row: any, hasRoman: boolean) {
+  row.hasRoman = hasRoman
+  const text = (row.lrcText || '').trim()
+  if (!text) return
+  const vers = splitLrcToVersions(text, { hasRoman })
+  row.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
 }
 
 async function onFilesChosen(e: Event) {
