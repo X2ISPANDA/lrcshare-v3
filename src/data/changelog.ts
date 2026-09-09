@@ -21,6 +21,27 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-09-09",
+    "entries": [
+      {
+        "title": "后台 LRC 编辑重构：轨平铺对齐 TTML 模式",
+        "body": "LRC tab 从「版本下拉切换」改为与 TTML tab 一致的轨卡片模式：原文轨固定首个、翻译/音译轨新增即平铺独立卡片（左右双区输入），增删轨不再整版本切换；打开编辑器自动回填该版本完整版 LRC（原文 + 全部翻译/音译合成视图）；拆分/合成逻辑下沉 lyricLines.ts 按容器（version_id）分组重构（groupVersionsByContainer），多版本写回 lrc_text 合成去重（元数据头部去重 + 同戳同文本行去重 + 稳定排序）"
+      },
+      {
+        "title": "投稿 / 批量投稿 / 审核支持「含音译」勾选",
+        "body": "投稿页与批量投稿面板新增「含音译」勾选：勾选后同戳组末行按音译拆分（2 行组也生效），切换即按已粘贴 LRC 全文重拆（与后台编辑器同口径）；批量投稿每行独立勾选互不影响。审核列表行内同样支持，勾选态由投稿版本是否含音译轨自动派生（无 LRC 全文的存疑投稿提示手动调整，不静默失败）"
+      },
+      {
+        "title": "歌曲页 LRC 结构化渲染 + TTML 注音开关",
+        "body": "文本歌词 tab 新增 LRC 行表结构化层：原文大字、译文/音译灰字随行（同时间戳分组），类型（全部/原文/译文/音译）× 语言双下拉筛选，无行表数据自动回退 lrc_text 纯文本。TTML 结构化层新增语言筛选与注音开关——开 = 音译逐字与原文字时间配对融合成拼音读本（起始时间 ±2ms 快速通道 + IoU 兜底），关 = 音译回退独立灰字随行；行内 x-roman 音译（AMLL 解析丢弃词表）由前端自行扫 DOM 补齐词级偏移。「全部复制」与当前显示同源（含筛选结果），不再与屏幕内容脱节"
+      },
+      {
+        "title": "开放 API lyric_lines 透出行级扩展与 head 元数据",
+        "body": "`lyric_lines=1` 响应新增可选扩展字段（不传/无数据时输出结构与原先完全一致）：TTML 源拆行的 rows 每行按需携带 agent（ttm:agent 演唱者引用）与 song_part（div itunes:songPart 段落标注）；顶层按需携带 agents（head <ttm:agent> 列表，含 id/type/name）与 metadata（head 元数据元素树：songwriters 按官方结构重建、自定义 amll:meta 从解析结果还原为同级重复元素）。供 Lyrico 歌词插件结构化协议（structured 扩展位）消费，实现多人演唱者、段落标注、创作者署名全链路透传"
+      }
+    ]
+  },
+  {
     "date": "2026-09-06",
     "entries": [
       {

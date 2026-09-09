@@ -805,7 +805,15 @@ function composeLrc(versions, format) {
     const rank = k => (k === 'original' ? 0 : k === 'translation' ? 1 : 2)
     return rank(a.kind) - rank(b.kind) || a.lang.localeCompare(b.lang)
   })
-  const body = lines.map(l => {
+  // 同戳同文本去重（剥词标签后比较；排序后 original 在最前，公共行/重复堆行以原文为准）
+  const seenLine = new Set()
+  const deduped = lines.filter(l => {
+    const key = `${l.time_ms}|${stripWordTags(l.text).trim()}`
+    if (seenLine.has(key)) return false
+    seenLine.add(key)
+    return true
+  })
+  const body = deduped.map(l => {
     if (format === 'verbatim') return composeVerbatimText(l.text, l.time_ms, l.end_ms) // 无独立行首，词1时间=行时间
     const text = format === 'enhanced' ? composeEnhancedText(l.text, l.time_ms, l.end_ms) : stripWordTags(l.text)
     return `[${formatLyricTime(l.time_ms)}]${text}`
@@ -1008,12 +1016,20 @@ function parseTtmlVersionsWorker(xml, cache) {
   // original
   const originalRows = result.lines
     .filter(l => l.text.trim())
-    .map(l => ({
-      seq: 0,
-      time_ms: l.startTime,
-      end_ms: l.endTime,
-      text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
-    }))
+    .map(l => {
+      const row = {
+        seq: 0,
+        time_ms: l.startTime,
+        end_ms: l.endTime,
+        text: l.words?.length ? syllablesToText(l.words, l.startTime) : l.text,
+      }
+      // 行级扩展（→ Lyrico structured 扩展协议 Line 第 4 元素数据源）：
+      // AMLL 解析出的 ttm:agent（演唱者引用）与祖先 div 的 itunes:songPart（段落标注），
+      // 仅存在时携带（老数据/无扩展 TTML 输出结构与原先一致）
+      if (l.agentId) row.agent = l.agentId
+      if (l.songPart) row.song_part = l.songPart
+      return row
+    })
   if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
 
   // translation / romanization：按语言分组
@@ -1038,6 +1054,53 @@ function parseTtmlVersionsWorker(xml, cache) {
 
   if (cache) cache.set(key, versions)
   return versions
+}
+
+/**
+ * TTML head 扩展信息（→ Lyrico structured 扩展协议顶层 agents/metadata 数据源）。
+ * AMLL 解析器把 head 元数据平铺进 result.metadata（agents/songwriters/rawProperties），
+ * 此处重建为宿主 LyricsMetadataElement 元素树形态（plugin-functions.md 扩展字段协议）：
+ * - agents：head <ttm:agent> 列表（id/type/name，仅存在字段携带）
+ * - metadata：songwriters 按官方结构重建（songwriters 包裹带文本的 songwriter children）；
+ *   自定义 amll:meta key 被 AMLL 平铺为 rawProperties（key → 值数组），还原为同级重复的 amll:meta 元素
+ *   （namespace 为 AMLL 库 NS.AMLL 定义值 "http://www.example.com/ns/amll"）
+ * 已知 amll:meta key（musicName/artists/album/isrc 等）AMLL 归入结构化字段、不在 rawProperties，
+ * 与 tags（ti/ar/al）信息重复故不重建。解析失败返回 null（head 扩展为纯增量，失败不影响行表输出）。
+ * cache 与 parseTtmlVersionsWorker 共用请求级 Map，key 加 'head:' 前缀区分。
+ */
+function parseTtmlHeadWorker(xml, cache) {
+  const key = String(xml || '')
+  if (cache) {
+    const hit = cache.get('head:' + key)
+    if (hit) return hit
+  }
+  let head = null
+  try {
+    const result = amllParser.parse(key)
+    const meta = (result && result.metadata) || {}
+    head = {}
+    const agents = Object.values(meta.agents || {}).map(a => {
+      const o = { id: a.id }
+      if (a.type) o.type = a.type
+      if (a.name) o.name = a.name
+      return o
+    })
+    if (agents.length) head.agents = agents
+    const metadata = []
+    if (Array.isArray(meta.songwriters) && meta.songwriters.length) {
+      metadata.push({ name: 'songwriters', children: meta.songwriters.map(s => ({ name: 'songwriter', text: s })) })
+    }
+    for (const [k, values] of Object.entries(meta.rawProperties || {})) {
+      for (const v of values || []) {
+        metadata.push({ name: 'amll:meta', namespace: 'http://www.example.com/ns/amll', attributes: { key: k, value: v } })
+      }
+    }
+    if (metadata.length) head.metadata = metadata
+  } catch {
+    head = null
+  }
+  if (cache) cache.set('head:' + key, head)
+  return head
 }
 
 /** 计算歌词字段（lyric_versions/lrc/lyric_lines/lyrics），供 handleSong 与 handleLyric 复用。
@@ -1168,7 +1231,17 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
             source: (v.source_vid && metaById.has(v.source_vid)) ? metaById.get(v.source_vid).source : null,
             comment: (v.source_vid && versionCredits.get(v.source_vid)) || null,
           }))
-        fields.lyricLines = { primary_lang: primaryLang, versions: outVersions }
+        const lyricLinesOut = { primary_lang: primaryLang, versions: outVersions }
+        // TTML 源 head 扩展（演唱者 agents / 创作者与自定义元数据 metadata）挂顶层：
+        // 行级扩展已在 rows（agent/song_part，拆行时提取），此处补文档级；
+        // 取第一个 TTML 容器（与 mergeVersionsForWord 的 ttml 最优先占坑序一致），
+        // 仅存在时携带——无扩展或解析失败时输出结构与原先一致
+        const ttmlSource = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
+        if (ttmlSource) {
+          const head = parseTtmlHeadWorker(ttmlSource.ttml_text, ttmlCache)
+          if (head && (head.agents || head.metadata)) Object.assign(lyricLinesOut, head)
+        }
+        fields.lyricLines = lyricLinesOut
       }
 
       // 合成 lrc + lyrics 数组（显式指定格式或语言切片）
