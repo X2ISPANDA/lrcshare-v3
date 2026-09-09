@@ -1208,6 +1208,19 @@ function parseTtmlHeadWorker(xml, cache) {
     // 根属性 itunes:timing（如 "Word"）：词级时间标志，导出还原 <tt itunes:timing="..."> 用
     const timingMatch = /<tt\b[^>]*\bitunes:timing\s*=\s*["']([^"']+)["']/.exec(key)
     if (timingMatch) head.timing = timingMatch[1]
+    // 根 <tt xml:lang>（如 zh-Hans）：站内码转 BCP47 输出码（zh → zh-Hans；yue → zh-Hant），
+    // 供下游（Lyrico structured 协议 language 字段）还原根 xml:lang 用；und（未知）/缺失时省略。
+    // AMLL 只读根标签 xml:lang；历史数据语言可能标在 <body> 上 → 与 parseTtmlVersionsWorker 同口径正则兜底
+    if (meta.language) {
+      const langCode = lrcLangToTtml(normalizeLang(meta.language))
+      if (langCode && langCode !== 'und') head.language = langCode
+    } else {
+      const m = /<body\b[^>]*?\bxml:lang\s*=\s*["']([^"']+)["']/i.exec(key)
+      if (m) {
+        const langCode = lrcLangToTtml(normalizeLang(m[1]))
+        if (langCode && langCode !== 'und') head.language = langCode
+      }
+    }
   } catch {
     head = null
   }
@@ -1336,6 +1349,9 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
         const outVersions = (lyricLang || translationLangs.length ? selectVersions(filled, effLyricLang, translationLangs) : filled)
           .map(v => ({
             lang: v.lang,
+            // BCP47 输出码（zh → zh-Hans；zh-Latn-jyutping 等原样）：TTML 写回 xml:lang 用。
+            // lang 保持站内码不动（主站 UI 筛选依赖），新增字段供下游（Lyrico structured 协议语言码）消费
+            ttml_lang: lrcLangToTtml(v.lang),
             kind: v.kind,
             rows: v.rows,
             // 版本级来源与署名：跨容器合并时按占坑容器计（内容来自哪个 lyric_versions 就署哪个），
@@ -1351,7 +1367,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
         const ttmlSource = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
         if (ttmlSource) {
           const head = parseTtmlHeadWorker(ttmlSource.ttml_text, ttmlCache)
-          if (head && (head.agents || head.metadata || head.timing)) Object.assign(lyricLinesOut, head)
+          if (head && (head.agents || head.metadata || head.timing || head.language)) Object.assign(lyricLinesOut, head)
         }
         fields.lyricLines = lyricLinesOut
       }
