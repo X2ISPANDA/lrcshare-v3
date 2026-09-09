@@ -359,7 +359,7 @@ function apiIndex() {
     homepage: `https://${SITE_DOMAIN}`,
     docs: `https://api.${SITE_DOMAIN}/docs/`,
     endpoints: {
-      search: '/v1/search?keyword=|title=&artist=&type=song|album|artist|lyric',
+      search: '/v1/search?keyword=|title=&artist=&type=song|album|artist|lyric (artist 可重复传值=多艺人数组，见文档)',
       catalog: '/v1/catalog',
       songs: '/v1/songs?limit=&offset=',
       song: '/v1/song/:id',
@@ -378,7 +378,11 @@ function apiIndex() {
 async function handleSearch(env, url) {
   const keyword = (url.searchParams.get('keyword') || '').trim()
   const title = (url.searchParams.get('title') || '').trim()
-  const artist = (url.searchParams.get('artist') || '').trim()
+  // artist 支持重复传值（?artist=A&artist=B）→ 数组模式：每个元素视为一个完整艺人名（调用方已拆好），
+  // 库端按元素 AND 精确匹配，不做斜杠再拆分；单值仍走 p_artist 字符串模式（服务端可斜杠拆分，模糊兜底）
+  const artistValues = url.searchParams.getAll('artist').map(v => v.trim()).filter(Boolean)
+  const artist = artistValues.length === 1 ? artistValues[0] : ''
+  const artistArr = artistValues.length > 1 ? artistValues : null
   const type = url.searchParams.get('type') || 'song'
   const { limit, offset } = parsePage(url)
   if (!['song', 'album', 'artist', 'lyric'].includes(type)) {
@@ -387,13 +391,17 @@ async function handleSearch(env, url) {
 
   // 结构化查询：title（歌名/专辑名）× artist（演唱者/专辑艺术家，均含别名），AND 语义。
   // 面向打标工具（关键词来自文件 tag 的 TIT2/TPE1、TALB/TPE2）；别名匹配在库端 RPC 完成
-  if (title || artist) {
+  if (title || artist || artistArr) {
     if (keyword) return jsonError(400, 'keyword and title/artist are mutually exclusive')
     if (type !== 'song' && type !== 'album') {
       return jsonError(400, 'title/artist only supports type=song or type=album')
     }
+    // artist 数组模式仅 song 维度支持（专辑结构化 RPC 未升级，避免静默降级成仅首元素）
+    if (artistArr && type === 'album') {
+      return jsonError(400, 'multiple artist parameters only support type=song')
+    }
     return type === 'song'
-      ? handleSongSearchStructured(env, title, artist, limit, offset)
+      ? handleSongSearchStructured(env, title, artist, artistArr, limit, offset)
       : handleAlbumSearchStructured(env, title, artist, limit, offset)
   }
 
@@ -452,17 +460,22 @@ async function handleSearch(env, url) {
 
 // ---------- 结构化搜索（title/artist → 库端 RPC） ----------
 
-async function handleSongSearchStructured(env, title, artist, limit, offset) {
+async function handleSongSearchStructured(env, title, artist, artistArr, limit, offset) {
   // select 必须裸列（无嵌套资源）：同 keyword 搜索，保函数输出序，关联由 enrichSongRows 补齐
   const params = { select: 'id,title,album_id,genres', limit: String(limit), offset: String(offset) }
   if (title) params.p_title = title
-  if (artist) params.p_artist = artist
+  // artist 数组模式 → p_artist_arr（PostgREST GET 按 PG 数组字面量解析，JSON 数组会 400）：
+  // 每元素=调用方拆好的完整艺人名，AND 精确匹配；元素内反斜杠/双引号按 PG 语法转义
+  if (artistArr) {
+    params.p_artist_arr = '{' + artistArr.map(e => '"' + e.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"').join(',') + '}'
+  }
+  else if (artist) params.p_artist = artist
   const result = await pgRpc(env, 'search_songs_structured', params)
   if (!result) return jsonError(502, 'upstream error')
   const rows = await enrichSongRows(env, result.data || [])
   if (!rows) return jsonError(502, 'upstream error')
   const items = await assembleSummaries(env, rows)
-  return jsonOk({ title, artist, type: 'song', total: result.total, items }, TTL_LIST)
+  return jsonOk({ title, artist: artistArr || artist, type: 'song', total: result.total, items }, TTL_LIST)
 }
 
 async function handleAlbumSearchStructured(env, title, artist, limit, offset) {

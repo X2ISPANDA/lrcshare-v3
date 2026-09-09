@@ -21,6 +21,19 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-09-10",
+    "entries": [
+      {
+        "title": "开放 API 结构化查询支持多艺人（artist 数组 + 斜杠拆分）",
+        "body": "合作曲查询新增两种传法（均 AND 语义，仅 type=song）：①推荐数组模式——artist 参数重复传值（?artist=A&artist=B），每元素视为一个完整艺人名精确匹配，元素不再被拆分（名字含斜杠的艺人如 AC/DC 作整名）；②兜底斜杠串模式——单值 artist=A/B/C 时服务端按 / 拆段匹配（单字符段丢弃防灌水），整串恰为库内艺人名时按单人处理；子串穿透使含斜杠艺人名（R/Aph）无需拼回即被自身碎片命中。歧义/极端场景文档注明用 title 锁定。单值无斜杠路径逐字节不变，现有调用方零影响"
+      },
+      {
+        "title": "修复含特殊字符搜索词导致搜索接口 502",
+        "body": "数据库 song_tok_strong 的 ASCII 整词分支存在正则转义缺陷：替换串 \\\\1 在 SCS 模式下产生字面 \\1，拼入正则后变成引用不存在的分组，含 . + ( 等正则特殊字符的纯英文搜索词（如 BuzzY.D/NKidd）触发 invalid backreference number 报错导致 API 502。修复为 \\\\\\1（字面反斜杠 + 组引用，特殊字符正确加转义前缀）；CJK 路径与无特殊字符搜索不受影响"
+      }
+    ]
+  },
+  {
     "date": "2026-09-09",
     "entries": [
       {
