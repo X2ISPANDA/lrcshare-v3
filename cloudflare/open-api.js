@@ -789,6 +789,28 @@ function dedupeMeta(metaLines) {
     })
 }
 
+/**
+ * 音译行词间空格规范化（仅 LRC 文本合成层）：
+ * TTML sidecar 音译 <span> 之间无空格文本（AMLL 解析 endsWithSpace=false），
+ * 直接合成 LRC 剥掉词标签后拉丁音节挤成一串（nungmoucesok…）无法阅读。
+ * 此处按词标签分词后词间统一补一个空格（每个词先 rstrip 已有尾空格，避免重复），
+ * 词标签结构完整保留（enhanced/verbatim 的逐字时间戳不丢）；无词标签的整行音译仅 trim。
+ * 原文（汉字）不调用——汉字无需空格分词，且源 span 间空格已由 endsWithSpace 正确标记。
+ */
+function normalizeRomanWordSpaces(text) {
+  const s = String(text || '')
+  if (!/<\d{1,6}(?::\d{1,6})?>/.test(s)) return s.trim()
+  const words = parseWordTags(s)
+  return words.map((w, i) => {
+    const wordText = w.text.replace(/\s+$/g, '')
+    // 与 syllablesToText 同规则：首词偏移 0 且无词长时省略标签，其余保留 <偏移:词长>
+    const piece = (w.offset_ms === 0 && w.duration_ms <= 0)
+      ? wordText
+      : `<${w.offset_ms}:${w.duration_ms}>${wordText}`
+    return (i === 0 ? '' : ' ') + piece
+  }).join('')
+}
+
 /** 合成 LRC 文本（line/enhanced/verbatim）：元数据头部 + 选中版本歌词合并 + 稳定排序 + 格式化 */
 function composeLrc(versions, format) {
   const lines = []
@@ -799,7 +821,9 @@ function composeLrc(versions, format) {
         meta.push(r.text) // 元数据行（完整 [ti:xxx]）
         continue
       }
-      lines.push({ time_ms: r.time_ms, end_ms: r.end_ms, kind: v.kind, lang: v.lang, text: r.text })
+      // 音译行词间补空格（拉丁音节分词，仅 LRC 文本；原文汉字不动）
+      const rowText = v.kind === 'romanization' ? normalizeRomanWordSpaces(r.text) : r.text
+      lines.push({ time_ms: r.time_ms, end_ms: r.end_ms, kind: v.kind, lang: v.lang, text: rowText })
     }
   }
   lines.sort((a, b) => {

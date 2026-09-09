@@ -24,6 +24,10 @@ export const changelog: ChangelogDate[] = [
     "date": "2026-09-09",
     "entries": [
       {
+        "title": "开放 API 修复 LRC 音译行：拉丁音节挤在一起、无空格分词",
+        "body": "TTML 源音译 sidecar 的 <span> 之间本无空格文本（AMLL 解析 endsWithSpace=false），合成 LRC（enhanced/verbatim/纯文本）剥掉词时间标签后粤拼/罗马音音节挤成一串（nungmoucesok…）无法阅读。现 LRC 文本合成层对音译行按词标签分词后词间统一补一个空格（逐字时间戳完整保留），输出 nung mou ce ci… 可读形态；原文汉字不受影响（无需空格分词）"
+      },
+      {
         "title": "后台 LRC 编辑重构：轨平铺对齐 TTML 模式",
         "body": "LRC tab 从「版本下拉切换」改为与 TTML tab 一致的轨卡片模式：原文轨固定首个、翻译/音译轨新增即平铺独立卡片（左右双区输入），增删轨不再整版本切换；打开编辑器自动回填该版本完整版 LRC（原文 + 全部翻译/音译合成视图）；拆分/合成逻辑下沉 lyricLines.ts 按容器（version_id）分组重构（groupVersionsByContainer），多版本写回 lrc_text 合成去重（元数据头部去重 + 同戳同文本行去重 + 稳定排序）"
       },
