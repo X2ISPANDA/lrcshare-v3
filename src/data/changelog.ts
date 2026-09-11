@@ -21,6 +21,19 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-09-11",
+    "entries": [
+      {
+        "title": "开放 API 行表透传词级 Ruby 注音（支持多音节）",
+        "body": "lyric_lines=1 的原文行按需新增 rubies 字段：行内带注音（日文振假名等）的词输出稀疏列表，每项 {word_index, syllables}，word_index 为词在该行的序号（与 text 词标签一一对应），syllables 为 [[音节起点ms, 音节终点ms, \"注音\"], ...]，一个基文本可对应多个音节（如「詮」→ せ/ん 各自独立时间），时间缺失为 null。数据直接取自 AMLL 解析的 Syllable.ruby，不自行解析 XML；仅原文轨投影（注音只出现在原文），译文/音译轨不携带；无注音的行不带该字段，旧消费方与 ttml_text 字符级真相源均零影响。配套 Lyrico 宿主 structured 协议词第 4 元素与 TTML 四层 ruby 结构写回（独立 PR）"
+      },
+      {
+        "title": "开放 API 行表透传 body dur（<body> 参考总时长）",
+        "body": "lyric_lines=1 响应顶层按需新增 body_dur：TTML 源 <body dur=\"...\"> 参考总时长（AMLL 规范：可选、不影响时长计算，仅供参考）按 TTML 时间字符串原文透传（如 04:24.660，不做格式转换、不随时间偏移改动），供下游（Lyrico structured 协议新增 bodyDur 字段，配套宿主独立 PR）写回时还原 <body dur>。AMLL DB 实际文件几乎每首带 body dur，此前经 structured 重编码导出会丢失；raw 原文 ttml_text 本就字符级保留不受影响。无 dur 或非 TTML 源省略该字段，旧消费方零影响"
+      }
+    ]
+  },
+  {
     "date": "2026-09-10",
     "entries": [
       {

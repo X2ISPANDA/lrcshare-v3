@@ -114,7 +114,20 @@ curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 ```
 
 - `rows[]` 按 `seq` 升序；`time_ms` 为行开始毫秒，`end_ms` 仅逐字行有值
-- `text` 中的 `<毫秒>` 为相对行首的词偏移；`time_ms` 为 `null` 的行是元数据行（`[ti:...]` 等）
+- `text` 中的 `<毫秒>` 为相对行首的词偏移，双值标签 `<偏移:词长>` 中词长为演唱时长（毫秒，消费方可精确还原词结束时间）；`time_ms` 为 `null` 的行是元数据行（`[ti:...]` 等）
+- 对 TTML 源，逐字原文行还可能按需携带行级扩展（无数据则省略，旧消费方无感知）：`attrs`（`<p>` 上除 begin/end 外的全部属性原样，如 `ttm:agent`/`itunes:key`/`ttm:role`）、`agent`（演唱者 id 兜底映射）、`song_part`（段落标注）、`div_begin`/`div_end`（段首行携带的段落时间窗毫秒）、`rubies`（词级注音）
+- `rubies` 为行内带注音词的稀疏列表（仅原文轨），`word_index` 是词在该行的序号（与 `text` 词标签顺序一一对应），`syllables` 为 `[[音节起点ms, 音节终点ms, "注音"], ...]`，一个基文本可对应多个音节（多音节振假名），时间缺失为 `null`；无注音的行不带该字段：
+
+```json
+{ "seq": 12, "time_ms": 27690, "end_ms": 28000,
+  "text": "<0:130>所<130:130>詮",
+  "rubies": [
+    { "word_index": 0, "syllables": [[27690, 27820, "しょ"]] },
+    { "word_index": 1, "syllables": [[27820, 27880, "せ"], [27880, 27950, "ん"]] }
+  ] }
+```
+
+- 对 TTML 源，`lyric_lines` 顶层还可能按需携带扩展投影（无数据则省略，旧消费方无感知）：`timing`（根 `itunes:timing` 词级标志）、`language`（原文语言码 BCP47）、`agents`（演唱者列表）、`metadata`（head 元数据元素树）、`body_dur`（`<body dur>` 参考总时长，AMLL 规范中可选且不影响时长计算；TTML 时间字符串原文透传，如 `04:24.660`，不做格式转换）
 - `source` / `comment` 为该版本歌词的**实际来源与署名**：多个歌词版本跨容器合并时按占坑容器计（高质量容器优先）。写入音乐文件的署名应取实际采用版本的 `comment`（多来源去重并列），**不要用歌曲顶层 `comment`**——它只代表默认版本，词级歌词可能来自其他版本（如 LunaBeat TTML）
 
 ## 歌词格式 {#lyric-formats}

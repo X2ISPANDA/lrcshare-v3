@@ -1024,6 +1024,35 @@ function syllablesToText(words, lineStart) {
   }).join('')
 }
 
+/** 逐词提取 Ruby 注音（AMLL Syllable.ruby: RubyTag[]，每项 { text, startTime, endTime }）。
+ *  行表 text 只承载基文本与词时间，注音作为行上独立的结构化字段投影（不污染字符级真相源）：
+ *  - 仅输出带有效注音的词（稀疏），整行无注音返回 null，老数据行结构与原先一致；
+ *  - word_index = AMLL 行内词序下标，与行表词标签 <偏移:词长> 解析出的词序一一对应
+ *    （有注音的词由带 begin/end 的 rt 推导，必然携带词时间标签）；
+ *  - syllables 与 Lyrico structured 词第 4 元素同构：[[音节起点ms, 音节终点ms, "注音"], ...]，
+ *    一个基文本可对应多个音节（多音节注音）；时间缺失用 null 占位（消费方按词时间兜底）；
+ *  - 音节文本为空的无效项丢弃；一个词的注音全部无效时不输出该词。
+ *  首批仅投影原文轨（日文振假名等注音只出现在原文；译文/音译轨不携带） */
+function extractRowRubies(words) {
+  if (!Array.isArray(words)) return null
+  const rubies = []
+  for (let i = 0; i < words.length; i++) {
+    const tags = words[i] && words[i].ruby
+    if (!Array.isArray(tags) || !tags.length) continue
+    const syllables = []
+    for (const r of tags) {
+      if (!r || !r.text) continue
+      syllables.push([
+        typeof r.startTime === 'number' ? r.startTime : null,
+        typeof r.endTime === 'number' ? r.endTime : null,
+        r.text,
+      ])
+    }
+    if (syllables.length) rubies.push({ word_index: i, syllables })
+  }
+  return rubies.length ? rubies : null
+}
+
 /** 排序 + 分配 seq */
 function finalizeTtmlRows(rows) {
   rows.sort((a, b) => a.time_ms - b.time_ms)
@@ -1165,6 +1194,11 @@ function parseTtmlVersionsWorker(xml, cache) {
           if (entry.divEndMs != null) row.div_end = entry.divEndMs
         }
       }
+      // 词级 Ruby 注音投影（→ Lyrico structured 词第 4 元素数据源）：
+      // 行内带注音的词输出稀疏列表 {word_index, syllables:[[起点ms,终点ms,"注音"],...]}，
+      // 无注音的行不携带该字段（老数据结构不变）
+      const rubies = extractRowRubies(l.words)
+      if (rubies) row.rubies = rubies
       return row
     })
   if (originalRows.length) versions.push({ lang: rootLang, kind: 'original', rows: finalizeTtmlRows(originalRows) })
@@ -1245,6 +1279,11 @@ function parseTtmlHeadWorker(xml, cache) {
     // 根属性 itunes:timing（如 "Word"）：词级时间标志，导出还原 <tt itunes:timing="..."> 用
     const timingMatch = /<tt\b[^>]*\bitunes:timing\s*=\s*["']([^"']+)["']/.exec(key)
     if (timingMatch) head.timing = timingMatch[1]
+    // <body dur="..."> 参考总时长（AMLL 规范：可选、不影响时长计算，仅供参考）：
+    // TTML 时间字符串原文透传（如 04:24.660），供下游（Lyrico structured 协议 bodyDur 字段）
+    // 写回 <body dur> 用，不做格式转换；缺失时省略（旧下游无感知）
+    const bodyDurMatch = /<body\b[^>]*?\bdur\s*=\s*["']([^"']+)["']/i.exec(key)
+    if (bodyDurMatch) head.body_dur = bodyDurMatch[1]
     // 根 <tt xml:lang>（如 zh-Hans）：站内码转 BCP47 输出码（zh → zh-Hans；yue → zh-Hant），
     // 供下游（Lyrico structured 协议 language 字段）还原根 xml:lang 用；und（未知）/缺失时省略。
     // AMLL 只读根标签 xml:lang；历史数据语言可能标在 <body> 上 → 与 parseTtmlVersionsWorker 同口径正则兜底
@@ -1404,7 +1443,7 @@ async function buildLyricFields(env, id, url, versionMetas, contributorNames) {
         const ttmlSource = versionMetas.find(v => v.format === 'ttml' && v.ttml_text)
         if (ttmlSource) {
           const head = parseTtmlHeadWorker(ttmlSource.ttml_text, ttmlCache)
-          if (head && (head.agents || head.metadata || head.timing || head.language)) Object.assign(lyricLinesOut, head)
+          if (head && (head.agents || head.metadata || head.timing || head.language || head.body_dur)) Object.assign(lyricLinesOut, head)
         }
         fields.lyricLines = lyricLinesOut
       }
