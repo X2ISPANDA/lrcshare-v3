@@ -204,6 +204,7 @@
       :hide-contributor="true"
       :initial="reviewInitial"
       :submission-info="reviewSubmissionInfo"
+      :review-loading="approving"
       @review-data="onReviewData"
       @reject="onReviewReject"
     />
@@ -1111,19 +1112,28 @@ function onAlbumSaved(p: { albumId: string; name: string; year: number | null; c
 }
 
 // ============ 通过发布（事务链，迁移自 v2 并统一 lyricist/composer 存 ID） ============
+/** 单曲审核通过处理中锁：弹窗「通过」按钮点击后到发布链结束前禁止二次触发
+ *  （publishSubmission 内的条件更新只能防并发，防不住弹窗未关前的快速连点） */
+const approving = ref(false)
 /** 单曲审核通过（弹窗内） */
 async function approve(sub: ReviewItem | null) {
-  if (!sub) return
-  const res = await publishSubmission(sub, newArtistsList.value)
-  // ok 正常完成；stale = 该投稿已被处理过（重复点击/并发），提示由 publishSubmission 内部给出，同样关弹窗刷新
-  if (res === 'ok' || res === 'stale') {
-    showReview.value = false
-    showSongReview.value = false
-    await load()
+  if (!sub || approving.value) return
+  approving.value = true
+  try {
+    const res = await publishSubmission(sub, newArtistsList.value)
+    // ok 正常完成；stale = 该投稿已被处理过（重复点击/并发），提示由 publishSubmission 内部给出，同样关弹窗刷新
+    if (res === 'ok' || res === 'stale') {
+      showReview.value = false
+      showSongReview.value = false
+      await load()
+    }
+  } finally {
+    // error 分支也要解锁：发布失败回滚 pending 后审核员需能重新点「通过」重试
+    approving.value = false
   }
 }
 
-/** 发布一条投稿（事务链：状态 → 邮件 → 建艺术家/补 type → 贡献者四路 → 专辑 → 歌曲）。
+/** 发布一条投稿（事务链：状态 → 建艺术家/补 type → 贡献者四路 → 专辑 → 歌曲 → 成功后发邮件）。
  *  单曲审核与批量通过共用；silent 时逐条静默（批量场景由调用方汇总结果）。
  *  skipMail：批量按批合并邮件场景跳过单曲邮件（由调用方统一发 batch 邮件）。
  *  返回 'ok' | 'missing'（新建艺术家未填 ID）| 'error' */
@@ -1169,11 +1179,10 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
       return 'stale'
     }
 
-    // 3. 邮件通知（SMTP 由服务端读取，失败不阻塞；批量按批合并时跳过，由调用方统一发）
-    if (!skipMail) {
-      const to = await emailOf(sub)
-      notifyByEmail({ action: 'approve', to, user_name: sub.user_name, song_title: isProfile ? '资料更新' : isVersion ? ('补充版本：' + (sd.song_title || sd.title)) : sd.title }, '通过', sub.user_name)
-    }
+    // 3. 邮件通知已挪到整条发布链全部成功之后（见函数末尾 return 'ok' 前）：
+    //    旧实现此处状态刚改 approved 就发信，后续建实体步骤若在任何产物落库前失败，
+    //    catch 会把状态回滚成 pending，审核员重试即发出第二封「审核通过」邮件。
+    //    批量按批合并场景仍由 skipMail 跳过、调用方在批尾统一发 batch 邮件。
 
     // 4. 插入新建艺术家并回填 ID；已有艺术家缺当前字段类型 → array_append 补上（资料更新/补充版本跳过）
     const nameToId: Record<string, string> = {}
@@ -1439,6 +1448,14 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
 
     // 8. 记录发布产物（删除已通过投稿时级联回收用；失败不阻塞主流程）
     adminApi.update('submissions', sub.id, { published_refs: refs }).catch(e => console.warn('记录发布产物失败:', e?.message))
+
+    // 9. 审核通过邮件：整条发布链全部成功后才发（失败回滚重试绝不会重发）；
+    //    邮件本身失败不阻塞发布（notifyByEmail 内部已 try-catch 提示）；
+    //    批量按批合并时 skipMail=true，由调用方在批尾统一发 batch 合并邮件。
+    if (!skipMail) {
+      const to = await emailOf(sub)
+      notifyByEmail({ action: 'approve', to, user_name: sub.user_name, song_title: isProfile ? '资料更新' : isVersion ? ('补充版本：' + (sd.song_title || sd.title)) : sd.title }, '通过', sub.user_name)
+    }
 
     if (!silent) {
       const actionText = isProfile

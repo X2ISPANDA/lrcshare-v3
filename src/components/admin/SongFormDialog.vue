@@ -315,8 +315,8 @@
 
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button v-if="mode === 'review'" type="danger" plain :disabled="saving" @click="emit('reject')">❌ 拒绝</el-button>
-      <el-button type="success" :loading="saving" @click="save">
+      <el-button v-if="mode === 'review'" type="danger" plain :disabled="saving || reviewLoading" @click="emit('reject')">❌ 拒绝</el-button>
+      <el-button type="success" :loading="saving || reviewLoading" @click="save">
         {{ mode === 'review' ? '✅ 通过发布' : '保存' }}
       </el-button>
     </template>
@@ -391,6 +391,9 @@ const props = withDefaults(defineProps<{
     duplicateWarn?: string
     ttmlText?: string
   } | null
+  /** review 模式发布处理中状态（父组件 approve 锁透传）：review 分支 emit 后即返回，
+   *  本地 saving 不会置位，loading/禁用必须由父组件控制，防止发布链未结束前连点两次 */
+  reviewLoading?: boolean
 }>(), {
   initial: null,
   editSongId: null,
@@ -400,6 +403,7 @@ const props = withDefaults(defineProps<{
   hideContributor: false,
   mode: 'save',
   submissionInfo: null,
+  reviewLoading: false,
 })
 
 const emit = defineEmits<{
