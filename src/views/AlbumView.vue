@@ -71,7 +71,7 @@
                       </template>
                       <span v-else class="text-gray-500">{{ song.artist_name }}</span>
                     </td>
-                    <td class="col-dur text-gray-400 text-sm">{{ formatDuration(song.duration) }}</td>
+                    <td class="col-dur text-gray-400 text-sm">{{ song.duration || '—' }}</td>
                   </tr>
                 </RouterLink>
               </tbody>
@@ -93,7 +93,7 @@
                 <span class="text-[15px] font-semibold text-gray-800 truncate">{{ song.title }}</span>
                 <span class="text-xs text-gray-400 truncate">{{ songNames(song) }}</span>
               </div>
-              <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ formatDuration(song.duration) }}</span>
+              <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ song.duration || '—' }}</span>
             </RouterLink>
           </div>
         </div>
@@ -108,7 +108,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHead } from '@unhead/vue'
-import { api, formatDuration } from '@/lib/api'
+import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
 import { LOGO_URL } from '@/lib/constants'

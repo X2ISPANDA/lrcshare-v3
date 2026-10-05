@@ -17,7 +17,7 @@
       </div>
       <el-row :gutter="16">
         <el-col :span="12"><el-form-item label="歌曲名" required><el-input v-model="form.title" placeholder="歌曲标题" /></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="时长"><el-input v-model="form.duration" placeholder="03:30" /></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="时长"><DurationInput v-model="form.duration" /></el-form-item></el-col>
         <el-col :span="6"><el-form-item label="曲目号"><el-input-number v-model="form.track" :min="0" class="!w-full" /></el-form-item></el-col>
       </el-row>
 
@@ -346,6 +346,7 @@ import { syncSongContributors, syncSongSecrets } from '@/lib/contribRelations'
 import { adminApi } from '@/lib/adminApi'
 import { copyText } from '@/lib/clipboard'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import DurationInput from '@/components/common/DurationInput.vue'
 import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import RichTextToolbar from '@/components/admin/RichTextToolbar.vue'
 import RichContentView from '@/components/common/RichContentView.vue'
@@ -1513,7 +1514,7 @@ async function save() {
       album_cover: albumMap.value.get(form.albumId || '')?.cover || '',
       year: form.year,
       album_desc: albumMap.value.get(form.albumId || '')?.description || '',
-      duration: form.duration.trim(),
+      duration: form.duration.trim() || null,
       track: form.track ? String(form.track) : '',
       lyricist_arr: form.lyricists,
       composer_arr: form.composers,
@@ -1570,7 +1571,7 @@ async function save() {
       title: form.title.trim(),
       aliases: form.aliases.map(a => a.trim()).filter(Boolean),
       album_id: albumId,
-      duration: form.duration.trim(),
+      duration: form.duration.trim() || null,
       track: form.track || 0,
       lrc_text: finalLrcText,
       lyrics_text: form.lyrics_text || null,

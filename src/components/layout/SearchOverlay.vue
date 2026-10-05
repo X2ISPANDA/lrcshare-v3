@@ -81,7 +81,7 @@
                         <span v-html="highlight(song.artist_name)"></span> · <span v-html="highlight(song.album_name ?? '')"></span>
                       </div>
                     </div>
-                    <span class="text-xs text-gray-400 shrink-0 tabular-nums">{{ formatDuration(song.duration) }}</span>
+                    <span class="text-xs text-gray-400 shrink-0 tabular-nums">{{ song.duration || '—' }}</span>
                   </RouterLink>
                 </div>
 
@@ -160,7 +160,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import { api, formatDuration } from '@/lib/api'
+import { api } from '@/lib/api'
 import { highlightHtml, lrcSnippet } from '@/lib/highlight'
 import { LOGO_URL as DEFAULT_AVATAR } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'

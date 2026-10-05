@@ -4,6 +4,7 @@
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-3 px-5 py-3">
       <el-input v-model="keyword" placeholder="搜索名称 / 标签" clearable class="w-full sm:!w-64" :prefix-icon="Search" />
       <div class="flex-1"></div>
+      <el-button plain @click="openMerge">合并账号</el-button>
       <el-button type="primary" @click="openNew" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">+ 新增贡献者</el-button>
     </div>
 
@@ -146,12 +147,146 @@
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 合并账号弹窗：左=保留，右=被合并并删除；选定后逐字段挑选保留账号最终资料 -->
+    <el-dialog v-model="showMerge" title="合并贡献者账号" width="960px" :close-on-click-modal="false" top="6vh">
+      <!-- 第一步：左右双列选账号 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- 左列：保留账号 -->
+        <div class="border border-gray-200 rounded-lg flex flex-col min-h-0">
+          <div class="px-3 py-2 border-b border-gray-100 bg-pink-50/60 rounded-t-lg">
+            <div class="text-sm font-medium text-pink-600">① 保留的账号</div>
+          </div>
+          <div class="p-2 border-b border-gray-100">
+            <el-input v-model="kwLeft" placeholder="搜索名称 / 标签" size="small" clearable />
+          </div>
+          <div class="max-h-64 overflow-y-auto p-1.5 space-y-1">
+            <div
+              v-for="c in leftList" :key="c.id"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer border text-sm"
+              :class="mergeLeftId === c.id ? 'border-pink-400 bg-pink-50' : 'border-transparent hover:bg-gray-50'"
+              @click="mergeLeftId = c.id"
+            >
+              <img v-if="c.avatar" :src="c.avatar" class="w-7 h-7 rounded-full object-cover shrink-0" />
+              <div v-else class="w-7 h-7 rounded-full bg-pink-100 text-pink-500 flex items-center justify-center shrink-0 text-xs">{{ c.name?.charAt(0) }}</div>
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-gray-800">{{ c.name }}<el-tag v-if="c.is_owner" size="small" type="danger" class="ml-1">站长</el-tag></div>
+              </div>
+              <span class="text-xs text-gray-400 shrink-0">{{ songCount(c.id) }} 首</span>
+              <el-icon v-if="mergeLeftId === c.id" class="text-pink-500 shrink-0"><Check /></el-icon>
+            </div>
+            <div v-if="!leftList.length" class="text-center text-xs text-gray-300 py-6">无匹配账号</div>
+          </div>
+        </div>
+
+        <!-- 右列：被合并账号 -->
+        <div class="border border-gray-200 rounded-lg flex flex-col min-h-0">
+          <div class="px-3 py-2 border-b border-gray-100 bg-red-50/60 rounded-t-lg">
+            <div class="text-sm font-medium text-red-600">② 被合并的账号（合并后删除）</div>
+          </div>
+          <div class="p-2 border-b border-gray-100">
+            <el-input v-model="kwRight" placeholder="搜索名称 / 标签" size="small" clearable />
+          </div>
+          <div class="max-h-64 overflow-y-auto p-1.5 space-y-1">
+            <div
+              v-for="c in rightList" :key="c.id"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer border text-sm"
+              :class="mergeRightId === c.id ? 'border-red-400 bg-red-50' : 'border-transparent hover:bg-gray-50'"
+              @click="mergeRightId = c.id"
+            >
+              <img v-if="c.avatar" :src="c.avatar" class="w-7 h-7 rounded-full object-cover shrink-0" />
+              <div v-else class="w-7 h-7 rounded-full bg-pink-100 text-pink-500 flex items-center justify-center shrink-0 text-xs">{{ c.name?.charAt(0) }}</div>
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-gray-800">{{ c.name }}<el-tag v-if="c.is_owner" size="small" type="danger" class="ml-1">站长</el-tag></div>
+              </div>
+              <span class="text-xs text-gray-400 shrink-0">{{ songCount(c.id) }} 首</span>
+              <el-icon v-if="mergeRightId === c.id" class="text-red-500 shrink-0"><Check /></el-icon>
+            </div>
+            <div v-if="!rightList.length" class="text-center text-xs text-gray-300 py-6">无匹配账号</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第二步：逐字段挑选（两边都选中后出现） -->
+      <template v-if="leftContributor && rightContributor">
+        <el-divider content-position="left" class="!my-4">个人资料逐字段挑选（点击选用哪一边的值）</el-divider>
+        <div class="space-y-2">
+          <div class="grid grid-cols-[88px_1fr_1fr] gap-2 text-xs text-gray-400 px-1">
+            <span></span>
+            <span>① 保留账号</span>
+            <span>② 被合并账号</span>
+          </div>
+          <div v-for="f in MERGE_FIELDS" :key="f.key">
+            <!-- 联系方式特殊处理：按类型逐键挑选（两边都有的键二选一，仅一边有的可取消保留） -->
+            <template v-if="f.key === 'contact_value'">
+              <div class="grid grid-cols-[88px_1fr_1fr] gap-2 items-center pt-1">
+                <span class="text-xs text-gray-500 px-1">联系方式</span>
+                <span class="text-xs text-gray-400">点击保留；只在一边有的可再点一次取消</span>
+                <span></span>
+              </div>
+              <div v-for="k in mergeContactKeys" :key="k" class="grid grid-cols-[88px_1fr_1fr] gap-2 items-center">
+                <span class="text-xs text-gray-400 px-1 truncate">└ {{ contactLabel(k) }}</span>
+                <div
+                  v-if="contactVal(leftContributor, k)"
+                  class="border rounded-md px-2.5 py-1.5 text-sm cursor-pointer min-h-[34px] flex items-center"
+                  :class="contactChoice[k] === 'left' ? 'border-pink-400 bg-pink-50 text-gray-800' : 'border-gray-200 text-gray-400 hover:border-pink-200'"
+                  @click="chooseContact(k, 'left')"
+                >
+                  <span class="truncate">{{ contactVal(leftContributor, k) }}</span>
+                </div>
+                <div v-else class="border border-gray-100 rounded-md px-2.5 py-1.5 text-sm min-h-[34px] flex items-center text-gray-300">—</div>
+                <div
+                  v-if="contactVal(rightContributor, k)"
+                  class="border rounded-md px-2.5 py-1.5 text-sm cursor-pointer min-h-[34px] flex items-center"
+                  :class="contactChoice[k] === 'right' ? 'border-red-400 bg-red-50 text-gray-800' : 'border-gray-200 text-gray-400 hover:border-red-200'"
+                  @click="chooseContact(k, 'right')"
+                >
+                  <span class="truncate">{{ contactVal(rightContributor, k) }}</span>
+                </div>
+                <div v-else class="border border-gray-100 rounded-md px-2.5 py-1.5 text-sm min-h-[34px] flex items-center text-gray-300">—</div>
+              </div>
+            </template>
+            <!-- 其余字段：整行左/右二选一 -->
+            <div v-else class="grid grid-cols-[88px_1fr_1fr] gap-2 items-center">
+              <span class="text-xs text-gray-500 px-1 truncate">{{ f.label }}</span>
+              <div
+                class="border rounded-md px-2.5 py-1.5 text-sm cursor-pointer min-h-[34px] flex items-center"
+                :class="fieldChoice[f.key] === 'left' ? 'border-pink-400 bg-pink-50 text-gray-800' : 'border-gray-200 text-gray-600 hover:border-pink-200'"
+                @click="fieldChoice[f.key] = 'left'"
+              >
+                <MergeFieldValue :c="leftContributor" :field="f.key" />
+              </div>
+              <div
+                class="border rounded-md px-2.5 py-1.5 text-sm cursor-pointer min-h-[34px] flex items-center"
+                :class="fieldChoice[f.key] === 'right' ? 'border-red-400 bg-red-50 text-gray-800' : 'border-gray-200 text-gray-600 hover:border-red-200'"
+                @click="fieldChoice[f.key] = 'right'"
+              >
+                <MergeFieldValue :c="rightContributor" :field="f.key" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 合并影响预览 -->
+        <div class="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 space-y-1">
+          <div class="font-medium">合并后：</div>
+          <div>删除「{{ rightContributor.name }}」，其 {{ usageOf(rightContributor.id).songs }} 首歌 / {{ usageOf(rightContributor.id).versions }} 个歌词版本 / {{ usageOf(rightContributor.id).submissions }} 条投稿全部转到「{{ leftContributor.name }}」名下</div>
+          <div>保留账号最终名称：<b>{{ pickedProfile.name }}</b><span v-if="pickedProfile.name !== leftContributor.name" class="text-red-600">（将改名，原为「{{ leftContributor.name }}」）</span></div>
+          <div class="text-amber-600">站长标识、注册时间保持保留账号原样；右边账号的个人资料删除后不可恢复。</div>
+        </div>
+      </template>
+
+      <template #footer>
+        <el-button @click="showMerge = false">取消</el-button>
+        <el-button type="danger" :loading="merging" :disabled="!leftContributor || !rightContributor" @click="confirmMerge">确认合并</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { computed, h, onMounted, reactive, ref, watch, type FunctionalComponent } from 'vue'
+import { Search, Check } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import { contactLabel } from '@/lib/constants'
@@ -322,4 +457,218 @@ async function batchRemove() {
 
 watch(keyword, () => (page.value = 1))
 watch(pageSize, () => (page.value = 1))
+
+// ============ 合并账号 ============
+/** 参与逐字段挑选的资料字段（is_owner / created_at 不参与合并） */
+type MergeProfileKey = 'name' | 'avatar' | 'bio' | 'public_bio' | 'contact_value' | 'public_contact' | 'tags' | 'sort'
+const MERGE_FIELDS: { key: MergeProfileKey; label: string }[] = [
+  { key: 'name', label: '名称' },
+  { key: 'avatar', label: '头像' },
+  { key: 'bio', label: '简介' },
+  { key: 'public_bio', label: '简介公开' },
+  { key: 'contact_value', label: '联系方式' },
+  { key: 'public_contact', label: '联系方式公开' },
+  { key: 'tags', label: '身份标签' },
+  { key: 'sort', label: '置顶排序' },
+]
+
+/** 字段值展示（左右两列共用的函数式组件，避免模板重复两遍分支） */
+const MergeFieldValue: FunctionalComponent<{ c: Contributor; field: MergeProfileKey }> = (props) => {
+  const c = props.c
+  const empty = () => h('span', { class: 'text-gray-300' }, '—')
+  switch (props.field) {
+    case 'name':
+      return h('span', { class: 'truncate min-w-0' }, c.name)
+    case 'avatar':
+      return c.avatar
+        ? h('div', { class: 'flex items-center gap-2 min-w-0' }, [
+            h('img', { src: c.avatar, class: 'w-6 h-6 rounded-full object-cover shrink-0' }),
+            h('span', { class: 'truncate min-w-0 text-xs text-gray-400' }, c.avatar),
+          ])
+        : empty()
+    case 'bio':
+      return c.bio ? h('span', { class: 'truncate min-w-0' }, c.bio) : empty()
+    case 'public_bio':
+    case 'public_contact':
+      return h('span', { class: c[props.field] ? 'text-green-600' : 'text-gray-400' },
+        c[props.field] ? '公开' : '隐藏')
+    case 'tags':
+      return c.tags?.length ? h('span', { class: 'truncate min-w-0' }, c.tags.join(' / ')) : empty()
+    case 'sort':
+      return h('span', null, String(c.sort ?? 0))
+    default:
+      return empty()
+  }
+}
+
+const showMerge = ref(false)
+const merging = ref(false)
+const kwLeft = ref('')
+const kwRight = ref('')
+const mergeLeftId = ref<string | null>(null)   // 保留账号
+const mergeRightId = ref<string | null>(null)  // 被合并并删除的账号
+/** 每个字段选用哪一边的值，默认全部选左边（保留账号） */
+const defaultChoice = () =>
+  Object.fromEntries(MERGE_FIELDS.map(f => [f.key, 'left'])) as Record<MergeProfileKey, 'left' | 'right'>
+const fieldChoice = reactive<Record<MergeProfileKey, 'left' | 'right'>>(defaultChoice())
+
+/**
+ * 联系方式逐键挑选（contact_value 不走整行二选一）：
+ * 两边都有的键只能左/右二选一；仅一边有的键默认选有值侧，可再点一次取消（none=不保留）。
+ */
+type ContactSide = 'left' | 'right' | 'none'
+const contactChoice = reactive<Record<string, ContactSide>>({})
+/** 取某账号某联系方式类型的值（空串视为无） */
+const contactVal = (c: Contributor | null, k: string) => c?.contact_value?.[k]?.trim() || ''
+/** 双方联系方式类型并集；顺序跟随后台编辑弹窗的 CONTACT_TYPES，自定义类型排最后 */
+const mergeContactKeys = computed<string[]>(() => {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return []
+  const all = new Set([
+    ...Object.keys(l.contact_value || {}),
+    ...Object.keys(r.contact_value || {}),
+  ].filter(k => contactVal(l, k) || contactVal(r, k)))
+  const known = CONTACT_TYPES.filter(k => all.has(k))
+  const extra = [...all].filter(k => !CONTACT_TYPES.includes(k)).sort()
+  return [...known, ...extra]
+})
+/** 联系方式默认选择：两边都有→左；仅一边有→有值侧 */
+function resetContactChoice() {
+  for (const k of Object.keys(contactChoice)) delete contactChoice[k]
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return
+  for (const k of mergeContactKeys.value) {
+    const hasL = !!contactVal(l, k)
+    const hasR = !!contactVal(r, k)
+    contactChoice[k] = hasL ? 'left' : hasR ? 'right' : 'none'
+  }
+}
+/** 点击联系方式某一侧：两边都有→只在左右间切换；仅一边有→已选再点取消(none)，再点恢复 */
+function chooseContact(k: string, side: 'left' | 'right') {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return
+  const hasL = !!contactVal(l, k)
+  const hasR = !!contactVal(r, k)
+  if (hasL && hasR) {
+    contactChoice[k] = side
+  } else {
+    contactChoice[k] = contactChoice[k] === side ? 'none' : side
+  }
+}
+/** 按逐键选择组装最终 contact_value（none 的键丢弃；两侧同键时取所选侧的值） */
+function pickedContactValue(): Record<string, string> {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  const out: Record<string, string> = {}
+  if (!l || !r) return out
+  for (const k of mergeContactKeys.value) {
+    const side = contactChoice[k]
+    const v = side === 'left' ? contactVal(l, k) : side === 'right' ? contactVal(r, k) : ''
+    if (v) out[k] = v
+  }
+  return out
+}
+
+/** 选中双方名下歌/版本/投稿计数（歌曲数直接用页面已加载的 countMap，版本/投稿按需查库） */
+const usageMap = ref(new Map<string, { songs: number; versions: number; submissions: number }>())
+const usageOf = (id: string) => usageMap.value.get(id) || { songs: 0, versions: 0, submissions: 0 }
+
+const matchKw = (c: Contributor, kw: string) => {
+  const k = kw.trim().toLowerCase()
+  if (!k) return true
+  return c.name?.toLowerCase().includes(k) || (c.tags || []).some(t => t.toLowerCase().includes(k))
+}
+// 左列排除右列已选账号，右列反之，防止选成同一个
+const leftList = computed(() => contributors.value.filter(c => matchKw(c, kwLeft.value) && c.id !== mergeRightId.value))
+const rightList = computed(() => contributors.value.filter(c => matchKw(c, kwRight.value) && c.id !== mergeLeftId.value))
+const leftContributor = computed(() => contributors.value.find(c => c.id === mergeLeftId.value) || null)
+const rightContributor = computed(() => contributors.value.find(c => c.id === mergeRightId.value) || null)
+
+/** 按逐字段选择组装的保留账号最终资料（结构需与 RPC p_profile 契约一致，8 个键齐全） */
+const pickedProfile = computed<Record<string, unknown>>(() => {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return { name: '' }
+  const pick = (k: MergeProfileKey) => (fieldChoice[k] === 'left' ? l[k] : r[k])
+  return {
+    name: pick('name'),
+    avatar: (pick('avatar') as string) || null,
+    bio: (pick('bio') as string) || null,
+    public_bio: !!pick('public_bio'),
+    contact_value: pickedContactValue(),
+    public_contact: !!pick('public_contact'),
+    tags: (pick('tags') as string[]) || [],
+    sort: Number(pick('sort') || 0),
+  }
+})
+
+function openMerge() {
+  kwLeft.value = ''
+  kwRight.value = ''
+  mergeLeftId.value = null
+  mergeRightId.value = null
+  Object.assign(fieldChoice, defaultChoice())
+  resetContactChoice()
+  usageMap.value = new Map()
+  showMerge.value = true
+}
+
+// 任一边换选：重置字段选择为全左、联系方式恢复默认，并在双方都选定后拉取版本/投稿计数
+watch([mergeLeftId, mergeRightId], async () => {
+  Object.assign(fieldChoice, defaultChoice())
+  resetContactChoice()
+  const ids = [mergeLeftId.value, mergeRightId.value].filter(Boolean) as string[]
+  if (ids.length !== 2) {
+    usageMap.value = new Map()
+    return
+  }
+  try {
+    const [versions, subs] = await Promise.all([
+      adminApi.getAll<any>('lyric_versions', { select: 'contributor_id', in: { contributor_id: ids } }),
+      adminApi.getAll<any>('submissions', { select: 'contributor_id', in: { contributor_id: ids } }),
+    ])
+    const m = new Map(ids.map(id => [id, { songs: songCount(id), versions: 0, submissions: 0 }]))
+    versions.forEach((v: any) => { const o = m.get(v.contributor_id); if (o) o.versions++ })
+    subs.forEach((v: any) => { const o = m.get(v.contributor_id); if (o) o.submissions++ })
+    usageMap.value = m
+  } catch (e: any) {
+    ElMessage.error('读取账号引用数失败：' + (e?.message || e))
+  }
+})
+
+async function confirmMerge() {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return
+  const u = usageOf(r.id)
+  const renameTip = pickedProfile.value.name !== l.name
+    ? `\n保留账号将改名为「${pickedProfile.value.name}」（原名「${l.name}」）。`
+    : ''
+  // 危险二次确认：文案写明右边账号永久删除及转移规模
+  try {
+    await ElMessageBox.confirm(
+      `确定把「${r.name}」合并进「${l.name}」？\n` +
+      `右边账号会被永久删除，其名下 ${u.songs} 首歌、${u.versions} 个歌词版本、${u.submissions} 条投稿将全部转到左边。${renameTip}`,
+      '危险操作',
+      { type: 'warning', confirmButtonText: '确认合并', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  merging.value = true
+  try {
+    // 单次 RPC = 库端单事务，失败整体回滚，不会半写
+    const res = await adminApi.mergeContributors(r.id, l.id, pickedProfile.value)
+    ElMessage.success(`已合并：${res.songs_moved} 首歌 / ${res.versions_moved} 个版本 / ${res.submissions_moved} 条投稿已转移`)
+    showMerge.value = false
+    await load()
+  } catch (e: any) {
+    ElMessage.error('合并失败（数据未改动）：' + (e?.message || e))
+  } finally {
+    merging.value = false
+  }
+}
 </script>

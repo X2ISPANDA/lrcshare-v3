@@ -140,16 +140,12 @@ async function decorateSongRows(rows: any[]): Promise<SongWithNames[]> {
   })
 }
 
-/** 时长格式化（mm:ss） */
-export function formatDuration(d: string | null | undefined): string {
-  if (!d || d === 'NULL' || d === 'null') return '--:--'
-  const s = String(d).trim().split('.')[0]
-  const parts = s.split(':')
-  if (parts.length === 2) {
-    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`
-  }
-  return s
-}
+/**
+ * 时长格式说明（2026-10-05 起）：
+ * 全库（songs.duration / submissions.song_data.duration）统一为 mm:ss 文本
+ * （如 03:30），空值为 null；输入统一走 DurationInput 组件。
+ * 展示处直接输出原值，不再需要任何运行时格式化（原 formatDuration 已删除）。
+ */
 
 export const api = {
   supabase,

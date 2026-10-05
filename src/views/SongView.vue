@@ -60,7 +60,7 @@
           </div>
           <div>
             <div class="text-xs text-gray-400 mb-1">时长</div>
-            <div class="font-medium text-gray-700 tabular-nums">{{ formatDuration(song.duration) }}</div>
+            <div class="font-medium text-gray-700 tabular-nums">{{ song.duration || '—' }}</div>
           </div>
           <div v-if="contributor">
             <div class="text-xs text-gray-400 mb-1">歌词贡献</div>
@@ -361,7 +361,7 @@
             >
               <span>🎵</span>
               <span>{{ s.title }}</span>
-              <span class="text-gray-400 text-xs tabular-nums">{{ formatDuration(s.duration) }}</span>
+              <span class="text-gray-400 text-xs tabular-nums">{{ s.duration || '—' }}</span>
             </RouterLink>
           </div>
         </div>
@@ -401,7 +401,7 @@ import { ElMessage } from 'element-plus'
 // 显式导入 ElMessage 不会附带样式（自动导入才有），需手动补 message 样式，否则提示框无定位不可见
 import 'element-plus/es/components/message/style/css'
 import { useElementVisibility } from '@vueuse/core'
-import { api, formatDuration } from '@/lib/api'
+import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
 import { LOGO_URL, TIP_ICONS } from '@/lib/constants'

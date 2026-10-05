@@ -317,12 +317,8 @@
             <div class="grid grid-cols-2 gap-x-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">时长</label>
-                <input
-                  v-model="song.duration"
-                  type="text"
-                  class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="如：03:30"
-                />
+                <!-- 时长统一走组件：分/秒双数字框，对外只输出 mm:ss -->
+                <DurationInput v-model="song.duration" tone="plain" />
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">曲目号 <span class="text-xs text-gray-400 font-normal">（选填）</span></label>
@@ -442,6 +438,7 @@ import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, com
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import type { Artist, Contributor } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
+import DurationInput from '@/components/common/DurationInput.vue'
 import BatchSubmitPanel from '@/components/submit/BatchSubmitPanel.vue'
 import VersionSubmitPanel from '@/components/submit/VersionSubmitPanel.vue'
 import type { AlbumWithArtists } from '@/lib/types'
@@ -785,7 +782,8 @@ async function handleSubmit() {
     album: albumName.value.trim(),
     album_id: albumId.value,
     year: albumYear.value.trim() || undefined,
-    duration: song.duration.trim(),
+    // 空时长省略该键（JSON 序列化后 song_data 不含 duration），不再产生空串
+    duration: song.duration.trim() || undefined,
     track: song.track.trim() || undefined,
     lrc_text: lrcText,
     ttml_text: ttmlText,

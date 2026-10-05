@@ -123,7 +123,7 @@
                     </div>
                   </div>
                   <div class="text-sm text-gray-500 truncate">{{ song.album_name || '未知' }}</div>
-                  <div class="text-sm text-gray-400 text-right tabular-nums">{{ formatDuration(song.duration) }}</div>
+                  <div class="text-sm text-gray-400 text-right tabular-nums">{{ song.duration || '—' }}</div>
                 </RouterLink>
               </div>
               <!-- 移动端列表 -->
@@ -142,7 +142,7 @@
                       {{ song.album_name || '未知' }}
                     </span>
                   </div>
-                  <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ formatDuration(song.duration) }}</span>
+                  <span class="text-[13px] text-gray-400 tabular-nums shrink-0">{{ song.duration || '—' }}</span>
                 </RouterLink>
               </div>
             </template>
@@ -157,7 +157,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
-import { api, formatDuration } from '@/lib/api'
+import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL, HERO_BG_URL, ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'

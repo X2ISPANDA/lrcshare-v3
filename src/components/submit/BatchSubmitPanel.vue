@@ -164,7 +164,8 @@
           <template #default="{ row }"><el-input v-model="row.track" size="small" placeholder="选填" /></template>
         </el-table-column>
         <el-table-column label="时长" width="90">
-          <template #default="{ row }"><el-input v-model="row.duration" size="small" placeholder="03:30" /></template>
+          <!-- 时长统一走组件（small 尺寸适配表格） -->
+          <template #default="{ row }"><DurationInput v-model="row.duration" size="small" /></template>
         </el-table-column>
         <el-table-column label="文件名" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.fileName }}</template>
@@ -204,6 +205,7 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { unzipSync } from 'fflate'
 import ArtistTagInput from './ArtistTagInput.vue'
+import DurationInput from '@/components/common/DurationInput.vue'
 import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, composeMixedLrc } from '@/lib/lyricLines'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { VALIDATION_ABORT } from '@/lib/constants'
@@ -432,7 +434,8 @@ function buildSongData(row: BatchRow) {
     album: effAlbumName,
     album_id: effAlbumId,
     year: albumYear.value.trim() || undefined,
-    duration: row.duration.trim(),
+    // 空时长省略该键（JSON 序列化后 song_data 不含 duration），不再产生空串
+    duration: row.duration.trim() || undefined,
     track: row.track.trim() || undefined,
     lrc_text: lrcText,
     versions: vers.length ? vers : undefined,

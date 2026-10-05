@@ -102,7 +102,7 @@
                         <span v-html="hl(song.artist_name)"></span> · <span v-html="hl(song.album_name ?? '')"></span>
                       </div>
                     </div>
-                    <span class="text-xs text-gray-400 shrink-0 tabular-nums">{{ formatDuration(song.duration) }}</span>
+                    <span class="text-xs text-gray-400 shrink-0 tabular-nums">{{ song.duration || '—' }}</span>
                   </RouterLink>
                 </template>
 
@@ -248,7 +248,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDebounceFn, onClickOutside } from '@vueuse/core'
 import { useHead } from '@unhead/vue'
-import { api, formatDuration } from '@/lib/api'
+import { api } from '@/lib/api'
 import { highlightHtml, lrcSnippet } from '@/lib/highlight'
 import { mdToText } from '@/lib/markdown'
 import { HERO_BG_URL, LOGO_URL, artistTypeIcons } from '@/lib/constants'

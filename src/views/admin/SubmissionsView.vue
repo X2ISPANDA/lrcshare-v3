@@ -329,7 +329,8 @@
           <template #default="{ row }"><el-input v-model="row.sd.track" size="small" /></template>
         </el-table-column>
         <el-table-column width="80" label="时长">
-          <template #default="{ row }"><el-input v-model="row.sd.duration" size="small" placeholder="03:30" /></template>
+          <!-- 时长统一走组件（small 尺寸适配表格） -->
+          <template #default="{ row }"><DurationInput v-model="row.sd.duration" size="small" /></template>
         </el-table-column>
         <el-table-column min-width="140">
           <template #header>
@@ -456,7 +457,8 @@
                   <span class="w-8 shrink-0 text-gray-400">曲目</span>
                   <div class="flex flex-1 gap-2">
                     <el-input v-model="r.sd.track" size="small" placeholder="曲目号" class="!w-16" />
-                    <el-input v-model="r.sd.duration" size="small" placeholder="时长 03:30" class="flex-1" />
+                    <!-- 时长统一走组件（small 尺寸；flex-1 填满与曲目号并排区域） -->
+                    <DurationInput v-model="r.sd.duration" size="small" class="flex-1" />
                   </div>
                   <el-button link size="small" type="primary" class="!ml-1 shrink-0" title="曲目号填充到勾选行（未勾选 = 全部行）" @click="openFill('track')">⚡</el-button>
                 </div>
@@ -577,7 +579,9 @@
       <el-select v-else-if="fillKey === 'genres'" v-model="fillGenres" multiple filterable allow-create clearable default-first-option placeholder="选择或输入风格标签" class="w-full">
         <el-option v-for="g in GENRE_OPTIONS" :key="g" :label="g" :value="g" />
       </el-select>
-      <el-input v-else v-model="fillText" :placeholder="fillKey === 'duration' ? '03:30' : fillKey === 'year' ? '2024' : '统一值'" />
+      <!-- 时长分支：统一走组件，只产出 mm:ss；年份/其他值仍为普通文本输入 -->
+      <DurationInput v-else-if="fillKey === 'duration'" v-model="fillText" />
+      <el-input v-else v-model="fillText" :placeholder="fillKey === 'year' ? '2024' : '统一值'" />
       <template #footer>
         <el-button @click="showFill = false">取消</el-button>
         <el-button type="primary" @click="applyFill">{{ isFillAll ? '应用到全部行' : '保存该行' }}</el-button>
@@ -596,6 +600,7 @@ import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
 import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, detectTtmlLangs, saveLyricLines, rowsHaveWordTags } from '@/lib/lyricLines'
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
+import DurationInput from '@/components/common/DurationInput.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import AlbumInfoDialog from '@/components/admin/AlbumInfoDialog.vue'
 import SongFormDialog from '@/components/admin/SongFormDialog.vue'
@@ -1320,7 +1325,8 @@ async function publishSubmission(sub: any, newList: { item: any; types: string[]
         id: songId,
         title: sd.title,
         album_id: albumId,
-        duration: sd.duration || '',
+        // 空时长统一落 null（不再写入空字符串，保持库内口径一致）
+        duration: sd.duration || null,
         track: sd.track ? (parseInt(String(sd.track), 10) || null) : null,
         lrc_text: sd.lrc_text,
         cover: sd.cover || null,
