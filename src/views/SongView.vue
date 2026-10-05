@@ -188,10 +188,10 @@
                 >
                   <p
                     class="text-lg leading-relaxed font-medium"
-                    :class="g.romanUnits ? '' : 'whitespace-pre-wrap'"
+                    :class="(g.romanUnits && ttmlRubyOn) ? '' : 'whitespace-pre-wrap'"
                     :style="{ color: ttmlAgentColor(g.line.agent) }"
                   >
-                    <template v-if="g.romanUnits">
+                    <template v-if="g.romanUnits && ttmlRubyOn">
                       <span
                         v-for="(u, ui) in g.romanUnits"
                         :key="ui"
@@ -207,7 +207,13 @@
                     class="text-sm italic leading-snug"
                     :style="{ color: BG_COLOR }"
                   >（合）{{ b }}</p>
-                  <p v-for="(t, ti) in g.translations" :key="`tr${ti}`" class="text-sm text-gray-400 leading-snug">{{ t.text }}</p>
+                  <!-- 译文常驻；配对失败降级为灰字的音译仅在注音开关打开时显示 -->
+                  <p
+                    v-for="(t, ti) in g.translations"
+                    v-show="ttmlRubyOn || t.kind !== 'romanization'"
+                    :key="`tr${ti}`"
+                    class="text-sm text-gray-400 leading-snug"
+                  >{{ t.text }}</p>
                 </div>
               </div>
               <div v-else class="text-center text-gray-400 py-8 text-sm">TTML 内容解析失败</div>
@@ -834,14 +840,20 @@ const ttmlKindOptions = computed(() => {
 
 /** 结构化视图语言切换：all = 全部；选定后只随行该语言的翻译/音译（原文始终保留作锚点） */
 const ttmlLangFilter = ref<string>('all')
-/** 注音开关：开 = 音译逐字配对融合进原文行做拼音读本；关 = 音译回退独立灰字随行 */
+/** 注音开关（纯显隐开关，不改变排版）：开 = 原文逐字上方显示注音（音译轨时间数据不足、
+ *  配对失败时降级为原文下方灰字随行）；关 = 隐藏全部音译内容（仍可用类型下拉切「罗马音」单独查看）。
+ *  逐字注音本身始终是唯一排版，不再有「融合 ↔ 独立行」切换 */
 const ttmlRubyOn = ref(true)
-/** 语言下拉选项：结构内出现过的非空语言（>1 种才显示） */
+/** 语言下拉选项：结构内原文/译文出现过的非空语言（>1 种才显示）。
+ *  音译轨（zh-Latn-jyutping 等）是原文的逐字注音层、不是独立语种，不进此下拉 */
 const ttmlLangOptions = computed<string[]>(() => {
   const st = ttmlStructure.value
   if (!st) return []
   const langs: string[] = []
-  for (const l of st.lines) if (l.lang && !langs.includes(l.lang)) langs.push(l.lang)
+  for (const l of st.lines) {
+    if (l.kind === 'romanization') continue
+    if (l.lang && !langs.includes(l.lang)) langs.push(l.lang)
+  }
   return langs
 })
 /** 是否存在音译行（注音开关仅此时有意义） */
@@ -851,8 +863,9 @@ watch(ttmlLangOptions, opts => {
   if (ttmlLangFilter.value !== 'all' && !opts.includes(ttmlLangFilter.value)) ttmlLangFilter.value = 'all'
 })
 
-/** 渲染分组：original 为一行，translation/romanization 作随行（同 begin 关联）；
- *  注音开 + 音译逐字配对成功（romanUnits）时融合进原文行做拼音读本注音；注音关则音译回退独立灰字随行 */
+/** 渲染分组：original 为一行，translation 作随行（同 begin 关联）；
+ *  音译逐字配对成功（romanUnits）时始终挂在原文行做逐字注音（唯一排版，显隐由「注音」
+ *  开关在模板控制，分组阶段不再受开关影响）；配对失败的音译行降级入随行灰字（开关关时由模板隐藏） */
 interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[]; romanUnits?: TtmlRomanUnit[] }
 const ttmlGroups = computed<TtmlGroup[]>(() => {
   const st = ttmlStructure.value
@@ -863,8 +876,9 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
   const beginIndex = new Map<number, number>()
   for (const l of st.lines) {
     if (filter !== 'all' && l.kind !== filter) continue
-    // 语言筛选：「全部类型」视图下原文行始终保留（锚点）；翻译/音译行按语言过滤
-    if (lang !== 'all' && l.lang !== lang && !(l.kind === 'original' && filter === 'all')) continue
+    // 语言筛选：「全部类型」视图下原文行始终保留（锚点）；译文行按语言过滤；
+    // 音译轨是原文的注音层、不参与语言过滤（跟随原文行，其显隐另由注音开关控制）
+    if (lang !== 'all' && l.kind !== 'romanization' && l.lang !== lang && !(l.kind === 'original' && filter === 'all')) continue
     if (l.kind === 'original') {
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
@@ -876,7 +890,8 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
     } else {
       const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
       if (gi != null) {
-        if (ttmlRubyOn.value && l.kind === 'romanization' && l.romanUnits && !groups[gi].romanUnits) groups[gi].romanUnits = l.romanUnits
+        // 配对成功的音译轨永远挂原文行做逐字注音；译文/配对失败音译入随行（灰字）
+        if (l.kind === 'romanization' && l.romanUnits && !groups[gi].romanUnits) groups[gi].romanUnits = l.romanUnits
         else groups[gi].translations.push(l)
       } else {
         groups.push({ line: l, translations: [] })
@@ -886,13 +901,17 @@ const ttmlGroups = computed<TtmlGroup[]>(() => {
   return groups
 })
 
-/** TTML 结构化视图当前筛选下的纯文本（「全部复制」导出与显示同源；和声行带（合）前缀） */
+/** TTML 结构化视图当前筛选下的纯文本（「全部复制」导出与显示同源；和声行带（合）前缀）。
+ *  注音开关关闭时，配对失败降级为随行灰字的音译也一并排除（逐字注音轨本就不进纯文本） */
 const ttmlGroupsPlainText = computed(() => {
   const out: string[] = []
   for (const g of ttmlGroups.value) {
     out.push(g.line.text)
     for (const b of g.line.bg) out.push(`（合）${b}`)
-    for (const t of g.translations) out.push(t.text)
+    for (const t of g.translations) {
+      if (!ttmlRubyOn.value && t.kind === 'romanization') continue
+      out.push(t.text)
+    }
   }
   return out.filter(Boolean).join('\n')
 })
@@ -1026,9 +1045,15 @@ const textLrcKindOptions = computed(() => {
   return (['all', 'original', 'translation', 'romanization'] as const)
     .filter(k => k === 'all' || kinds.has(k))
 })
+/** 语言下拉选项：只收原文/译文版本语言（>1 种才显示）。
+ *  音译版本（zh-Latn-pinyin / zh-Latn-jyutping 等）是原文的注音层、不是独立语种，
+ *  不进此下拉（对齐 TTML 结构化层；该层音译固定作灰字副行，无独立显隐开关） */
 const textLrcLangOptions = computed<string[]>(() => {
   const langs: string[] = []
-  for (const v of textLrcVersions.value) if (!langs.includes(v.lang)) langs.push(v.lang)
+  for (const v of textLrcVersions.value) {
+    if (v.kind === 'romanization') continue
+    if (!langs.includes(v.lang)) langs.push(v.lang)
+  }
   return langs
 })
 watch(textLrcKindOptions, opts => {
@@ -1052,8 +1077,9 @@ const textLrcGroups = computed<LrcTextGroup[]>(() => {
       if (r.time_ms == null) continue
       const text = stripWordTags(r.text || '').trim()
       if (!text) continue
-      // 语言筛选：「全部类型」视图原文行始终保留（锚点）
-      if (langFilter !== 'all' && v.lang !== langFilter && !(v.kind === 'original' && kindFilter === 'all')) continue
+      // 语言筛选：「全部类型」视图原文行始终保留（锚点）；
+      // 音译版本是原文的注音层、不参与语言过滤（固定作灰字副行跟随原文，对齐 TTML 结构化层）
+      if (langFilter !== 'all' && v.kind !== 'romanization' && v.lang !== langFilter && !(v.kind === 'original' && kindFilter === 'all')) continue
       let g = byTime.get(r.time_ms)
       if (!g) { g = { time: r.time_ms, mains: [], subs: [] }; byTime.set(r.time_ms, g) }
       const isMain = kindFilter !== 'all' || v.kind === 'original'

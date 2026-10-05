@@ -91,9 +91,17 @@ export const LYRIC_LANG_LABELS: Record<string, string> = {
   'en-US': '英语（美）',
 }
 
-/** 语言码 → 界面展示文本（有中文名则「简体中文（zh）」，否则原码） */
+/** 语言码 → 界面展示文本（有中文名则「简体中文（zh）」，否则原码）。
+ *  标签表未收录的上游 BCP47 原码（如 Apple TTML 根标注 zh-Hans），按三端统一
+ *  规则 normalizeTtmlLang 归一后兜底显示，括号内保留原码；音译 *-Latn-* 标签
+ *  归一规则原样返回、互不影响；归一后仍查不到表才裸显原码。 */
 export function langLabel(code: string): string {
-  return LYRIC_LANG_LABELS[code] ? `${LYRIC_LANG_LABELS[code]}（${code}）` : code
+  if (LYRIC_LANG_LABELS[code]) return `${LYRIC_LANG_LABELS[code]}（${code}）`
+  const normalized = normalizeTtmlLang(code)
+  if (normalized && normalized !== code && LYRIC_LANG_LABELS[normalized]) {
+    return `${LYRIC_LANG_LABELS[normalized]}（${code}）`
+  }
+  return code
 }
 
 /** 音译轨 lang 纠错：上游 TTML 把自然语言码错标在 <transliteration> 上时（如 yue/ja/ko），
