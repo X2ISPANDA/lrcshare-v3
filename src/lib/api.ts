@@ -7,12 +7,16 @@ import type {
   Contributor,
   Friend,
   FriendCategory,
+  MusicShare,
+  MusicShareDupHints,
+  MusicShareInsert,
   Setting,
   Song,
   SongSubmissionData,
   SongWithNames,
   Sponsor,
 } from './types'
+import type { MusicPlatformKey, MusicResolveResult } from './musicPlatforms'
 
 /** 歌手字段精简选择（列表场景，避免拉全量） */
 const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls, initial'
@@ -655,5 +659,96 @@ export const api = {
       map[r.key] = r.value
     })
     return map
+  },
+
+  // ============ 歌曲分享 ============
+
+  /**
+   * 调用邮件同站的 Netlify 函数解析平台链接/嵌入代码（9 家平台官方组件）。
+   * VITE_MAIL_BASE 未配置（如开发环境忘配）时直接抛出中文错误，由调用方提示。
+   */
+  async resolveMusicShare(platform: MusicPlatformKey, urlOrEmbed: string): Promise<MusicResolveResult> {
+    const base = import.meta.env.VITE_MAIL_BASE as string | undefined
+    if (!base) throw new Error('未配置 VITE_MAIL_BASE（解析服务地址），请检查 .env 后重启开发服务器')
+    const res = await fetch(base + '/api/resolve-music', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, urlOrEmbed }),
+    })
+    let json: { code: number; data?: MusicResolveResult; error?: string }
+    try {
+      json = await res.json()
+    } catch {
+      throw new Error('解析服务返回异常，请稍后重试')
+    }
+    if (json.code !== 0 || !json.data) throw new Error(json.error || '解析失败，请检查链接')
+    return json.data
+  },
+
+  /**
+   * 投稿前查重：同平台 ID + 跨平台同名同歌手（approved/pending 双层）。
+   * pending 行 anon 在 RLS 下读不到，统一由 SECURITY DEFINER RPC 代查，只返回最小提示信息。
+   */
+  async getMusicShareDupHints(input: {
+    platform: MusicPlatformKey
+    platform_id: string
+    title: string
+    artist?: string | null
+  }): Promise<MusicShareDupHints> {
+    const { data, error } = await supabase.rpc('check_music_share_dup', {
+      p_platform: input.platform,
+      p_platform_id: input.platform_id,
+      p_title: input.title,
+      p_artist: input.artist || null,
+    })
+    if (error) throw error
+    return data as MusicShareDupHints
+  },
+
+  /** 匿名投稿歌曲分享：显式列名，白名单必须与 SQL 的 anon GRANT INSERT(...) 一致 */
+  async submitMusicShare(payload: MusicShareInsert): Promise<string> {
+    const row = {
+      id: payload.id || crypto.randomUUID(),
+      platform: payload.platform,
+      media_type: payload.media_type,
+      platform_id: payload.platform_id,
+      source_url: payload.source_url,
+      title: payload.title,
+      artist: payload.artist || null,
+      cover_url: payload.cover_url || null,
+      reason: payload.reason || null,
+      is_own_work: !!payload.is_own_work,
+      contributor_id: payload.contributor_id || null,
+      submitter_name: payload.submitter_name,
+      submitter_contact: payload.submitter_contact || {},
+      user_email: payload.user_email || null,
+      // 注意：status 不在 anon INSERT 白名单中，由数据库默认值 'pending' 与 RLS WITH CHECK 兜底
+      created_at: payload.created_at || new Date().toISOString(),
+    }
+    const { error } = await supabase.from('music_shares').insert([row])
+    if (error) throw error
+    return row.id
+  },
+
+  /**
+   * 前台获取已通过的歌曲分享（含关联贡献者昵称/头像/标签）。
+   * 排序：sort>0 的置顶（数字小在前），其余按 approved_at 倒序。
+   * PostgREST 无法直接表达 (sort=0) 布尔排序，数据量小，拉回后在内存分段排序。
+   */
+  async getMusicShares(options: { limit?: number } = {}): Promise<MusicShare[]> {
+    const { data, error } = await supabase
+      .from('music_shares')
+      .select(
+        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, reason, is_own_work, contributor_id, submitter_name, sort, approved_at, created_at, contributors(id, name, avatar, tags)',
+      )
+      .eq('status', 'approved')
+      .limit(options.limit ?? 200)
+    if (error) throw error
+    const rows = (data || []) as unknown as MusicShare[]
+    const pinned = rows.filter(r => r.sort > 0).sort((a, b) => a.sort - b.sort)
+    const rest = rows
+      .filter(r => !r.sort)
+      .sort((a, b) => (b.approved_at || '').localeCompare(a.approved_at || ''))
+    return [...pinned, ...rest]
   },
 }

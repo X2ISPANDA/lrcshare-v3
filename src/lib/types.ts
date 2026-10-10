@@ -244,6 +244,76 @@ export interface Sponsor {
   created_at?: string
 }
 
+// ============ 歌曲分享（music_shares） ============
+
+/** 歌曲分享审核状态 */
+export type MusicShareStatus = 'pending' | 'approved' | 'rejected'
+
+/** 歌曲分享记录（前台只可能收到 approved；后台三态全量） */
+export interface MusicShare {
+  id: string
+  platform: import('./musicPlatforms').MusicPlatformKey
+  /** song=单曲/视频，album=专辑 */
+  media_type: import('./musicPlatforms').MusicMediaType
+  platform_id: string
+  source_url: string
+  title: string
+  artist: string | null
+  cover_url: string | null
+  reason: string | null
+  /** 投稿人自荐本人原创作品（仅本条使用创作者卡片样式，审核可改） */
+  is_own_work: boolean
+  /** 审核通过后绑定的贡献者账号 */
+  contributor_id: string | null
+  submitter_name: string
+  submitter_contact: Record<string, string> | null
+  user_email: string | null
+  /** >0 手动置顶（数字小在前），0 按通过时间倒序 */
+  sort: number
+  status: MusicShareStatus
+  reject_reason: string | null
+  reviewed_at: string | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+  /** 关联贡献者（前台列表通过 PostgREST 嵌套带出） */
+  contributor?: Pick<Contributor, 'id' | 'name' | 'avatar' | 'tags'> | null
+}
+
+/** 匿名投稿写入载荷（列必须与 SQL 的 anon INSERT 白名单一致） */
+export interface MusicShareInsert {
+  id?: string
+  platform: import('./musicPlatforms').MusicPlatformKey
+  media_type: import('./musicPlatforms').MusicMediaType
+  platform_id: string
+  source_url: string
+  title: string
+  artist?: string | null
+  cover_url?: string | null
+  reason?: string | null
+  is_own_work?: boolean
+  /** 昵名下拉命中已有贡献者时上送（FK 保证真实存在），未命中为 null */
+  contributor_id?: string | null
+  submitter_name: string
+  submitter_contact?: Record<string, string>
+  user_email?: string | null
+  created_at?: string
+}
+
+/** check_music_share_dup RPC 的返回结构 */
+export interface MusicShareDupHints {
+  /** 同平台同内容已有待审（任意人提交） */
+  platform_pending: boolean
+  /** 同平台同内容已通过的最小展示信息 */
+  platform_approved: { id: string; title: string; contributor_name: string } | null
+  /** 跨平台同名同歌手已有待审 */
+  song_pending: boolean
+  /** 跨平台同名同歌手已通过 */
+  song_approved:
+    | { id: string; title: string; artist: string | null; platform: string; contributor_name: string }
+    | null
+}
+
 /** 站点设置（key-value） */
 export interface Setting {
   key: string

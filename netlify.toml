@@ -18,3 +18,10 @@
   to = "/.netlify/functions/mailer"
   status = 200
   force = true
+
+# /api/resolve-music → function（歌曲分享投稿：平台链接/嵌入代码识别 + 官方元数据）
+[[redirects]]
+  from = "/api/resolve-music"
+  to = "/.netlify/functions/resolve-music"
+  status = 200
+  force = true
