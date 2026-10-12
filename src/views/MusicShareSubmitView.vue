@@ -198,7 +198,7 @@
             :rows="3"
             maxlength="200"
             show-word-limit
-            placeholder="为什么想分享这首歌？必填（1~200 字），通过后会展示在首页随机推荐上"
+            placeholder="为什么想分享这首歌？必填（1~200 字），通过后会展示在首页音乐推荐上"
           />
           <label class="mt-4 flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">
             <el-checkbox v-model="form.is_own_work" />

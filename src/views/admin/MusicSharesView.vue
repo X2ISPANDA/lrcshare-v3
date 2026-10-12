@@ -296,7 +296,7 @@
         </div>
 
         <el-form-item label="推荐理由" required>
-          <el-input v-model="form.reason" type="textarea" :rows="2" maxlength="200" show-word-limit placeholder="必填（1~200 字），会展示在首页随机推荐" />
+          <el-input v-model="form.reason" type="textarea" :rows="2" maxlength="200" show-word-limit placeholder="必填（1~200 字），会展示在首页音乐推荐" />
         </el-form-item>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -343,7 +343,7 @@
         <el-form-item>
           <template #label>
             首页新歌推荐置顶（可选 · 到期自动取消）
-            <span class="ml-1 text-xs font-normal text-gray-400">设置后首页「随机推荐」卡位固定推荐本歌，多条每 30 秒轮播</span>
+            <span class="ml-1 text-xs font-normal text-gray-400">设置后首页「音乐推荐」卡位固定推荐本歌，多条每 30 秒轮播</span>
           </template>
           <div class="w-full flex flex-wrap items-center gap-2">
             <el-date-picker

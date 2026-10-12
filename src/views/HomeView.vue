@@ -248,7 +248,7 @@
           </div>
         </div>
 
-        <!-- 🎲 随机推荐：每次刷新客户端随机一首已通过分享，播放交给全局 Dock。
+        <!-- � 音乐推荐：每次刷新客户端随机一首已通过分享，播放交给全局 Dock。
              is_own_work（投稿人自荐原创）走金色变体：金边卡片 + 金色徽章 + 暖色理由面板 + 实心支持按钮。
              存在生效中的 pinned_until 时本卡位改挂「新歌推荐」（多条 30s 轮播），点「换一首」才回随机。 -->
         <div
@@ -258,7 +258,7 @@
           @mouseleave="onRecLeave"
         >
           <div class="flex items-center justify-between mb-5">
-            <h2 class="text-xl font-bold text-gray-800">🎲 随机推荐</h2>
+            <h2 class="text-xl font-bold text-gray-800">� 音乐推荐</h2>
             <button
               v-if="picked"
               type="button"
