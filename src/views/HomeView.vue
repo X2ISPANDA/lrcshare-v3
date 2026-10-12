@@ -403,6 +403,16 @@
           </div>
           </Transition>
         </div>
+
+        <!-- 听众自荐入口：把喜欢的歌分享到推荐位（与空态同一目标路由） -->
+        <div class="mt-4 text-center">
+          <RouterLink
+            to="/music-share/submit"
+            class="inline-flex items-center gap-2 rounded-full border border-pink-300 bg-white px-5 py-2 text-sm font-semibold text-pink-600 shadow-sm transition hover:bg-pink-50 hover:opacity-90"
+          >
+            🎵 我也要分享一首歌
+          </RouterLink>
+        </div>
       </section>
     </main>
   </div>

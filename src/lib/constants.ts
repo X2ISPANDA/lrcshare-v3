@@ -80,6 +80,15 @@ export const PLATFORM_LABELS: Record<string, string> = {
   official: '官网',
 }
 
+/**
+ * 投稿身份区「联系方式」动态行可选键（歌词投稿 / 歌曲分享投稿共用）。
+ * 注意不含 email：邮箱在投稿面板里有独立一栏（同属资料，提交时并入 contact_value）。
+ */
+export const CONTACT_TYPES = [
+  'qq', 'wechat', 'bilibili', 'github', 'blog', 'douyin', 'weibo',
+  'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile',
+]
+
 /** 键名 → 展示标签（联系方式/平台通用，未收录的键原样显示） */
 export function contactLabel(key: string): string {
   return CONTACT_LABELS[key] || PLATFORM_LABELS[key] || key

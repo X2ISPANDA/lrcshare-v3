@@ -259,6 +259,18 @@ function nextTrack() {
   }
   player.next()
 }
+
+/** 播放模式按钮文案（点击即三态轮换） */
+const modeTitle = computed(() => {
+  switch (player.mode) {
+    case 'single':
+      return '单曲循环：当前曲目播完后重播（点击切换为随机播放）'
+    case 'shuffle':
+      return '随机播放：播完随机切到另一首，手动切歌也随机（点击切换为列表循环）'
+    default:
+      return '列表循环：按队列顺序循环（点击切换为单曲循环）'
+  }
+})
 /** 上一首：合辑内非首曲走播放器 prev，否则走队列 */
 function prevTrack() {
   if (controls.value?.prev && albumPos.value && albumPos.value.index > 1) {
@@ -698,6 +710,31 @@ function seekLyricLine(seconds: number) {
         </button>
         <button type="button" class="mpd-btn" :disabled="!player.hasTracks" title="下一首" @click="nextTrack">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z" /></svg>
+        </button>
+        <!-- 播放模式三态：列表循环（默认）/ 单曲循环 / 随机播放，选择持久化在 localStorage -->
+        <button
+          type="button"
+          class="mpd-btn mpd-btn--ghost mpd-btn--mini mpd-btn--mode"
+          :class="{ 'mpd-btn--active': player.mode === 'single' || player.mode === 'shuffle' }"
+          :title="modeTitle"
+          :aria-label="modeTitle"
+          @click="player.cycleMode()"
+        >
+          <!-- 列表循环 -->
+          <svg v-if="player.mode === 'list-loop'" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z" />
+          </svg>
+          <!-- 单曲循环：循环箭头 + 右下角 1 角标 -->
+          <span v-else-if="player.mode === 'single'" class="mpd-mode-single">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+              <path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z" />
+            </svg>
+            <i class="mpd-mode-single__num">1</i>
+          </span>
+          <!-- 随机播放 -->
+          <svg v-else viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 18H20v-5.5l-2.04 2.04-3.13-3.13z" />
+          </svg>
         </button>
 
         <!-- 音量：SoundCloud Widget 无音量 API，整组不渲染 -->
@@ -1301,6 +1338,29 @@ function seekLyricLine(seconds: number) {
 .mpd-btn--active {
   color: #db2777;
   background: #fce7f3;
+}
+/* 单曲循环图标：循环箭头上的 1 角标 */
+.mpd-mode-single {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mpd-mode-single__num {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  min-width: 10px;
+  height: 10px;
+  padding: 0 2px;
+  border-radius: 5px;
+  background: #db2777;
+  color: #fff;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
 }
 /* 拦截自动播放时呼吸提示 */
 .mpd-btn--pulse {

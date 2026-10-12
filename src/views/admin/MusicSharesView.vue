@@ -371,7 +371,12 @@
              手动添加是站长代发，没有投稿人，不显示本区块；submitter_name 保存时自动取贡献者名 -->
         <div v-if="mode !== 'create'" class="bg-gray-50 border border-gray-100 rounded-lg p-3 mb-3 text-sm space-y-1">
           <div class="text-gray-700"><span class="text-gray-400">投稿人昵称：</span>{{ form.submitter_name || '—' }}</div>
-          <div class="text-gray-700"><span class="text-gray-400">通知邮箱：</span>{{ form.user_email || '—（无邮箱，不发通知邮件）' }}</div>
+          <div class="text-gray-700">
+            <span class="text-gray-400">通知邮箱：</span>
+            <template v-if="form.user_email">{{ form.user_email }}</template>
+            <template v-else-if="resolveNotifyEmail()">{{ resolveNotifyEmail() }}<span class="text-xs text-gray-400">（投稿未留邮箱，回退用资料邮箱）</span></template>
+            <template v-else>—（无邮箱，不发通知邮件）</template>
+          </div>
           <div v-if="contactEntries(form).length" class="text-gray-700">
             <span class="text-gray-400">其他联系方式：</span>
             <span v-for="c in contactEntries(form)" :key="c.k" class="mr-3">{{ contactLabel(c.k) }}：{{ c.v }}</span>
@@ -526,8 +531,9 @@ async function loadFormStream() {
 function contactEntries(row: { submitter_contact?: Record<string, string> | null } | null | undefined) {
   const obj = row?.submitter_contact || {}
   // 映射成 { k, v } 对象数组，模板里按 c.k / c.v 渲染（:key 需要稳定字段名）
+  // email 同属资料快照，但列表/弹窗都有独立的「邮箱」行，这里不重复展示
   return Object.entries(obj)
-    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .filter(([k, v]) => k !== 'email' && v != null && String(v).trim() !== '')
     .map(([k, v]) => ({ k, v }))
 }
 
@@ -570,6 +576,12 @@ const form = reactive({
   submitter_contact: {} as Record<string, string>,
   /** 投稿人公开联系方式意愿：仅在「审核通过→新建贡献者」时静默写入 public_contact，弹窗不展示 */
   submitter_public_contact: false,
+  /** 借歌曲投稿更新本人资料（审核弹窗零意愿元素，通过时静默四路处理） */
+  submitter_request_update: false,
+  /** 借歌曲投稿清空本人资料（与 update 互斥） */
+  submitter_request_clear: false,
+  /** 投稿人简介快照（新建/更新贡献者时写入 contributors.bio） */
+  submitter_bio: '' as string | null,
 })
 
 const dialogTitle = computed(() =>
@@ -615,6 +627,9 @@ function resetForm() {
     user_email: '',
     submitter_contact: {},
     submitter_public_contact: false,
+    submitter_request_update: false,
+    submitter_request_clear: false,
+    submitter_bio: '',
   })
   urlOrEmbed.value = ''
   resolvedCreate.value = null
@@ -657,8 +672,11 @@ function fillFromRow(row: MusicShare) {
     submitter_name: row.submitter_name || '',
     user_email: row.user_email || '',
     submitter_contact: { ...(row.submitter_contact || {}) },
-    // 投稿人意愿随行回填（select * 自动带列）；审核弹窗不展示，仅供新建贡献者时静默采用
+    // 投稿人意愿随行回填（select * 自动带列）；审核弹窗不展示，仅供通过时静默四路处理
     submitter_public_contact: !!row.submitter_public_contact,
+    submitter_request_update: !!row.submitter_request_update,
+    submitter_request_clear: !!row.submitter_request_clear,
+    submitter_bio: row.submitter_bio || '',
   })
 }
 
@@ -776,16 +794,16 @@ async function refreshDupHints(selfId: string | null) {
  * 解析弹窗里的贡献者选择：
  * - 真实 id：直接用；
  * - __NEW__:名字：重名再防御一次 → 创建只带「歌曲分享」单标签的贡献者。
- * 返回贡献者 id；失败（重名等）返回 null。
+ * 返回 { cid, created }；失败（重名等）返回 null。
  */
-async function ensureContributor(): Promise<string | null> {
+async function ensureContributor(): Promise<{ cid: string; created: boolean } | null> {
   const val = (form.contributor_id || '').trim()
   if (val && !val.startsWith('__NEW__:')) {
     if (!contributors.value.some(c => c.id === val)) {
       ElMessage.error('所选贡献者不存在，请重新选择')
       return null
     }
-    return val
+    return { cid: val, created: false }
   }
   const name = val.startsWith('__NEW__:') ? val.slice('__NEW__:'.length).trim() : newContributorLabel.value
   if (!name) {
@@ -800,7 +818,8 @@ async function ensureContributor(): Promise<string | null> {
   await adminApi.insert<Contributor>('contributors', {
     id: cid,
     name,
-    bio: '通过歌曲分享自动创建的贡献者',
+    // 投稿带了简介就用投稿简介（邮箱已并入 submitter_contact），否则沿用兜底文案
+    bio: (form.submitter_bio || '').trim() || '通过歌曲分享自动创建的贡献者',
     contact_value: { ...form.submitter_contact },
     // 审核通过：静默采用投稿人在投稿页的公开勾选；手动添加（无投稿人意愿）恒为 false，
     // 站长可在贡献者管理中调整。绑定已有贡献者的分支不走这里，不会覆盖其既有设置。
@@ -810,9 +829,16 @@ async function ensureContributor(): Promise<string | null> {
     is_owner: false,
     sort: 0,
   } as Partial<Contributor>)
-  // 同步本地池，避免同会话连续审核重复创建
-  contributors.value.push({ id: cid, name, tags: [MUSIC_ONLY_TAG] } as Contributor)
-  return cid
+  // 同步本地池（带全资料，供同会话连续审核与通知邮箱回退），避免重复创建
+  contributors.value.push({
+    id: cid,
+    name,
+    tags: [MUSIC_ONLY_TAG],
+    bio: (form.submitter_bio || '').trim() || '通过歌曲分享自动创建的贡献者',
+    contact_value: { ...form.submitter_contact },
+    public_contact: !!form.submitter_public_contact,
+  } as Contributor)
+  return { cid, created: true }
 }
 
 /** 把 23505 唯一冲突翻译成友好提示 */
@@ -841,12 +867,80 @@ async function ensureMusicShareTag(cid: string) {
   }
 }
 
+/**
+ * 审核通过时对贡献者资料的静默四路处理（弹窗零意愿元素，与歌词后台同口径）：
+ * - new：ensureContributor 已按快照新建（含 bio/contact/公开意愿），这里不再处理；
+ * - clear：勾选清空 → 除 ID/昵称/标签外所有字段置空；
+ * - update：勾选更新 → contact_value 全量覆盖、公开意愿覆盖，bio 非空时覆盖；
+ * - none：纯引用身份，不动资料。
+ * 仅 review 模式且关联的是已有账号（!created）时执行；edit/create 不消费历史意愿。
+ * 返回实际执行的路径，失败抛错由调用方统一提示（资料写失败不回滚分享审核结果，仅提示人工处理）。
+ */
+async function applySubmitterProfileRequest(cid: string, created: boolean): Promise<'new' | 'none' | 'update' | 'clear'> {
+  if (created) return 'new'
+  if (form.submitter_request_clear) {
+    await adminApi.update('contributors', cid, {
+      avatar: null, bio: '', public_bio: true, contact_value: {}, public_contact: false, location: '', sort: 0,
+    })
+    // 本地池同步置空，保证紧接着的通知邮箱回退不会读到旧邮箱
+    const c = contributors.value.find(x => x.id === cid)
+    if (c) {
+      c.contact_value = {}
+      c.public_contact = false
+      c.bio = ''
+    }
+    return 'clear'
+  }
+  if (form.submitter_request_update) {
+    const patch: Record<string, unknown> = {
+      contact_value: { ...form.submitter_contact },
+      public_contact: !!form.submitter_public_contact,
+    }
+    const bio = (form.submitter_bio || '').trim()
+    if (bio) patch.bio = bio
+    await adminApi.update('contributors', cid, patch)
+    // 本地池同步（通知邮箱回退 / 同会话连续审核取到新值）
+    const c = contributors.value.find(x => x.id === cid)
+    if (c) {
+      c.contact_value = { ...form.submitter_contact }
+      c.public_contact = !!form.submitter_public_contact
+      if (bio) c.bio = bio
+    }
+    return 'update'
+  }
+  return 'none'
+}
+
+/**
+ * 通知收件邮箱：优先投稿快照 user_email（旧投稿/纯引用身份可能为空），
+ * 快照缺失时回退到贡献者资料 contact_value.email。
+ * resolvedCid 传入审核通过刚解析出的账号（可能是本次新建，form.contributor_id 仍持 __NEW__ 占位）；
+ * 拒绝时不传，按 form.contributor_id / 同名匹配自行解析。
+ */
+function resolveNotifyEmail(resolvedCid?: string): string {
+  if ((form.user_email || '').trim()) return form.user_email.trim()
+  let cid = (resolvedCid || '').trim()
+  if (!cid) {
+    const raw = (form.contributor_id || '').trim()
+    if (raw && !raw.startsWith('__NEW__:')) {
+      cid = raw
+    } else {
+      const name = raw.startsWith('__NEW__:') ? raw.slice('__NEW__:'.length) : form.submitter_name
+      cid = contributors.value.find(c => c.name === (name || '').trim())?.id || ''
+    }
+  }
+  const c = cid ? contributors.value.find(x => x.id === cid) : null
+  const cv = (c?.contact_value || {}) as Record<string, string>
+  return (cv['email'] || '').trim()
+}
+
 /** 收集审核邮件参数（无邮箱时服务端自动 skipped） */
-function sendResultMail(action: 'approve' | 'reject') {
+function sendResultMail(action: 'approve' | 'reject', resolvedCid?: string) {
   adminApi
     .callMailServer('/api/mailer', {
       action,
-      to: form.user_email || '',
+      // 快照邮箱为空时回退贡献者资料邮箱（邮箱语义已并入 contact_value.email）
+      to: resolveNotifyEmail(resolvedCid),
       user_name: form.submitter_name,
       song_title: form.title,
       ...(action === 'reject' ? { reject_reason: form.reject_reason } : {}),
@@ -895,8 +989,9 @@ async function doApprove() {
   if (saving.value) return
   saving.value = true
   try {
-    const cid = await ensureContributor()
-    if (!cid) return
+    const ensured = await ensureContributor()
+    if (!ensured) return
+    const { cid, created } = ensured
 
     // submitter_name（NOT NULL 列）：
     // - 手动添加是站长代发，没有独立投稿人，昵称由所选贡献者名派生；
@@ -933,6 +1028,10 @@ async function doApprove() {
         submitter_name: submitterName,
         user_email: null,
         submitter_contact: {},
+        // 手动添加不存在投稿人资料意愿，三列恒为默认值
+        submitter_request_update: false,
+        submitter_request_clear: false,
+        submitter_bio: null,
         status: 'approved',
         reviewed_at: now,
         approved_at: now,
@@ -957,7 +1056,14 @@ async function doApprove() {
         showDialog.value = false
         return
       }
-      sendResultMail('approve')
+      // 四路静默处理贡献者资料（new/none/update/clear）；失败仅提示，不回滚审核结果
+      try {
+        await applySubmitterProfileRequest(cid, created)
+      } catch (e) {
+        console.error('apply submitter profile request failed', e)
+        ElMessage.warning('分享已通过，但贡献者资料更新/清空失败，请在贡献者管理中手动处理')
+      }
+      sendResultMail('approve', cid)
       ElMessage.success('已通过')
     } else {
       // edit：已通过记录的信息修正（不改时间/状态）

@@ -212,89 +212,16 @@
           </label>
         </div>
 
-        <!-- ===== 第四步：你的信息 ===== -->
+        <!-- ===== 第四步：你的信息（与歌词投稿共用 SubmitterIdentityPanel） ===== -->
         <div>
           <h2 class="text-lg font-semibold text-gray-700 mb-4">4️⃣ 你的信息</h2>
 
-          <!-- 昵称：远程搜索已有贡献者（全量，不过滤标签；命中即以该账号身份分享） -->
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">昵称 <span class="text-red-500">*</span></label>
-            <el-select
-              :model-value="form.name"
-              filterable
-              remote
-              clearable
-              :reserve-keyword="false"
-              placeholder="搜索已有昵称，或输入新昵称后点选蓝色新建项"
-              :remote-method="searchContributors"
-              :loading="contributorLoading"
-              style="width: 100%"
-              @change="onContributorNameChange"
-            >
-              <el-option v-for="c in contributorOptions" :key="c.id" :label="c.name" :value="c.name">
-                <div class="flex items-center gap-2">
-                  <img :src="c.avatar || DEFAULT_LOGO" class="w-6 h-6 rounded-full object-cover" />
-                  <span class="font-medium">{{ c.name }}</span>
-                  <span v-if="c.tags && c.tags.length" class="text-xs text-gray-400 ml-1">{{ c.tags.slice(0, 2).join(' · ') }}</span>
-                </div>
-              </el-option>
-              <el-option v-if="currentQuery" key="__new__" :label="`➕ 使用新昵称「${currentQuery}」`" :value="`__NEW__:${currentQuery}`">
-                <span class="text-blue-500 font-medium">➕ 使用新昵称「{{ currentQuery }}」</span>
-              </el-option>
-            </el-select>
-            <div v-if="selectedContributor" class="mt-1.5 text-xs text-blue-600">
-              将以已有贡献者「{{ selectedContributor.name }}」的身份提交本次分享
-            </div>
-            <div v-else-if="isNewContributor" class="mt-1.5 text-xs text-blue-600">
-              将以新昵称「{{ form.name }}」记录，审核通过后自动创建贡献者账号
-            </div>
-          </div>
-
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              邮箱 <span class="text-xs text-gray-400 ml-1">（选填，填写后可收到审核结果通知）</span>
-            </label>
-            <input
-              v-model="form.email"
-              type="email"
-              class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-              placeholder="用于接收审核结果通知，不会公开展示"
-            />
-          </div>
-
-          <!-- 联系方式动态行（键名复用歌词投稿 CONTACT_TYPES，不含 email——邮箱已单独一栏） -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              联系方式 <span class="text-xs text-gray-400 ml-1">（选填，可添加多种；默认仅站长可见，勾选下方公开后才会对外展示）</span>
-            </label>
-            <div class="space-y-2">
-              <div v-for="(c, idx) in form.contacts" :key="idx" class="flex gap-2 items-center">
-                <el-select v-model="c.type" style="width: 120px; flex-shrink: 0">
-                  <el-option v-for="t in CONTACT_TYPES" :key="t" :label="contactLabel(t)" :value="t" :disabled="isContactTypeSelected(t, idx)" />
-                </el-select>
-                <el-input v-model="c.value" :placeholder="contactPlaceholder(c.type) || '号码/文本'" style="flex: 1; min-width: 0" />
-                <el-button type="danger" link @click="removeContact(idx)">移除</el-button>
-              </div>
-            </div>
-            <el-button type="primary" link size="small" class="mt-1" @click="addContact">+ 添加联系方式</el-button>
-
-            <!-- 公开意愿（与歌词投稿同一口径：默认不公开，投稿人自行勾选；未填联系方式时置灰） -->
-            <div
-              class="mt-2 p-3 bg-pink-50/50 rounded-lg"
-              :class="{ 'opacity-50 pointer-events-none select-none': !hasAnyContact }"
-            >
-              <label class="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
-                <input v-model="form.publicContact" type="checkbox" class="w-4 h-4 mt-0.5 accent-pink-500" :disabled="!hasAnyContact" />
-                <span>
-                  🔓 公开我的联系方式（默认不公开）
-                  <span class="block text-xs text-gray-400 mt-1 leading-relaxed">
-                    勾选后，本条通过审核并创建音乐人主页时，联系方式将展示在音乐人主页与自荐卡片上，方便听众一键跳转。
-                    填错了可之后在「我要投稿」里提交资料更新，或联系站长在贡献者管理中修改。
-                  </span>
-                </span>
-              </label>
-            </div>
-          </div>
+          <SubmitterIdentityPanel
+            ref="identityRef"
+            :model-value="identity"
+            variant="music"
+            @update:model-value="onIdentityUpdate"
+          />
         </div>
 
         <el-button
@@ -325,11 +252,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useHead } from '@unhead/vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/lib/api'
-import type { Contributor, MusicShare, MusicShareDupHints } from '@/lib/types'
+import type { MusicShare, MusicShareDupHints } from '@/lib/types'
 import { useMusicPlayerStore } from '@/stores/musicPlayer'
 import type { MusicResolveResult } from '@/lib/musicPlatforms'
 import {
@@ -339,12 +266,10 @@ import {
   type MusicPlatformKey,
 } from '@/lib/musicPlatforms'
 import { enrichAlbumTracks } from '@/lib/musicAlbumEnrich'
-import { contactLabel, contactPlaceholder, contactValueError, LOGO_URL as DEFAULT_LOGO } from '@/lib/constants'
+import { CONTACT_TYPES } from '@/lib/constants'
+import SubmitterIdentityPanel, { type SubmitterIdentity } from '@/components/contributor/SubmitterIdentityPanel.vue'
 
 useHead({ title: '分享歌曲 - LrcShare' })
-
-/** 联系方式键（与歌词投稿页保持同一套；email 已单独成栏，此处不重复） */
-const CONTACT_TYPES = ['qq', 'wechat', 'bilibili', 'github', 'blog', 'douyin', 'weibo', 'twitter', 'xiaohongshu', 'netease', 'homepage', 'phone', 'mobile']
 
 // ============ 平台选择 + 输入 ============
 const platformKey = ref<MusicPlatformKey>('netease')
@@ -370,20 +295,25 @@ const form = reactive({
   artist: '',
   reason: '',
   is_own_work: false,
+})
+
+// ============ 投稿人身份（v-model 同步自 SubmitterIdentityPanel；reactive 用 Object.assign 回写） ============
+const identity = reactive<SubmitterIdentity>({
   name: '',
   email: '',
+  bio: '',
   contacts: [{ type: CONTACT_TYPES[0], value: '' }],
-  // 联系方式公开意愿（与歌词投稿同口径，默认不公开；提交时落 submitter_public_contact）
-  publicContact: false,
+  public_contact: false,
+  request_update: false,
+  request_clear: false,
 })
+/** 身份面板实例：命中的已有贡献者、校验、contact_value 组装由组件提供 */
+const identityRef = ref<InstanceType<typeof SubmitterIdentityPanel> | null>(null)
+const selectedContributor = computed(() => identityRef.value?.selected ?? null)
 
-/** 是否填了至少一条非空联系方式：没有时公开勾选无意义，置灰且提交时强制按 false 处理 */
-const hasAnyContact = computed(() => form.contacts.some(c => !!(c.value || '').trim()))
-
-// 联系方式被清空到一条不剩时，连带取消公开意愿，避免不可用状态携带旧值提交
-watch(hasAnyContact, has => {
-  if (!has) form.publicContact = false
-})
+function onIdentityUpdate(v: SubmitterIdentity) {
+  Object.assign(identity, v)
+}
 
 // 切换平台或修改输入后，旧的识别结果作废（避免拿着 A 平台结果配 B 平台链接提交）
 watch([platformKey, urlOrEmbed], () => {
@@ -480,6 +410,9 @@ const previewShare = computed<MusicShare | null>(() => {
     submitter_contact: null,
     submitter_public_contact: false,
     user_email: null,
+    submitter_request_update: false,
+    submitter_request_clear: false,
+    submitter_bio: null,
     sort: 0,
     status: 'pending',
     reject_reason: null,
@@ -505,87 +438,7 @@ function fmtDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-// ============ 贡献者昵称搜索（与歌词投稿页同一套：全量、不按标签过滤） ============
-const contributorOptions = ref<Contributor[]>([])
-const contributorLoading = ref(false)
-const allContributors = ref<Contributor[]>([])
-const currentQuery = ref('')
-const isNewContributor = ref(false)
-let contributorSearchTimer: ReturnType<typeof setTimeout> | null = null
-
-async function loadAllContributorsOnce() {
-  if (allContributors.value.length > 0) return allContributors.value
-  try {
-    const list = await api.getContributors()
-    // 与歌词投稿页一致：排除站长本人
-    allContributors.value = (list || []).filter(c => !c.is_owner)
-  } catch (e) {
-    console.error('load contributors failed', e)
-  }
-  return allContributors.value
-}
-
-onMounted(() => {
-  loadAllContributorsOnce()
-})
-
-async function searchContributors(query: string) {
-  currentQuery.value = (query || '').trim()
-  if (contributorSearchTimer) clearTimeout(contributorSearchTimer)
-  contributorLoading.value = true
-  contributorSearchTimer = setTimeout(async () => {
-    try {
-      const list = await loadAllContributorsOnce()
-      const q = (query || '').trim().toLowerCase()
-      contributorOptions.value = q
-        ? list.filter(c => (c.name || '').toLowerCase().includes(q)).slice(0, 20)
-        : list.slice(0, 20)
-    } finally {
-      contributorLoading.value = false
-    }
-  }, 200)
-}
-
-/** 仅当选中已有贡献者时返回对象；新建昵称返回 null（pending 阶段只存快照名，审核通过才建账号） */
-const selectedContributor = computed(() => {
-  if (isNewContributor.value) return null
-  const name = (form.name || '').trim()
-  if (!name) return null
-  return allContributors.value.find(c => c.name === name) || null
-})
-
-function onContributorNameChange(val: string | null | undefined) {
-  if (val && typeof val === 'string' && val.startsWith('__NEW__:')) {
-    form.name = val.slice('__NEW__:'.length)
-    isNewContributor.value = true
-  } else {
-    form.name = val || ''
-    isNewContributor.value = false
-  }
-}
-
-// ============ 联系方式动态行 ============
-function addContact() {
-  const used = new Set(form.contacts.map(c => c.type).filter(Boolean))
-  const next = CONTACT_TYPES.find(t => !used.has(t)) || CONTACT_TYPES[0]
-  form.contacts.push({ type: next, value: '' })
-}
-function removeContact(idx: number) {
-  form.contacts.splice(idx, 1)
-}
-function isContactTypeSelected(type: string, idx: number) {
-  return form.contacts.some((c, i) => i !== idx && c.type === type && c.value)
-}
-
-/** 收集非空联系方式；email 不进 contact（单独写 user_email 列） */
-function collectContacts(): Record<string, string> {
-  const obj: Record<string, string> = {}
-  for (const c of form.contacts) {
-    const v = (c.value || '').trim()
-    if (v) obj[c.type] = v
-  }
-  return obj
-}
+// 贡献者昵称搜索 / 联系方式动态行 / 锁定与互斥 / 校验，统一由 SubmitterIdentityPanel 承担
 
 // ============ 提交（双层去重 + 写库 + 站长邮件通知） ============
 const submitting = ref(false)
@@ -661,15 +514,8 @@ async function handleSubmit() {
       return
     }
   }
-  if (!form.name.trim()) {
-    ElMessage.warning('请填写昵称')
-    return
-  }
-  const email = form.email.trim()
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    ElMessage.warning('请填写正确的邮箱地址，或留空')
-    return
-  }
+  // 身份校验（昵称必填；新昵称邮箱选填；邮箱格式；更新·清空互斥；联系方式链接规范）统一在面板内
+  if (!identityRef.value?.validateForSubmit()) return
   if (!form.reason.trim()) {
     ElMessage.warning('请填写推荐理由（1~200 字）')
     return
@@ -678,18 +524,9 @@ async function handleSubmit() {
     ElMessage.warning('推荐理由最多 200 字')
     return
   }
-  // 联系方式：平台主页类（B站/GitHub/网易云等）必须填完整 http(s) 链接，号码/文本类不限制
-  for (const c of form.contacts) {
-    const t = (c.type || '').trim()
-    const v = (c.value || '').trim()
-    if (t && v) {
-      const err = contactValueError(t, v)
-      if (err) {
-        ElMessage.warning(err)
-        return
-      }
-    }
-  }
+  // 联系方式对象（邮箱同属资料，并入 contact_value 的 email 键；锁定已有账号时返回 {}）
+  const contactObj = identityRef.value.buildContactValue()
+  if (!contactObj) return
 
   // ---- 双层去重（同平台 ID / 跨平台同名同歌手，approved + pending） ----
   if (await blockIfDuplicate()) return
@@ -709,15 +546,20 @@ async function handleSubmit() {
       reason: form.reason.trim(),
       is_own_work: form.is_own_work,
       contributor_id: selectedContributor.value?.id || null,
-      submitter_name: form.name.trim(),
-      submitter_contact: collectContacts(),
-      // 公开意愿：没填任何联系方式时恒为 false（勾选框此时已置灰并被 watch 清过一次，这里再兜底）
-      submitter_public_contact: hasAnyContact.value && form.publicContact,
-      user_email: email || null,
+      submitter_name: identity.name.trim(),
+      // 邮箱同属贡献者资料：contact_value 含 email 键；user_email 列作投稿快照供通知邮件
+      submitter_contact: contactObj,
+      // 公开意愿：没有任何可公开内容时恒为 false（勾选框此时已置灰，这里再兜底）
+      submitter_public_contact: Object.keys(contactObj).length > 0 && identity.public_contact,
+      user_email: (contactObj['email'] as string | undefined) || null,
+      // 借歌曲投稿更新/清空资料：仅命中已有贡献者时有效；bio 在纯引用身份时不下发
+      submitter_request_update: !!selectedContributor.value && identity.request_update,
+      submitter_request_clear: !!selectedContributor.value && identity.request_clear,
+      submitter_bio: selectedContributor.value && !identity.request_update ? null : identity.bio || null,
     })
     lastTitle.value = form.title.trim()
     submitted.value = true
-    notifyAdmin(form.name.trim(), `【歌曲分享】${musicPlatformLabel(resolved.value.platform)} · ${form.title.trim()}`)
+    notifyAdmin(identity.name.trim(), `【歌曲分享】${musicPlatformLabel(resolved.value.platform)} · ${form.title.trim()}`)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (e) {
     console.error('submit music share failed', e)

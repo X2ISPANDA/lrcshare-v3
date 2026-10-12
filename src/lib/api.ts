@@ -787,6 +787,10 @@ export const api = {
       // 投稿人公开联系方式意愿（SQL 16 号迁移已把该列加入 anon INSERT 白名单）
       submitter_public_contact: !!payload.submitter_public_contact,
       user_email: payload.user_email || null,
+      // 借歌曲投稿更新/清空资料 + 简介快照（SQL 17 号迁移已把三列加入 anon INSERT 白名单）
+      submitter_request_update: !!payload.submitter_request_update,
+      submitter_request_clear: !!payload.submitter_request_clear,
+      submitter_bio: payload.submitter_bio || null,
       // 注意：status 不在 anon INSERT 白名单中，由数据库默认值 'pending' 与 RLS WITH CHECK 兜底
       created_at: payload.created_at || new Date().toISOString(),
     }

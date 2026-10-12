@@ -23,6 +23,24 @@ import { api } from '@/lib/api'
 /** localStorage 键：'off' 表示听众关闭了进站自动播放 */
 const AUTOPLAY_KEY = 'lrcshare_music_autoplay'
 
+/** 播放模式：列表循环（默认）/ 单曲循环 / 随机播放 */
+export type PlayMode = 'list-loop' | 'single' | 'shuffle'
+/** localStorage 键：记忆听众上次选择的播放模式 */
+const MODE_KEY = 'lrcshare_music_play_mode'
+const PLAY_MODES: PlayMode[] = ['list-loop', 'single', 'shuffle']
+
+/** 读取记忆的播放模式（SSG 服务端无 localStorage，回默认；非法值同样回默认） */
+function loadPlayMode(): PlayMode {
+  if (typeof window === 'undefined') return 'list-loop'
+  try {
+    const v = localStorage.getItem(MODE_KEY)
+    if (v === 'single' || v === 'shuffle' || v === 'list-loop') return v
+  } catch {
+    /* 隐私模式等场景读取失败，回默认 */
+  }
+  return 'list-loop'
+}
+
 /** 队列元素：一条分享行 + 专辑内具体曲目（单曲为 null） */
 export interface QueueItem {
   share: MusicShare
@@ -81,6 +99,8 @@ export const useMusicPlayerStore = defineStore('musicPlayer', {
      * 此时递增该值，由 Dock watch 后 seek(0) 并确保播放，给听众明确的点击反馈。
      */
     replayNonce: 0,
+    /** 播放模式（列表循环默认；localStorage 记忆）。单曲循环=当前项结束重播；随机=播完/手动切歌随机跳另一项 */
+    mode: loadPlayMode() as PlayMode,
   }),
 
   getters: {
@@ -194,16 +214,57 @@ export const useMusicPlayerStore = defineStore('musicPlayer', {
       return true
     },
 
-    /** 下一首：队列内循环。manual=false 为播完自动联播调用 */
+    /**
+     * 下一首：
+     * - 列表循环：顺序前进、队尾回首（队列仅 1 项时重播当前项）；
+     * - 随机：随机跳到另一项（手动/自动都随机；队列仅 1 项时重播当前项）；
+     * - 单曲循环：到这里的调用都来自手动切歌（自动联播被 onAdapterEnded 拦截重播），顺序前进。
+     */
     next() {
-      if (this.queue.length <= 1) return
-      this.index = (this.index + 1) % this.queue.length
+      const len = this.queue.length
+      if (!len) return
+      if (len === 1) {
+        // 队列只有一项：列表循环/单曲循环重播当前项；随机也无别的项可跳，重播兜底
+        if (this.mode === 'list-loop' || this.mode === 'single' || this.mode === 'shuffle') {
+          this.replayNonce++
+        }
+        return
+      }
+      if (this.mode === 'shuffle') {
+        let i = this.index
+        while (i === this.index) i = Math.floor(Math.random() * len)
+        this.index = i
+        return
+      }
+      this.index = (this.index + 1) % len
     },
 
-    /** 上一首 */
+    /**
+     * 上一首：
+     * - 随机模式下手动上一首同样随机跳另一项（产品决策：不维护播放历史）；
+     * - 其余模式顺序后退、队首回尾；队列仅 1 项时不动。
+     */
     prev() {
-      if (this.queue.length <= 1) return
-      this.index = (this.index - 1 + this.queue.length) % this.queue.length
+      const len = this.queue.length
+      if (len <= 1) return
+      if (this.mode === 'shuffle') {
+        let i = this.index
+        while (i === this.index) i = Math.floor(Math.random() * len)
+        this.index = i
+        return
+      }
+      this.index = (this.index - 1 + len) % len
+    },
+
+    /** 三态轮换：列表循环 → 单曲循环 → 随机播放 → 列表循环，并持久化 */
+    cycleMode() {
+      const idx = PLAY_MODES.indexOf(this.mode)
+      this.mode = PLAY_MODES[(idx + 1) % PLAY_MODES.length]
+      try {
+        localStorage.setItem(MODE_KEY, this.mode)
+      } catch {
+        /* 隐私模式等场景忽略写入失败 */
+      }
     },
 
     /**
@@ -233,8 +294,18 @@ export const useMusicPlayerStore = defineStore('musicPlayer', {
       if (item && item.share.id === shareId) this.index = target
     },
 
-    /** adapter 上报整张结束：三家平台全部可靠联播 */
+    /**
+     * adapter 上报整张结束：三家平台全部可靠联播。
+     * 单曲循环：不切队列项，发重播脉冲让 Dock seek(0) 重播当前项；
+     * 其余模式按 next(false) 处理（列表循环顺序/随机模式随机跳）。
+     * 注意：YouTube 合辑 / SoundCloud sets 内部曲目联播由 adapter 自行处理，
+     * 不会触发这里，故播放模式不干预合辑内部顺序。
+     */
     onAdapterEnded() {
+      if (this.mode === 'single') {
+        this.replayNonce++
+        return
+      }
       this.next()
     },
 

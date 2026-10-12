@@ -77,6 +77,7 @@ declare module 'vue' {
     SearchOverlay: typeof import('./src/components/layout/SearchOverlay.vue')['default']
     SongFormDialog: typeof import('./src/components/admin/SongFormDialog.vue')['default']
     SongNfcCard: typeof import('./src/components/common/SongNfcCard.vue')['default']
+    SubmitterIdentityPanel: typeof import('./src/components/contributor/SubmitterIdentityPanel.vue')['default']
     TwikooComment: typeof import('./src/components/submit/TwikooComment.vue')['default']
     VersionSortDialog: typeof import('./src/components/admin/VersionSortDialog.vue')['default']
     VersionSubmitPanel: typeof import('./src/components/submit/VersionSubmitPanel.vue')['default']

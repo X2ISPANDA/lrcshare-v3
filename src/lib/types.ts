@@ -272,6 +272,12 @@ export interface MusicShare {
   /** 投稿人勾选的联系方式公开意愿（false=仅站长可见；通过并新建贡献者时据此写入 public_contact） */
   submitter_public_contact: boolean
   user_email: string | null
+  /** 借歌曲投稿请求更新本人资料（审核通过时全量覆盖；仅 contributor_id 命中已有账号时有意义） */
+  submitter_request_update: boolean
+  /** 借歌曲投稿请求清空本人资料（与 update 互斥；通过时除 ID/昵称/标签外置空） */
+  submitter_request_clear: boolean
+  /** 投稿人简介快照（新建/更新贡献者时写入 contributors.bio；纯引用身份为 null） */
+  submitter_bio: string | null
   /** >0 手动置顶（数字小在前），0 按通过时间倒序 */
   sort: number
   /**
@@ -311,6 +317,11 @@ export interface MusicShareInsert {
   /** 投稿人公开联系方式意愿（省略按数据库默认 false）；须与 SQL anon INSERT 白名单一致 */
   submitter_public_contact?: boolean
   user_email?: string | null
+  /** 借歌曲投稿更新/清空本人资料（须与 SQL anon INSERT 白名单一致，默认 false） */
+  submitter_request_update?: boolean
+  submitter_request_clear?: boolean
+  /** 投稿人简介快照（新建/更新贡献者时落 contributors.bio；纯引用身份省略） */
+  submitter_bio?: string | null
   created_at?: string
 }
 
