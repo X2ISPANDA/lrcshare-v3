@@ -125,7 +125,7 @@
                 <el-select v-model="c.type" style="width: 110px; flex-shrink: 0" :disabled="!!(selectedContributor && !userForm.request_update)">
                   <el-option v-for="t in CONTACT_TYPES" :key="t" :label="contactLabel(t)" :value="t" :disabled="isContactTypeSelected(t, idx)" />
                 </el-select>
-                <el-input v-model="c.value" placeholder="号码/链接" style="flex: 1; min-width: 0" :disabled="!!(selectedContributor && !userForm.request_update)" />
+                <el-input v-model="c.value" :placeholder="contactPlaceholder(c.type) || '号码/文本'" style="flex: 1; min-width: 0" :disabled="!!(selectedContributor && !userForm.request_update)" />
                 <el-button type="danger" link :disabled="!!(selectedContributor && !userForm.request_update)" @click="removeContact(idx)">移除</el-button>
               </div>
             </div>
@@ -433,7 +433,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
-import { contactLabel, LOGO_URL as DEFAULT_LOGO, VALIDATION_ABORT } from '@/lib/constants'
+import { contactLabel, contactPlaceholder, contactValueError, LOGO_URL as DEFAULT_LOGO, VALIDATION_ABORT } from '@/lib/constants'
 import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, type LyricKind } from '@/lib/lyricLines'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import type { Artist, Contributor } from '@/lib/types'
@@ -557,13 +557,24 @@ function removeContact(idx: number) {
 function isContactTypeSelected(type: string, currentIdx: number) {
   return userForm.contacts.some((c, i) => i !== currentIdx && c.type === type)
 }
-function collectContactsObj(): Record<string, string> {
+/**
+ * 组装联系方式对象（空值行丢弃）。
+ * 平台主页类（B站/GitHub/网易云等）必须为完整 http(s) 链接；
+ * 校验不通过时弹出提示并返回 null，调用方应中止本次提交。
+ */
+function collectContactsObj(): Record<string, string> | null {
   const obj: Record<string, string> = {}
-  userForm.contacts.forEach(c => {
+  for (const c of userForm.contacts) {
     const t = (c.type || '').trim()
     const v = (c.value || '').trim()
-    if (t && v) obj[t] = v
-  })
+    if (!t || !v) continue
+    const err = contactValueError(t, v)
+    if (err) {
+      ElMessage.warning(err)
+      return null
+    }
+    obj[t] = v
+  }
   return obj
 }
 
@@ -732,7 +743,9 @@ async function handleSubmit() {
   const contactObj: Record<string, string> = {}
   if (email) contactObj['email'] = email
   if (!(selectedContributor.value && !userForm.request_update)) {
-    Object.assign(contactObj, collectContactsObj())
+    const extraContacts = collectContactsObj()
+    if (!extraContacts) return
+    Object.assign(contactObj, extraContacts)
   }
 
   // 歌词：提交前未自动拆分则静默拆分一次（兜底）；已解析 → versions + 合成 lrc_text；否则原样
@@ -849,6 +862,7 @@ async function handleProfileSubmit() {
     }
   }
   const contactObj = collectContactsObj()
+  if (!contactObj) return
   if (email) contactObj['email'] = email
   const hasBio = !!(userForm.bio || '').trim()
   if (!hasBio && Object.keys(contactObj).length === 0) {
@@ -927,7 +941,9 @@ async function submitBatchOne(songData: any, batchId: string, batchSize: number)
   const contactObj: Record<string, string> = {}
   if (email) contactObj['email'] = email
   if (!(selectedContributor.value && !userForm.request_update)) {
-    Object.assign(contactObj, collectContactsObj())
+    const extraContacts = collectContactsObj()
+    if (!extraContacts) throw new Error(VALIDATION_ABORT)
+    Object.assign(contactObj, extraContacts)
   }
   await api.submitSubmissionV2({
     submitter_name: name,

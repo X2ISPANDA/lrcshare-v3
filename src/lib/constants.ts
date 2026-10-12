@@ -85,6 +85,50 @@ export function contactLabel(key: string): string {
   return CONTACT_LABELS[key] || PLATFORM_LABELS[key] || key
 }
 
+/**
+ * 联系方式填写规范（2026-10 起）：
+ * 下列「平台主页」类键必须填完整 http(s) 链接，展示端点图标才能一键跳转
+ * （例：网易云主页 https://music.163.com/#/user/home?id=你的ID）；
+ * qq/wechat/email/phone/mobile 属号码或文本，不做链接校验，展示端点图标弹复制框。
+ * 只约束新填写/新保存，不洗历史数据。
+ */
+export const CONTACT_URL_TYPES = [
+  'github', 'blog', 'bilibili', 'douyin', 'weibo', 'twitter',
+  'xiaohongshu', 'netease', 'homepage',
+]
+
+/** 该联系方式类型是否要求填完整链接 */
+export function isContactUrlType(key: string): boolean {
+  return CONTACT_URL_TYPES.includes(key)
+}
+
+/** 校验单条联系方式：合法返回 null，非法返回中文错误文案（号码/文本类恒合法） */
+export function contactValueError(key: string, value: string): string | null {
+  if (!isContactUrlType(key)) return null
+  let ok = false
+  try {
+    const u = new URL(value)
+    ok = u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    ok = false
+  }
+  return ok ? null : `${CONTACT_LABELS[key] || key}请填写完整链接（https:// 开头），例如网易云主页 https://music.163.com/#/user/home?id=你的ID`
+}
+
+/** 联系方式输入框占位提示（仅链接类返回文案，号码类返回空串） */
+export function contactPlaceholder(key: string): string {
+  if (!isContactUrlType(key)) return ''
+  switch (key) {
+    case 'netease': return 'https://music.163.com/#/user/home?id=你的ID'
+    case 'bilibili': return 'https://space.bilibili.com/你的ID'
+    case 'github': return 'https://github.com/用户名'
+    case 'weibo': return 'https://weibo.com/u/你的ID'
+    case 'twitter': return 'https://x.com/用户名'
+    case 'homepage': return 'https://你的主页地址'
+    default: return '请输入完整主页链接（https://…）'
+  }
+}
+
 export function artistTypeIcons(types: string[] | null | undefined): string {
   return (types || ['singer']).map(t => ARTIST_TYPE_ICONS[t] || '').join(' ')
 }

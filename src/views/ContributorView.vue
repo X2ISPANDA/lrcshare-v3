@@ -46,8 +46,28 @@
         </div>
       </div>
 
+      <!-- 内容 Tab：作品量大时，TA 的歌曲分享不用再翻到页面最底部（仅有已通过分享时才出现） -->
+      <div v-if="shares.length" class="mt-6 bg-white rounded-2xl shadow-sm p-2 flex gap-2">
+        <button
+          v-for="t in profileTabs"
+          :key="t.key"
+          type="button"
+          class="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer"
+          :class="activeTab === t.key
+            ? 'text-white shadow-sm profile-tab--on'
+            : 'text-gray-500 hover:bg-gray-50'"
+          @click="switchTab(t.key)"
+        >
+          {{ t.label }}
+          <span
+            class="ml-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs leading-none"
+            :class="activeTab === t.key ? 'bg-white/25 text-white' : 'bg-gray-100 text-gray-400'"
+          >{{ t.count }}</span>
+        </button>
+      </div>
+
       <!-- 作品列表 -->
-      <div class="bg-white rounded-2xl shadow-sm p-6 mt-6">
+      <div v-show="!shares.length || activeTab === 'works'" class="bg-white rounded-2xl shadow-sm p-6 mt-6">
         <h2 class="text-xl font-bold text-gray-800 mb-4">📚 作品列表</h2>
         <div v-if="!works.length" class="text-center py-12 text-gray-400">
           <div class="text-5xl mb-3">📄</div>
@@ -65,6 +85,13 @@
           <div v-if="w.created_at" class="text-sm text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatDate(w.created_at) }}</div>
         </div>
       </div>
+
+      <!-- TA 分享的歌曲：与歌曲分享主页完全同款的公共卡片网格（hideSharer 隐藏本人自引用） -->
+      <div v-if="shares.length" v-show="activeTab === 'shares'" class="bg-white rounded-2xl shadow-sm p-6 mt-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">🎵 TA 分享的歌曲</h2>
+        <p class="text-xs text-gray-400 mb-4">点击任意一条即可在左下角播放器收听</p>
+        <MusicShareCardGrid :shares="shares" hide-sharer @play="playShare" />
+      </div>
     </template>
 
     <div v-else class="text-center py-8 text-red-400">贡献者不存在</div>
@@ -72,35 +99,71 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
+import { useMusicPlayerStore } from '@/stores/musicPlayer'
 import { LOGO_URL, HERO_BG_URL } from '@/lib/constants'
 import AppIcon from '@/components/common/AppIcon.vue'
 import ContactIcons from '@/components/contributor/ContactIcons.vue'
-import type { Contributor } from '@/lib/types'
+import MusicShareCardGrid from '@/components/music/MusicShareCardGrid.vue'
+import type { Contributor, MusicShare } from '@/lib/types'
 
 const route = useRoute()
+const router = useRouter()
 const ui = useUiStore()
+const musicPlayer = useMusicPlayerStore()
 const contributorId = route.params.id as string
 
 interface ContributorPageData {
   contributor: Contributor
   works: { id: string; title: string; artist: string; type: string; created_at: string }[]
+  shares: MusicShare[]
 }
 
 const { data: page, loading } = useSSGData<ContributorPageData>(`contributor:${contributorId}`, async () => {
   const contributor = await api.getContributor(contributorId)
   const works = await api.getContributorWorks(contributor.id)
-  return { contributor, works }
+  // TA 的歌曲分享（仅已通过；失败不阻塞主页，按空区块处理）
+  let shares: MusicShare[] = []
+  try {
+    shares = await api.getMusicSharesByContributor(contributor.id)
+  } catch {
+    shares = []
+  }
+  return { contributor, works, shares }
 })
 
 const contributor = computed(() => page.value?.contributor)
 const works = computed(() => page.value?.works || [])
+const shares = computed(() => page.value?.shares || [])
 const showBio = computed(() => contributor.value?.public_bio !== false && !!contributor.value?.bio)
+
+/** 点击 TA 的分享：以该贡献者的分享列表为队列交给全局 Dock 定位播放 */
+function playShare(s: MusicShare) {
+  musicPlayer.playShare(s, shares.value)
+}
+
+// ============ 内容 Tab（作品列表 / TA 分享的歌曲） ============
+type ProfileTabKey = 'works' | 'shares'
+// 支持外部带 ?tab=shares 直接落到分享 Tab；其余值一律视为 works
+const activeTab = ref<ProfileTabKey>(route.query.tab === 'shares' ? 'shares' : 'works')
+const profileTabs = computed(() => [
+  { key: 'works' as const, label: '📚 作品列表', count: works.value.length },
+  { key: 'shares' as const, label: '🎵 TA 分享的歌曲', count: shares.value.length },
+])
+/** 切换 Tab 并同步 URL：shares 保留 ?tab=shares，works 清掉参数保持链接干净 */
+function switchTab(key: ProfileTabKey) {
+  activeTab.value = key
+  router.replace({ query: { ...route.query, tab: key === 'shares' ? 'shares' : undefined } })
+}
+// 浏览器前进/后退时让 Tab 与 URL 保持同步
+watch(() => route.query.tab, q => {
+  activeTab.value = q === 'shares' ? 'shares' : 'works'
+})
 
 useHead({
   title: computed(() => (contributor.value ? `${contributor.value.name} - 贡献者 - LrcShare` : '贡献者详情 - LrcShare')),
@@ -119,6 +182,7 @@ const tags = computed<string[]>(() => {
 /** 贡献标签 → 渐变色（关键词规则与名单页 chipColor 一致，换成艺术家 types 同款渐变胶囊） */
 function tagGradient(tag: string): string {
   const t = tag || ''
+  if (t.includes('歌曲分享')) return 'from-pink-500 to-purple-500'
   if (t.includes('LOGO') || t.includes('设计')) return 'from-pink-500 to-rose-500'
   if (t.includes('歌词') || t.includes('贡献')) return 'from-purple-500 to-violet-500'
   if (t.includes('文案')) return 'from-blue-500 to-sky-500'
@@ -132,6 +196,7 @@ function tagGradient(tag: string): string {
 /** 贡献标签 → emoji 图标 */
 function tagIcon(tag: string): string {
   const t = tag || ''
+  if (t.includes('歌曲分享')) return '🎵'
   if (t.includes('LOGO')) return '🎨'
   if (t.includes('设计')) return '✏️'
   if (t.includes('歌词')) return '📝'
@@ -156,6 +221,10 @@ function formatDate(dateStr: string | null): string {
 <style scoped>
 .contributor-hero {
   min-height: 200px;
+}
+/* Tab 选中态：与全站播放器一致的粉紫渐变 */
+.profile-tab--on {
+  background: linear-gradient(135deg, #ec4899, #a855f7);
 }
 .hero-bg-img {
   position: absolute;

@@ -119,7 +119,7 @@ const navItems: NavItem[] = [
   { to: '/posts', label: '逼逼' },
   { to: '/changelog', label: '更新日志' },
   { to: '/docs', label: '开发文档' },
-  { to: '/music-share/submit', label: '分享音乐' },
+  { to: '/music-shares', label: '歌曲分享' },
   { to: '/submit', label: '我要投稿' },
   { to: '/support', label: '赞助' },
   { to: '/about', label: '关于' },

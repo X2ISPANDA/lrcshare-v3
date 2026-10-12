@@ -58,7 +58,11 @@ import { contactLabel } from '@/lib/constants'
 import { copyText } from '@/lib/clipboard'
 import type { Contributor } from '@/lib/types'
 
-const props = defineProps<{ contributor: Contributor; variant?: 'light' | 'white' }>()
+const props = defineProps<{
+  /** 只依赖 public_contact / contact_value，允许分享卡等场景传入 Pick 版贡献者 */
+  contributor: Pick<Contributor, 'contact_value' | 'public_contact'>
+  variant?: 'light' | 'white'
+}>()
 
 const iconClass = computed(() =>
   props.variant === 'white'

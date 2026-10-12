@@ -114,7 +114,7 @@
               <el-select v-model="row.k" filterable allow-create default-first-option size="small" class="!w-36 flex-shrink-0" placeholder="类型">
                 <el-option v-for="ct in CONTACT_TYPES" :key="ct" :label="contactLabel(ct)" :value="ct" />
               </el-select>
-              <el-input v-model="row.v" placeholder="号码 / 链接" size="small" />
+              <el-input v-model="row.v" :placeholder="contactPlaceholder(row.k) || '号码 / 文本'" size="small" />
               <el-button size="small" type="danger" text @click="form.contactRows.splice(idx, 1)">删</el-button>
             </div>
             <el-button size="small" @click="form.contactRows.push({ k: 'qq', v: '' })">+ 添加联系方式</el-button>
@@ -265,12 +265,32 @@
               </div>
             </div>
           </div>
+          <!-- 身份标签：并集勾选（默认全选），不走左右二选一 -->
+          <div class="pt-1">
+            <div class="grid grid-cols-[88px_1fr_1fr] gap-2 items-center pb-1">
+              <span class="text-xs text-gray-500 px-1">身份标签</span>
+              <span class="text-xs text-gray-400 col-span-2">两边标签已合并去重，默认全部保留，可点选取消</span>
+            </div>
+            <div class="grid grid-cols-[88px_1fr] gap-2 items-start">
+              <span></span>
+              <div v-if="mergeTagKeys.length" class="flex flex-wrap gap-2 col-span-1">
+                <el-check-tag
+                  v-for="t in mergeTagKeys"
+                  :key="t"
+                  :checked="!!tagChoice[t]"
+                  class="text-sm"
+                  @change="(v: boolean) => (tagChoice[t] = v)"
+                >{{ t }}</el-check-tag>
+              </div>
+              <div v-else class="text-xs text-gray-300 col-span-1">两边账号都没有标签</div>
+            </div>
+          </div>
         </div>
 
         <!-- 合并影响预览 -->
         <div class="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 space-y-1">
           <div class="font-medium">合并后：</div>
-          <div>删除「{{ rightContributor.name }}」，其 {{ usageOf(rightContributor.id).songs }} 首歌 / {{ usageOf(rightContributor.id).versions }} 个歌词版本 / {{ usageOf(rightContributor.id).submissions }} 条投稿全部转到「{{ leftContributor.name }}」名下</div>
+          <div>删除「{{ rightContributor.name }}」，其 {{ usageOf(rightContributor.id).songs }} 首歌 / {{ usageOf(rightContributor.id).versions }} 个歌词版本 / {{ usageOf(rightContributor.id).submissions }} 条投稿 / {{ usageOf(rightContributor.id).musicShares }} 条歌曲分享全部转到「{{ leftContributor.name }}」名下</div>
           <div>保留账号最终名称：<b>{{ pickedProfile.name }}</b><span v-if="pickedProfile.name !== leftContributor.name" class="text-red-600">（将改名，原为「{{ leftContributor.name }}」）</span></div>
           <div class="text-amber-600">站长标识、注册时间保持保留账号原样；右边账号的个人资料删除后不可恢复。</div>
         </div>
@@ -289,7 +309,7 @@ import { computed, h, onMounted, reactive, ref, watch, type FunctionalComponent 
 import { Search, Check } from '@element-plus/icons-vue'
 import { adminApi } from '@/lib/adminApi'
 import AdminTable from '@/components/admin/AdminTable.vue'
-import { contactLabel } from '@/lib/constants'
+import { contactLabel, contactPlaceholder, contactValueError } from '@/lib/constants'
 import type { Contributor } from '@/lib/types'
 
 /** 贡献者管理：站长标识、动态联系方式、公开开关 */
@@ -346,7 +366,7 @@ function clearSelection() {
 }
 
 // ============ 编辑弹窗 ============
-const PRESET_TAGS = ['歌词提交', 'Logo设计', '网站搭建', '资料核对']
+const PRESET_TAGS = ['歌词提交', 'Logo设计', '网站搭建', '资料核对', '歌曲分享']
 const showDialog = ref(false)
 const editing = ref<Contributor | null>(null)
 const saving = ref(false)
@@ -401,13 +421,21 @@ async function save() {
   }
   saving.value = true
   try {
+    // contact_value 从动态行组装（键即类型，空值行丢弃）；平台主页类必须为完整 http(s) 链接
+    const contactObj = Object.fromEntries(form.contactRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()]))
+    for (const [k, v] of Object.entries(contactObj)) {
+      const err = contactValueError(k, v)
+      if (err) {
+        ElMessage.warning(err)
+        return
+      }
+    }
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       avatar: form.avatar.trim() || null,
       tags: form.tags,
       is_owner: !!form.is_owner,
-      // contact_value 从动态行组装（键即类型，空值行丢弃）
-      contact_value: Object.fromEntries(form.contactRows.filter(r => r.k && r.v.trim()).map(r => [r.k, r.v.trim()])),
+      contact_value: contactObj,
       public_contact: !!form.public_contact,
       bio: form.bio || null,
       public_bio: form.public_bio !== false,
@@ -433,7 +461,12 @@ async function save() {
 
 async function removeOne(row: Contributor) {
   try {
-    await ElMessageBox.confirm(`确定删除贡献者「${row.name}」？其投稿歌曲的 contributor 关联将显示为空。`, '危险操作', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确定删除贡献者「${row.name}」？\n` +
+      '其投稿的歌词作品会保留（仅解除署名关联）；其名下的歌曲分享（含待审核）将一并删除，不可恢复。',
+      '危险操作',
+      { type: 'warning' },
+    )
     await adminApi.remove('contributors', row.id)
     ElMessage.success('已删除')
     await load()
@@ -445,7 +478,12 @@ async function removeOne(row: Contributor) {
 async function batchRemove() {
   if (!selected.value.length) return
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${selected.value.length} 位贡献者？`, '批量删除', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selected.value.length} 位贡献者？\n` +
+      '他们的歌词作品会保留（仅解除署名关联）；名下歌曲分享（含待审核）将一并删除，不可恢复。',
+      '批量删除',
+      { type: 'warning' },
+    )
     await adminApi.removeBatch('contributors', selected.value.map(c => c.id))
     ElMessage.success('批量删除完成')
     clearSelection()
@@ -459,7 +497,7 @@ watch(keyword, () => (page.value = 1))
 watch(pageSize, () => (page.value = 1))
 
 // ============ 合并账号 ============
-/** 参与逐字段挑选的资料字段（is_owner / created_at 不参与合并） */
+/** 参与逐字段挑选的资料字段（is_owner / created_at 不参与合并；tags 不走二选一，见下方标签并集勾选） */
 type MergeProfileKey = 'name' | 'avatar' | 'bio' | 'public_bio' | 'contact_value' | 'public_contact' | 'tags' | 'sort'
 const MERGE_FIELDS: { key: MergeProfileKey; label: string }[] = [
   { key: 'name', label: '名称' },
@@ -468,7 +506,6 @@ const MERGE_FIELDS: { key: MergeProfileKey; label: string }[] = [
   { key: 'public_bio', label: '简介公开' },
   { key: 'contact_value', label: '联系方式' },
   { key: 'public_contact', label: '联系方式公开' },
-  { key: 'tags', label: '身份标签' },
   { key: 'sort', label: '置顶排序' },
 ]
 
@@ -572,9 +609,35 @@ function pickedContactValue(): Record<string, string> {
   return out
 }
 
-/** 选中双方名下歌/版本/投稿计数（歌曲数直接用页面已加载的 countMap，版本/投稿按需查库） */
-const usageMap = ref(new Map<string, { songs: number; versions: number; submissions: number }>())
-const usageOf = (id: string) => usageMap.value.get(id) || { songs: 0, versions: 0, submissions: 0 }
+/**
+ * 身份标签并集勾选（标签不走左右二选一）：
+ * 两边标签去重后逐个 checkbox 展示，默认全选，可手动点掉。
+ * 必要性：歌词账号与纯「歌曲分享」账号合并后若只留一侧标签，
+ * 账号可能被贡献榜展示位（仅过滤单「歌曲分享」标签）误隐藏。
+ */
+const tagChoice = reactive<Record<string, boolean>>({})
+/** 双方标签并集（去空白、去重，保持 左→右 出现顺序） */
+const mergeTagKeys = computed<string[]>(() => {
+  const l = leftContributor.value
+  const r = rightContributor.value
+  if (!l || !r) return []
+  const all: string[] = []
+  for (const t of [...(l.tags || []), ...(r.tags || [])]) {
+    const v = (t || '').trim()
+    if (v && !all.includes(v)) all.push(v)
+  }
+  return all
+})
+/** 换选双方时标签重置为并集全选 */
+function resetTagChoice() {
+  for (const k of Object.keys(tagChoice)) delete tagChoice[k]
+  for (const k of mergeTagKeys.value) tagChoice[k] = true
+}
+
+/** 选中双方名下歌/版本/投稿/歌曲分享计数（歌曲数直接用页面已加载的 countMap，其余按需查库） */
+const usageMap = ref(new Map<string, { songs: number; versions: number; submissions: number; musicShares: number }>())
+const usageOf = (id: string) =>
+  usageMap.value.get(id) || { songs: 0, versions: 0, submissions: 0, musicShares: 0 }
 
 const matchKw = (c: Contributor, kw: string) => {
   const k = kw.trim().toLowerCase()
@@ -600,7 +663,8 @@ const pickedProfile = computed<Record<string, unknown>>(() => {
     public_bio: !!pick('public_bio'),
     contact_value: pickedContactValue(),
     public_contact: !!pick('public_contact'),
-    tags: (pick('tags') as string[]) || [],
+    // 标签取两边并集后按勾选结果保留（默认全选），不做左右二选一
+    tags: mergeTagKeys.value.filter(t => tagChoice[t]),
     sort: Number(pick('sort') || 0),
   }
 })
@@ -616,23 +680,27 @@ function openMerge() {
   showMerge.value = true
 }
 
-// 任一边换选：重置字段选择为全左、联系方式恢复默认，并在双方都选定后拉取版本/投稿计数
+// 任一边换选：重置字段选择为全左、联系方式/标签恢复默认，并在双方都选定后拉取引用计数
 watch([mergeLeftId, mergeRightId], async () => {
   Object.assign(fieldChoice, defaultChoice())
   resetContactChoice()
+  resetTagChoice()
   const ids = [mergeLeftId.value, mergeRightId.value].filter(Boolean) as string[]
   if (ids.length !== 2) {
     usageMap.value = new Map()
     return
   }
   try {
-    const [versions, subs] = await Promise.all([
+    const [versions, subs, shares] = await Promise.all([
       adminApi.getAll<any>('lyric_versions', { select: 'contributor_id', in: { contributor_id: ids } }),
       adminApi.getAll<any>('submissions', { select: 'contributor_id', in: { contributor_id: ids } }),
+      // 歌曲分享全部状态都随合并转移（待审/已通过/已拒绝）
+      adminApi.getAll<any>('music_shares', { select: 'contributor_id,status', in: { contributor_id: ids } }),
     ])
-    const m = new Map(ids.map(id => [id, { songs: songCount(id), versions: 0, submissions: 0 }]))
+    const m = new Map(ids.map(id => [id, { songs: songCount(id), versions: 0, submissions: 0, musicShares: 0 }]))
     versions.forEach((v: any) => { const o = m.get(v.contributor_id); if (o) o.versions++ })
     subs.forEach((v: any) => { const o = m.get(v.contributor_id); if (o) o.submissions++ })
+    shares.forEach((v: any) => { const o = m.get(v.contributor_id); if (o) o.musicShares++ })
     usageMap.value = m
   } catch (e: any) {
     ElMessage.error('读取账号引用数失败：' + (e?.message || e))
@@ -651,7 +719,7 @@ async function confirmMerge() {
   try {
     await ElMessageBox.confirm(
       `确定把「${r.name}」合并进「${l.name}」？\n` +
-      `右边账号会被永久删除，其名下 ${u.songs} 首歌、${u.versions} 个歌词版本、${u.submissions} 条投稿将全部转到左边。${renameTip}`,
+      `右边账号会被永久删除，其名下 ${u.songs} 首歌、${u.versions} 个歌词版本、${u.submissions} 条投稿、${u.musicShares} 条歌曲分享将全部转到左边。${renameTip}`,
       '危险操作',
       { type: 'warning', confirmButtonText: '确认合并', cancelButtonText: '取消' },
     )
@@ -662,7 +730,7 @@ async function confirmMerge() {
   try {
     // 单次 RPC = 库端单事务，失败整体回滚，不会半写
     const res = await adminApi.mergeContributors(r.id, l.id, pickedProfile.value)
-    ElMessage.success(`已合并：${res.songs_moved} 首歌 / ${res.versions_moved} 个版本 / ${res.submissions_moved} 条投稿已转移`)
+    ElMessage.success(`已合并：${res.songs_moved} 首歌 / ${res.versions_moved} 个版本 / ${res.submissions_moved} 条投稿 / ${res.music_shares_moved} 条歌曲分享已转移`)
     showMerge.value = false
     await load()
   } catch (e: any) {

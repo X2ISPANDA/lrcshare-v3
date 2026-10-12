@@ -260,6 +260,8 @@ export interface MusicShare {
   title: string
   artist: string | null
   cover_url: string | null
+  /** 专辑曲目快照（单曲为 null）：识别时写入，播放时展开为队列，避免每次依赖平台接口拉取 */
+  tracks?: import('./musicPlatforms').MusicTrack[] | null
   reason: string | null
   /** 投稿人自荐本人原创作品（仅本条使用创作者卡片样式，审核可改） */
   is_own_work: boolean
@@ -267,17 +269,25 @@ export interface MusicShare {
   contributor_id: string | null
   submitter_name: string
   submitter_contact: Record<string, string> | null
+  /** 投稿人勾选的联系方式公开意愿（false=仅站长可见；通过并新建贡献者时据此写入 public_contact） */
+  submitter_public_contact: boolean
   user_email: string | null
   /** >0 手动置顶（数字小在前），0 按通过时间倒序 */
   sort: number
+  /**
+   * 首页「新歌推荐」置顶截止时间（ISO 字符串）：
+   * null 或已过期 = 未置顶（首页随机推荐位走随机）；未过期 = 置顶中，多条按 created_at 轮播。
+   * 仅站长后台可写（anon 插入列白名单不含此列），到期只影响首页推荐位，分享本身不下线。
+   */
+  pinned_until?: string | null
   status: MusicShareStatus
   reject_reason: string | null
   reviewed_at: string | null
   approved_at: string | null
   created_at: string
   updated_at: string
-  /** 关联贡献者（前台列表通过 PostgREST 嵌套带出） */
-  contributor?: Pick<Contributor, 'id' | 'name' | 'avatar' | 'tags'> | null
+  /** 关联贡献者（前台列表通过 PostgREST 嵌套带出；含公开联系方式供自荐卡展示图标） */
+  contributor?: Pick<Contributor, 'id' | 'name' | 'avatar' | 'tags' | 'public_contact' | 'contact_value'> | null
 }
 
 /** 匿名投稿写入载荷（列必须与 SQL 的 anon INSERT 白名单一致） */
@@ -290,12 +300,16 @@ export interface MusicShareInsert {
   title: string
   artist?: string | null
   cover_url?: string | null
+  /** 专辑曲目快照（单曲省略或 null） */
+  tracks?: import('./musicPlatforms').MusicTrack[] | null
   reason?: string | null
   is_own_work?: boolean
   /** 昵名下拉命中已有贡献者时上送（FK 保证真实存在），未命中为 null */
   contributor_id?: string | null
   submitter_name: string
   submitter_contact?: Record<string, string>
+  /** 投稿人公开联系方式意愿（省略按数据库默认 false）；须与 SQL anon INSERT 白名单一致 */
+  submitter_public_contact?: boolean
   user_email?: string | null
   created_at?: string
 }

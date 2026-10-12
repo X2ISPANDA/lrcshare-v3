@@ -24,20 +24,23 @@ CREATE TABLE IF NOT EXISTS public.music_shares (
 
   -- ===== 平台与内容标识（服务端 resolve-music 解析后写入，不信任前端传值） =====
   platform          text NOT NULL,
-  -- netease / youtube / bilibili / spotify / apple_music / soundcloud / deezer / tidal / bandcamp
+  -- 2026-10 起仅保留三家：netease 网易云 / youtube / soundcloud
   media_type        text NOT NULL,
-  -- song / album（视频/单曲类内容一律 song；禁止歌单/合集，CHECK + 函数双重拦截）
+  -- song / album（视频/单曲类内容一律 song；合辑须投稿者声明为专辑 + 人工审核）
   platform_id       text NOT NULL,
   -- 平台内容 ID：
-  --   netease/youtube/bilibili/spotify/deezer/tidal/bandcamp → 平台原始 ID（bandcamp 带 t/a 前缀）
-  --   apple_music → '{cc}/{albumId}/{songId|0}' 复合串
-  --   soundcloud  → 规范化后的 track 回链 URL
+  --   netease → 单曲/专辑数字 ID
+  --   youtube → 11 位视频 ID（单曲）或播放列表 ID（专辑）
+  --   soundcloud → 规范化后的 track / sets 永久链接 URL
   source_url        text NOT NULL,        -- 原始回链（「原平台打开」用，必须 https）
 
   -- ===== 展示信息 =====
   title             text NOT NULL,
   artist            text,
-  cover_url         text,                 -- A 档平台官方封面；B 档为 NULL（前端用平台徽标）
+  cover_url         text,                 -- 官方封面；缺失时前端用站点默认图
+  -- 专辑曲目快照（单曲 NULL）：识别时写入 [{id,title,artist,duration,cover_url}]，
+  -- 播放时据此展开队列顺序连播；直链类平台（网易云）每首播放时再实时换时效音频地址
+  tracks            jsonb,
   reason            text,                 -- 推荐理由，可空，1~200 字
   is_own_work       boolean NOT NULL DEFAULT false,
   -- 本条是否为投稿人本人原创作品（自荐声明，管理员审核时核实/可改）；
@@ -68,8 +71,7 @@ CREATE TABLE IF NOT EXISTS public.music_shares (
   norm_artist       text GENERATED ALWAYS AS (lower(btrim(artist))) STORED,
 
   CONSTRAINT music_shares_platform_chk    CHECK (platform IN
-                        ('netease','youtube','bilibili','spotify','apple_music',
-                         'soundcloud','deezer','tidal','bandcamp')),
+                        ('netease','youtube','soundcloud')),
   CONSTRAINT music_shares_media_type_chk  CHECK (media_type IN ('song','album')),
   CONSTRAINT music_shares_reason_len_chk  CHECK (reason IS NULL OR char_length(reason) BETWEEN 1 AND 200),
   CONSTRAINT music_shares_source_url_chk  CHECK (source_url ~ '^https://'),
@@ -79,8 +81,9 @@ CREATE TABLE IF NOT EXISTS public.music_shares (
                         CHECK (status <> 'approved' OR contributor_id IS NOT NULL)
 );
 
-COMMENT ON TABLE  public.music_shares IS '歌曲分享：用户投稿的单曲/专辑分享（仅官方 iframe 可播放平台），审核制';
-COMMENT ON COLUMN public.music_shares.platform_id    IS '平台内容 ID（apple 为 cc/albumId/songId 复合串，soundcloud 为规范化 track URL）';
+COMMENT ON TABLE  public.music_shares IS '歌曲分享：用户投稿的单曲/专辑分享（网易云/YouTube/SoundCloud 三家统一播放器），审核制';
+COMMENT ON COLUMN public.music_shares.platform_id    IS '平台内容 ID（youtube 为视频 ID/列表 ID，soundcloud 为规范化永久链接，netease 为数字 ID）';
+COMMENT ON COLUMN public.music_shares.tracks         IS '专辑曲目快照 jsonb：[{id,title,artist,duration,cover_url}]，单曲 NULL；播放时展开为队列';
 COMMENT ON COLUMN public.music_shares.is_own_work    IS '投稿人自荐本人原创作品，仅影响这一条的创作者卡片样式，审核可改';
 COMMENT ON COLUMN public.music_shares.contributor_id IS '审核通过后绑定的贡献者账号（contributors.id，text）';
 
@@ -145,7 +148,7 @@ GRANT SELECT ON public.music_shares TO anon;
 --   可带 is_own_work（自荐声明）与 contributor_id（声明「我是已有账号」，FK 保证账号真实存在）；
 --   不可带 status/sort/reject_reason/reviewed_*/approved_at/norm_* 等审核与生成列。
 GRANT INSERT (id, platform, media_type, platform_id, source_url,
-              title, artist, cover_url, reason, is_own_work,
+              title, artist, cover_url, tracks, reason, is_own_work,
               contributor_id,
               submitter_name, submitter_contact, user_email, created_at)
   ON public.music_shares TO anon;
@@ -229,8 +232,7 @@ DECLARE
   v_song_contributor     text;
 BEGIN
   -- 入参基本校验（平台枚举 + ID/标题非空）
-  IF p_platform NOT IN ('netease','youtube','bilibili','spotify','apple_music',
-                        'soundcloud','deezer','tidal','bandcamp') THEN
+  IF p_platform NOT IN ('netease','youtube','soundcloud') THEN
     RAISE EXCEPTION '不支持的平台';
   END IF;
   IF btrim(COALESCE(p_platform_id, '')) = '' OR v_norm_title = '' THEN

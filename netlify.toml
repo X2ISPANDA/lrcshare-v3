@@ -19,9 +19,23 @@
   status = 200
   force = true
 
-# /api/resolve-music → function（歌曲分享投稿：平台链接/嵌入代码识别 + 官方元数据）
+# /api/resolve-music → function（歌曲分享投稿：平台链接/嵌入代码识别 + 专辑曲目清单）
 [[redirects]]
   from = "/api/resolve-music"
   to = "/.netlify/functions/resolve-music"
+  status = 200
+  force = true
+
+# /api/music-stream → function（歌曲分享播放：网易云曲目实时换取时效直链）
+[[redirects]]
+  from = "/api/music-stream"
+  to = "/.netlify/functions/music-stream"
+  status = 200
+  force = true
+
+# /api/music-lyric → function（歌曲分享播放：网易云歌词实时获取，不入库）
+[[redirects]]
+  from = "/api/music-lyric"
+  to = "/.netlify/functions/music-lyric"
   status = 200
   force = true

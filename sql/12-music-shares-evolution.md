@@ -1,7 +1,9 @@
 # 12 · 歌曲分享（音乐挂件）演进方案
 
-> 状态：**方案待确认，未执行**。确认后按文末「批次计划」分四批实施，每批完成后单独确认。
-> 对应 SQL（确认后编写）：`12-music-shares.sql`
+> 状态（2026-10-12 更新）：**批次①已上线**（SQL + resolve-music 函数，commit 19a745b）；
+> **批次②③④代码已全部完成**，vue-tsc（仅存量同类告警）/ vite-ssg 构建通过，浏览器走查通过，待站长微调后上线。
+> 实施中两处与原方案不同的定稿：**平台顺序/分组重排**、**B站移出自动联播名单**（详见第二节实测注记）。
+> 对应 SQL：`12-music-shares.sql`
 
 ## 一、需求与定位
 
@@ -14,7 +16,8 @@
 - 这是与「站长逼逼」同级的轻量附属功能，**不是与歌词并列的板块，站内不提供任何音频文件**；
 - **只接入官方提供 iframe/嵌入组件、传 ID 即可播放的平台，不做任何非官方接口逆向、不代理音频流**；
 - **官方支持嵌入的平台全部纳入**（当前共 9 家，见第二节），平台以「注册表」方式配置，将来新平台具备官方嵌入能力时按同一模式增补；
-- 投稿引导优先级：**网易云音乐 → YouTube / B站（通常可完整播放）→ Spotify / Apple Music / Deezer / Tidal（未登录多为 30 秒预览）→ SoundCloud / Bandcamp（独立音乐人为主）**；
+- 投稿引导优先级（2026-10 定稿，投稿页顶部常驻琥珀推荐面板 + 下拉分组 + 每项 chips 标签 + 选中后局限提示框）：
+  **推荐组（可完整播放）：网易云音乐 → B站 → YouTube → SoundCloud → Bandcamp；慎选组（未登录仅 30 秒预览）：Spotify → Apple Music → Deezer → Tidal**；
 - QQ 音乐 / 酷狗 / 酷我无官方第三方外链能力，**不进平台下拉、不支持**；
 - **只接受单曲和专辑，禁止投稿歌单/合集/播放列表**；
 - **进站即自动播放**：每次打开网站随机选一首 approved 单曲，自动升起底部播放器尝试出声（浏览器拦截见第六节说明），不需要用户先点播放。
@@ -34,18 +37,25 @@
 
 | 顺序 | key | 平台 | 接受类型（仅单曲/专辑） | 官方嵌入 | 元数据 | 播完事件（自动联播） |
 |---|---|---|---|---|---|---|
-| 1 | `netease` | 网易云音乐 | song（type=2）、album（type=1） | `music.163.com/outchain/player` | B 档（无 oEmbed；卡片内嵌官方 86px 小组件，自带封面/曲名/歌词） | ✘ 无 API |
-| 2 | `youtube` | YouTube / YouTube Music | song（watch/shorts/embed/music 同 ID） | `www.youtube.com/embed/{id}` | A 档（官方 oEmbed） | ✔ IFrame API 的 ENDED |
-| 3 | `bilibili` | B站 | song（视频 BV/av 号） | `player.bilibili.com/player.html?bvid=...`（[官方站外播放器文档](https://player.bilibili.com/?v=1.0.23)） | B 档（无 oEmbed；组件 poster 自带封面） | ◑ postMessage + 进度兜底 |
-| 4 | `spotify` | Spotify | song（/track/）、album（/album/） | `open.spotify.com/embed/{type}/{id}`（[官方 oEmbed](https://developer.spotify.com/documentation/embeds/reference/oembed)） | A 档 | ✔ iFrame API |
-| 5 | `apple_music` | Apple Music | song（链接带 `i=`）、album（不带 i） | `embed.music.apple.com/{cc}/album/{albumId}?i={songId}`（[官方营销工具](https://artists.apple.com/support/1117-apple-music-marketing-tools)） | A 档（官方 iTunes Lookup） | ✘ 无 API |
-| 6 | `soundcloud` | SoundCloud | song（track；sets 禁投） | `w.soundcloud.com/player/?url=...` | A 档（官方 oEmbed） | ✔ Widget API 的 FINISH |
-| 7 | `deezer` | Deezer | song（/track/）、album（/album/） | `widget.deezer.com/widget/{theme}/{type}/{id}`（[官方插件页](https://developers.deezer.com/musicplugins)） | A 档（官方公开 API `api.deezer.com`） | ✘ SDK 已停用，无事件 |
-| 8 | `tidal` | Tidal | song（/track/、/browse/track/）、album | `embed.tidal.com/{tracks\|albums}/{id}`（[官方文档](https://developer.tidal.com/documentation/embeds/embeds-overview)） | **B 档**（2026-10 实测：oEmbed `oembed.tidal.com` 对任意 ID 甚至假 ID 都只回嵌入壳，无标题/封面、不能验证存在性，故按手填处理，靠试播自证） | ✘ 无对外 JS API |
-| 9 | `bandcamp` | Bandcamp | song（track）、album | `bandcamp.com/EmbeddedPlayer/track={id}` 或 `/album={id}`（[官方帮助](https://get.bandcamp.help/en/articles/15263071-how-do-i-create-a-bandcamp-embedded-player)） | B 档（无公开 oEmbed，见第三节特例） | ✘ 无对外 JS API |
+| 1 | `netease` | 网易云音乐 | song（type=2）、album（type=1） | `music.163.com/outchain/player` | B 档（无 oEmbed；官方组件自带封面/曲名） | ✘ 无 API |
+| 2 | `bilibili` | B站 | song（视频 BV/av 号） | `player.bilibili.com/player.html?bvid=...`（[官方站外播放器文档](https://player.bilibili.com/?v=1.0.23)），加 `high_quality=1&t=0` | B 档（无 oEmbed；组件 poster 自带封面） | ✘ **实测无对外 JS API，CSS 裁切音频条（见下注）** |
+| 3 | `youtube` | YouTube / YouTube Music | song（watch/shorts/embed/music 同 ID） | 试播嵌 `www.youtube-nocookie.com/embed/{id}`；Dock 由 IFrame API 自建 | A 档（官方 oEmbed） | ✔ IFrame API 的 ENDED |
+| 4 | `soundcloud` | SoundCloud | song（track；sets 禁投） | `w.soundcloud.com/player/?url=...`（去掉 visual=true，用 classic 条） | A 档（官方 oEmbed） | ✔ Widget API 的 FINISH |
+| 5 | `bandcamp` | Bandcamp | song（track）、album | `bandcamp.com/EmbeddedPlayer/track={id}` 或 `/album={id}`（[官方帮助](https://get.bandcamp.help/en/articles/15263071-how-do-i-create-a-bandcamp-embedded-player)） | B 档（无公开 oEmbed，见第三节特例） | ✘ 无对外 JS API |
+| 6 | `spotify` | Spotify | song（/track/）、album（/album/） | `open.spotify.com/embed/{type}/{id}`（[官方 oEmbed](https://developer.spotify.com/documentation/embeds/reference/oembed)） | A 档 | ✔ iFrame API（未登录仅 30 秒，预览停在 30s 不会误判播完） |
+| 7 | `apple_music` | Apple Music | song（链接带 `i=`）、album（不带 i） | `embed.music.apple.com/{cc}/album/{albumId}?i={songId}`（[官方营销工具](https://artists.apple.com/support/1117-apple-music-marketing-tools)） | A 档（官方 iTunes Lookup） | ✘ 无 API |
+| 8 | `deezer` | Deezer | song（/track/）、album（/album/） | `widget.deezer.com/widget/auto/{type}/{id}`（[官方插件页](https://developers.deezer.com/musicplugins)） | A 档（官方公开 API `api.deezer.com`） | ✘ SDK 已停用，无事件 |
+| 9 | `tidal` | Tidal | song（/track/、/browse/track/）、album | `embed.tidal.com/{tracks\|albums}/{id}`（[官方文档](https://developer.tidal.com/documentation/embeds/embeds-overview)） | **B 档**（2026-10 实测：oEmbed `oembed.tidal.com` 对任意 ID 甚至假 ID 都只回嵌入壳，无标题/封面、不能验证存在性，故按手填处理，靠试播自证） | ✘ 无对外 JS API |
 
-**联播总述**：播放队列中来自 **YouTube / SoundCloud / Spotify / B站（best-effort）** 的条目可凭官方事件在播完后**自动切下一条（跨平台也成立）**；
-网易云 / Apple / Deezer / Tidal / Bandcamp 无对外事件，无法感知播完，停在当前条目等用户手动切。手动上一首/下一首对全部平台可用。
+> **B站实测注记（2026-10-11，推翻原方案 ◑ 假设）**：官方站外播放器对 v3/v4 四种 postMessage 指令变体全部零回包、官方文档只列 URL 参数——
+> **没有任何对外 JS API**，拿不到播放状态/进度/播完事件，故 B站**移出自动联播名单**。最终方案为纯 CSS 裁切音频条
+> （`MusicBilibiliClip.vue`）：容器 `aspect-ratio: 600/110; overflow:hidden`，iframe `aspect-ratio:16/9` 底边对齐；
+> 实测 600px 宽裁 110px 高恰好完整露出播放/进度/时间/清晰度/倍速/音量/全屏键（控制条常显不自动隐藏、条上无下一首按钮）。
+> Dock 与投稿页试播复用同一组件，点官方全屏键可看完整画面；播完停住，由我们自己的下一首按钮切歌。
+
+**联播总述（定稿）**：播放队列中来自 **YouTube / SoundCloud / Spotify** 三家（官方播完事件可靠）的条目在播完后**自动切下一条（跨平台也成立）**；
+B站 / 网易云 / Apple / Deezer / Tidal / Bandcamp 无对外事件，无法感知播完，停在当前条目并在 Dock 副行提示听众手动切歌。
+我们自己的上一首/下一首按钮对全部 9 家可用（以 `key=曲目id` 重建舞台 iframe）。
 
 **官方固有限制（UI 如实提示）**：
 
@@ -285,29 +295,32 @@ GRANT ALL ON public.music_shares TO authenticated, service_role;
 - dock 固定底部、布局层挂载，跨页播放不中断；
 - 各平台嵌入形态：
 
-| 平台 | 形态 | 自动联播 |
+| 平台 | 展开面板尺寸（收起态统一 1px 裁切保活出声） | 自动联播 |
 |---|---|---|
-| netease song | 86px 细条（type=2） | ✘ |
-| netease album | 大面板（type=1，官方曲目表+连播） | ✘ |
-| youtube / bilibili | 16:9 小面板 + 官方 API | ✔ / ◑ |
-| spotify | 152px 细条 + iFrame API | ✔ |
-| soundcloud | 166px + Widget API | ✔ |
-| apple_music | 175px（专辑加高） | ✘ |
-| deezer | ~240px 细 widget（album 加高） | ✘ |
-| tidal | 按 oEmbed html 尺寸 | ✘ |
-| bandcamp | track 细条 / album 大卡片 | ✘ |
+| netease song / album | 86px 细条 / 450px（type=1 曲目表面板） | ✘ |
+| bilibili | CSS 裁切音频条（600:110，只露官方控制条） | ✘ |
+| youtube | 16:9；收起时隐藏画面、用自研音频条（播放/暂停/进度/时间） | ✔ |
+| soundcloud | 330px 官方组件；收起时自研音频条 | ✔ |
+| spotify | 152px 细条 / 380px 专辑 + iFrame API | ✔ |
+| apple_music | 175px（专辑 450px） | ✘ |
+| deezer | 260px 细 widget（专辑 380px） | ✘ |
+| tidal | 200px（专辑 300px） | ✘ |
+| bandcamp | track 120px / album 410px | ✘ |
 
-- 切歌：同平台 API 支持（Spotify/YT/SC）优先同 iframe 切换，其余重建；自动联播仅对有播完事件的平台生效；
-- 标题区：曲名/歌手/平台徽标/「原平台打开」/自动播放开关；关闭即收起并停止。
+- 切歌：全部平台统一以曲目 id 为 key 重建舞台；自动联播仅对有播完事件的 YT/SC/Spotify 生效；
+- 交互（已实现）：JS API 三家切到曲目时默认收起为自研控制条；无 API 的 6 家自动展开官方面板，
+  自研播放键点击=展开面板（让听众操作官方键）；面板头部有平台名/「在原平台打开」/进站自动播放开关；
+- 标题区：曲名/歌手/分享者/平台徽标/「原平台打开」/自动播放开关；关闭即卸载 iframe 并停止发声。
 
 ### 7.4 歌曲分享页 `/music-shares`（`MusicSharesView.vue`）
 
-- **卡片墙**（花里胡哨方向：深色/渐变舞台感背景 + 大封面 + 黑胶/波形装饰元素，保持粉系主色调可切换，移动端单列）；
+- **卡片墙**（2026-10 实现：沿用站点粉系白卡风格，封面方形大图 + hover 播放遮罩，移动端单列；未采用原案深色舞台风，保持站点视觉统一）；
 - **两种卡片**：
-  - 普通推荐卡：封面、曲名/歌手、平台徽标、「{昵称} 推荐」、理由；
-  - **创作者自荐卡**（`is_own_work`）：金色描边/渐变高光、「创作者」角标、头像放大位、「原创作品」字样，视觉权重明显高于普通卡；
-- 排序：`ORDER BY (sort=0), sort ASC, approved_at DESC`——sort>0 置顶位（数字小在前），其余按通过时间倒序；
-- 平台筛选（9 家+全部）+ 「只看创作者」开关；点播放入队列并激活 dock；SSG 预取 approved（含 contributors 嵌套）。
+  - 普通推荐卡：封面（无封面用平台品牌色渐变 + 🎵 占位）、曲名/歌手、平台徽标 chip、专辑角标、理由、分享者（已绑贡献者可点进主页）、「原链」；
+  - **创作者自荐卡**（`is_own_work`）：金色描边、封面左下「✦ 创作者自荐」金色角标，视觉权重明显高于普通卡；
+- 排序：复用 `getMusicShares()` 内存排序——sort>0 置顶位（数字小在前），其余按通过时间倒序；
+- 平台筛选（9 家+全部 chips，按推荐组顺序）+「✦ 只看创作者自荐」金色开关；点播把**当前筛选集**作为队列并激活 dock；
+  数据经 `useSSGData('music-shares')` 预取（SSG 首屏直出，含 contributors 嵌套）并 hydrate 给播放器 store；分页为前端切片「加载更多」（每批 24）。
 
 ### 7.5 后台 `views/admin/MusicSharesView.vue`
 
@@ -330,8 +343,9 @@ GRANT ALL ON public.music_shares TO authenticated, service_role;
   账号联想直接复用现有 `getContributors()`（全量，不过滤）；
 - 新增共享小工具 `isMusicOnlyContributor(c)`（放 `src/lib/contributorTags.ts`），仅 HomeView/ContributorsView 两个展示位使用；
 - `adminApi.ts`：音乐分享的分页/审核/排序更新，沿用现有泛型；
-- 图标：已有 netease/spotify/qq-music/bilibili；新增 youtube / soundcloud / apple-music / deezer / tidal / bandcamp 线性徽标（批次③前）；
-- AppNavbar 增加「歌曲分享」入口（逼逼附近）；
+- 图标：已有 netease/spotify/qq-music/bilibili；新增 6 枚 youtube / soundcloud / apple-music / deezer / tidal / bandcamp
+  （取 simple-icons 官方 SVG 染品牌色，存入 `src/assets/icons/` 经 unplugin-icons brand 集内联，AppIcon 补映射含 `apple_music` 下划线键兼容）；
+- AppNavbar 入口已由「分享音乐」（指投稿页）改为「歌曲分享」→ `/music-shares`，投稿动作从卡片墙顶部按钮进入；
 - 全部新增代码带详细中文注释。
 
 ## 八、批次计划（每批完成确认后再继续）
@@ -341,7 +355,13 @@ GRANT ALL ON public.music_shares TO authenticated, service_role;
 | ① | 库内核对 contributors.id 类型与现有触发器/函数现状 → `12-music-shares.sql` 建表部分（执行前再给一次表结构复核）→ resolve-music 函数 + netlify.toml → 平台注册表/类型/api → 投稿页（下拉/正则/识别/试播/去重/创作者勾选/账号联想）+ 路由 + 导航 + 邮件复用 |
 | ② | 后台 PRESET_TAGS 追加标签 + 两个展示位前端过滤（`isMusicOnlyContributor`，HomeView 拉取 24 取 12、ContributorsView）→ 后台审核管理（关联/新建贡献者、列表/审核/编辑/is_own_work/sort/删除/手动添加、专辑折叠预览、移动端） |
 | ③ | 歌曲分享页卡片墙（两种卡片样式、置顶排序、创作者筛选）+ 右下角浮动推荐卡 + 6 枚新平台图标 |
-| ④ | Pinia store + 底部播放器 + 9 家 adapter + 进站随机自动播放 + 播完事件联播（4 家）+ 跨页保活/移动避让 |
+| ④ | Pinia store + 底部播放器 + 9 家 adapter（5 家纯嵌入共用通用组件、B站裁切、YT/SC/Spotify 三家 JS API）+ 进站随机自动播放 + 播完事件联播（**3 家**，B站实测无 API 已移出）+ 跨页保活/移动避让 |
+
+**④ 实际文件落地（2026-10-12）**：`stores/musicPlayer.ts`（队列/随机/切歌/联播/自动播放偏好 localStorage）；
+`lib/musicPlayerApi.ts`（三家 JS API 单例脚本加载器）；`components/music/player/` 下
+`MusicPlayerDock.vue`（浮动 Dock）、`MusicPlayerStage.vue`（按 playerKind 分发）、`MusicEmbedPlayer.vue`（通用纯嵌入）、
+`MusicBilibiliPlayer.vue`、`MusicYoutubePlayer.vue`、`MusicSoundcloudPlayer.vue`、`MusicSpotifyPlayer.vue`、`types.ts`；
+`components/music/MusicShareCard.vue`（右下角推荐卡）；DefaultLayout 挂载 Dock+推荐卡并执行进站随机（可关偏好）。
 
 ## 九、验收与安全验证
 
@@ -353,8 +373,8 @@ GRANT ALL ON public.music_shares TO authenticated, service_role;
 6. 创作者样式：仅 is_own_work=true 的条目走创作者卡片（分享页+浮卡），同账号普通分享不受影响；审核可改该标记；
 7. 排序：sort>0 按数字升序置顶，sort=0 按通过时间倒序；随机播放池不受 sort 影响；
 8. 进站播放：每次挂载随机一首；浏览器放行时自动出声，拦截时显示播放键；刷新/跨页播放不中断；自动播放开关可关；
-9. 联播：YouTube/SoundCloud/Spotify 播完自动续；B 站 best-effort；其余 5 家停住等手动；
-10. SSG：`verify-ssg.mjs` 通过，首屏无 iframe/无函数请求；移动端浮卡与 dock 不遮挡；
+9. 联播：YouTube/SoundCloud/Spotify 播完自动续（Spotify 30 秒预览停住不误切）；B 站及其余 5 家停住等手动（2026-10 浏览器实测：YT 播放/暂停/进度/跨页保活、B 站裁切条自动开播均通过）；
+10. SSG：`vite-ssg build` 通过且 `/music-shares` 首屏直出；首屏（无曲库时）不挂第三方 iframe、无 resolve 函数请求；移动端浮卡与 dock 不遮挡（dock 出现时 body 留 96px 底距）；
 11. 回滚：DROP TABLE 回收数据层；移除两个展示位的前端过滤即恢复榜单；前端/函数文件随 PR 回退。全程不改动任何现存 RPC。
 
 ## 十、待确认的默认决策（无异议即按此实施）
@@ -363,7 +383,7 @@ GRANT ALL ON public.music_shares TO authenticated, service_role;
 2. 投稿人复用 contributors：通过时关联已有账号或新建账号（新账号打单个标签「歌曲分享」）；不引入「音乐人」标签；
 3. 名单只隐藏 tags 恰为「歌曲分享」单标签的账号；多标签（有歌词贡献）账号不受影响；
 4. 创作者自荐为行级 `is_own_work`，投稿勾选、审核核实，只影响该条卡片样式（分享页+浮卡）；
-5. 平台固定 9 家注册表（网易云/YouTube/B站/Spotify/Apple/SoundCloud/Deezer/Tidal/Bandcamp），后续官方能力变化按注册表增删；
+5. 平台固定 9 家注册表（推荐组：网易云/B站/YouTube/SoundCloud/Bandcamp；慎选组：Spotify/Apple/Deezer/Tidal），后续官方能力变化按注册表增删；
 6. 只收单曲/专辑，歌单一律禁止；Bandcamp 因官方机制改贴嵌入代码；
 7. 分享页排序：sort>0 置顶（数字小在前），其余 approved_at 倒序；
 8. 进站随机一首自动播放（优先单曲），默认开启，dock 上提供开关（localStorage 记忆）；浏览器拦截不做静音绕过；

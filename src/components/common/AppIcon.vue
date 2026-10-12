@@ -27,6 +27,11 @@ import iconPhone from '~icons/brand/phone'
 import iconCellphone from '~icons/brand/cellphone'
 import iconLink from '~icons/brand/link'
 import iconBeatstars from '~icons/brand/beatstars'
+// 歌曲分享平台补充的品牌图标（netease/bilibili/spotify 已存在；
+// 2026-10 平台收窄为三家后仅需 youtube / soundcloud，
+// 下架的 apple-music/deezer/tidal/bandcamp 图标与映射已一并移除）
+import iconYoutube from '~icons/brand/youtube'
+import iconSoundcloud from '~icons/brand/soundcloud'
 
 const ICON_MAP: Record<string, Component> = {
   // 键名全英文（2026-08-25 起；数据库与代码统一英文键，中文仅展示层标签，
@@ -41,6 +46,9 @@ const ICON_MAP: Record<string, Component> = {
   spotify: iconSpotify,
   github: iconGithub,
   beatstars: iconBeatstars,
+  // 歌曲分享平台
+  youtube: iconYoutube,
+  soundcloud: iconSoundcloud,
   // 联系方式（贡献者页 contact_value）
   wechat: iconWechat,
   email: iconMail,

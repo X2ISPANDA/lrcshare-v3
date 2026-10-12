@@ -74,6 +74,7 @@ const { user, init, logout } = useAdminAuth()
 const menus = [
   { path: '/admin/dashboard', icon: '📊', label: '数据概览' },
   { path: '/admin/submissions', icon: '📝', label: '投稿审核' },
+  { path: '/admin/music-shares', icon: '🎶', label: '歌曲分享' },
   { path: '/admin/songs', icon: '🎵', label: '歌曲管理' },
   { path: '/admin/lyric-doubts', icon: '🔍', label: '歌词存疑' },
   { path: '/admin/ttml-hub', icon: '🌐', label: 'TTML Hub' },

@@ -1,34 +1,56 @@
 /**
  * 歌曲分享 · 平台注册表（前端单一真相源）
  *
- * 9 家官方支持嵌入播放的平台，顺序即投稿页下拉的推荐顺序：
- * 网易云 → YouTube → B站 → Spotify → Apple Music → SoundCloud → Deezer → Tidal → Bandcamp
+ * 2026-10 重构后只保留三家，且全部走「统一可控播放器」（自研浮动 Dock，
+ * 播完自动联播、进度/音量/队列体验一致）：
  *
- * 与 Netlify 函数 netlify/functions/resolve-music.mjs 的规则互为镜像：
- *   - 本文件的 inputPattern 只负责「实时正则校验」（填错立刻提示）；
- *   - 服务端函数做最终复核、短链跟随与官方元数据获取；
- *   - 新增平台 = 在两处各加一条配置 + SQL CHECK 加枚举。
+ *   网易云音乐 netease —— 单曲 / 专辑
+ *     非官方 Meting 链路：Netlify 函数实时换取 mp3 直链（不入数据库），
+ *     前端 <audio> 播放。VIP / 无版权曲拿不到直链，会提示换曲。
+ *   YouTube youtube —— 单曲（视频）/ 专辑（播放列表，投稿者声明 + 站长人工审核）
+ *     官方 IFrame Player API 完整控制；画面在 Dock 收起时隐藏，仅出声。
+ *   SoundCloud soundcloud —— 单曲 / sets 专辑合辑（同样声明 + 人工审核）
+ *     官方 HTML5 Widget API 完整控制。
  *
- * 只接受单曲（song）与专辑（album），歌单/合集/播放列表在两处同时拒绝。
+ * 已下架（2026-10）：B站（官方播放器无对外接口，只能裁切伪装、不能联播）、
+ * Bandcamp / Spotify / Apple Music / Deezer / Tidal（纯嵌入不可控或未登录仅 30 秒预览）。
+ * QQ 音乐 / 酷狗 / 酷我：实测免登录取链全部失效（vkey 空 / 30020 / illegal），暂不引入。
+ *
+ * 与 Netlify 函数互为镜像：
+ *   - resolve-music.mjs：链接最终复核、短链跟随、元数据与专辑曲目快照；
+ *   - music-stream.mjs：网易云实时换播放直链；
+ *   - 本文件 inputPattern 只做投稿页实时正则提示。
  */
 
 /** 平台 key（与 DB CHECK 约束、Netlify 函数分支严格一致） */
-export type MusicPlatformKey =
-  | 'netease'
-  | 'youtube'
-  | 'bilibili'
-  | 'spotify'
-  | 'apple_music'
-  | 'soundcloud'
-  | 'deezer'
-  | 'tidal'
-  | 'bandcamp'
+export type MusicPlatformKey = 'netease' | 'youtube' | 'soundcloud'
 
-/** 内容类型：单曲 / 专辑（视频类平台的视频也按 song 对待） */
+/** 内容类型：单曲 / 专辑（YouTube/SoundCloud 的合辑由投稿者声明为专辑） */
 export type MusicMediaType = 'song' | 'album'
 
-/** 元数据档位：A 档官方接口自动取信息；B 档需投稿人手填曲名/歌手 */
-export type MusicMetaTier = 'A' | 'B'
+/**
+ * 播放器接入种类（adapter 选择依据，三家全部支持播完事件 → 均可自动联播）：
+ * - meting-audio：函数换直链 + 原生 <audio>（网易云）
+ * - youtube-api：YouTube IFrame Player API
+ * - soundcloud-api：SoundCloud Widget API
+ */
+export type MusicPlayerKind = 'meting-audio' | 'youtube-api' | 'soundcloud-api'
+
+/**
+ * 专辑曲目快照：识别时写入 music_shares.tracks（jsonb），播放时据此展开队列。
+ * - 网易云：后端 Meting 直接给出全量字段；
+ * - SoundCloud：前端 Widget API getSounds() 补全（id 为单曲永久链接）；
+ * - YouTube：前端 IFrame API getPlaylist() 仅能取视频 ID，标题播放时实时获取。
+ */
+export interface MusicTrack {
+  /** 平台内曲目标识：网易云=数字 ID；YouTube=11 位视频 ID；SoundCloud=单曲永久链接 */
+  id: string
+  title: string
+  artist?: string
+  /** 秒；取不到为 0 */
+  duration?: number
+  cover_url?: string | null
+}
 
 /** resolve-music 函数返回的解析结果 */
 export interface MusicResolveResult {
@@ -39,13 +61,23 @@ export interface MusicResolveResult {
   title: string
   artist: string
   cover_url: string | null
-  /** true = 官方无元数据接口（或本次未取到），曲名/歌手需手填 */
+  /** true = 需投稿人补全标题等（YouTube 合辑无 oEmbed） */
   need_manual: boolean
+  /** 专辑曲目快照（单曲为空） */
+  tracks?: MusicTrack[]
+  /** netease 单曲：实时探测直链是否可拿到（false=完全无法播放；试听片段仍为 true） */
+  playable?: boolean
+  play_note?: string
+  /** netease 单曲实时可播性三态：full=完整曲；trial=会员曲仅试听片段；blocked=完全锁死 */
+  play_mode?: 'full' | 'trial' | 'blocked'
+  /** trial 时的试听片段秒数（通常 30~45 秒） */
+  trial_seconds?: number
+  /** 合辑链接的人工审核提示（YouTube 列表前缀 / SoundCloud sets） */
+  album_hint?: string
 }
 
-/** 构建嵌入地址时的选项 */
+/** 构建官方嵌入地址时的选项（仅 YouTube / SoundCloud 需要嵌入 URL） */
 export interface MusicEmbedOptions {
-  /** 是否带平台官方自动播放参数（投稿试播固定 false；全局播放器批次④传 true） */
   autoplay?: boolean
 }
 
@@ -53,25 +85,32 @@ export interface MusicPlatformConfig {
   key: MusicPlatformKey
   /** 下拉与徽标中文名 */
   label: string
-  /** 接受的内容类型（用于提示文案与二次复核） */
+  /** 接受的内容类型 */
   accepts: MusicMediaType[]
-  /** url = 粘贴地址栏链接；embed = Bandcamp 特例，粘贴官方嵌入代码 */
-  inputMode: 'url' | 'embed'
-  /** 输入框占位符 */
+  /** 下拉选项内短标签 */
+  chips: string[]
   placeholder: string
   /** 投稿页实时正则：未通过则「识别」按钮不可用并即时提示 */
   inputPattern: RegExp
   /** 实时校验失败时的提示 */
   invalidHint: string
-  /** 元数据档位 */
-  tier: MusicMetaTier
-  /** 平台限制提示（如 30 秒预览、版权歌不可播），展示在平台选择项旁 */
-  limitation?: string
-  /** 品牌色（无 SVG 图标时的徽标底色，批次③补正式线性图标） */
+  /**
+   * 平台局限性说明（选中平台后提示框展示）：
+   * 播放形态、网络要求、合辑声明制、会员曲等。
+   */
+  limitation: string
+  /** 播放接入种类 */
+  playerKind: MusicPlayerKind
+  /** 三家均有可靠播完事件，全部可自动联播 */
+  canAutoAdvance: boolean
+  /** 品牌色（徽标底色 / 卡片强调色） */
   brandColor: string
-  /** 构造官方嵌入 URL；只允许使用官方组件域名 */
-  buildEmbed: (item: Pick<MusicResolveResult, 'media_type' | 'platform_id' | 'source_url'>, opts?: MusicEmbedOptions) => string
-  /** iframe allow 属性（Spotify 等必须放行 encrypted-media） */
+  /** 构造官方嵌入 URL（YouTube / SoundCloud 试播与 adapter 使用；网易云无 iframe） */
+  buildEmbed?: (
+    item: Pick<MusicResolveResult, 'media_type' | 'platform_id' | 'source_url'>,
+    opts?: MusicEmbedOptions,
+  ) => string
+  /** iframe allow 属性 */
   iframeAllow?: string
 }
 
@@ -80,169 +119,72 @@ export const MUSIC_PLATFORMS: MusicPlatformConfig[] = [
     key: 'netease',
     label: '网易云音乐',
     accepts: ['song', 'album'],
-    inputMode: 'url',
-    placeholder: 'https://music.163.com/#/song?id=歌曲ID 或 163cn.tv 短链',
+    chips: ['推荐 · 适配最好', '支持歌词', '支持专辑联播'],
+    placeholder: 'https://music.163.com/#/song?id=歌曲ID（或 album?id=专辑ID / 163cn.tv 短链）',
     // /#/song?id=、/song?id=、/m/song?id=、专辑同理
     inputPattern:
       /^https?:\/\/(?:music\.163\.com\/(?:#\/)?(?:m\/)?(?:song|album)\/?(?:\?id=)\d+|163cn\.tv\/\S+)$/i,
-    invalidHint: '应为网易云单曲（song?id=）或专辑（album?id=）链接；歌单（playlist?id=）不能投稿',
-    tier: 'B',
-    limitation: '无官方元数据接口，曲名歌手需手填；部分版权歌曲官方组件本身不可播，可用下方试播提前确认',
+    invalidHint: '应为网易云单曲（song?id=）或专辑（album?id=）链接；歌单 / 电台不能投稿',
+    limitation:
+      '【推荐平台，适配最好】站内服务器实时解析官方音频地址后以统一播放器播出，支持逐句歌词与整张专辑自动联播。' +
+      '但会员 / 版权曲目可能无法在站内播放，或仅能播放 30~45 秒的试听片段，识别结果会明确标明，建议先试播确认。',
+    playerKind: 'meting-audio',
+    canAutoAdvance: true,
     brandColor: '#e60026',
-    buildEmbed: (item, opts) => {
-      const typeNo = item.media_type === 'album' ? 1 : 2
-      const height = item.media_type === 'album' ? 430 : 66
-      return `https://music.163.com/outchain/player?type=${typeNo}&id=${encodeURIComponent(item.platform_id)}&auto=${opts?.autoplay ? 1 : 0}&height=${height}`
-    },
+    // 网易云无官方 iframe：试播与 Dock 均用原生 <audio>，不提供 buildEmbed
   },
   {
     key: 'youtube',
     label: 'YouTube',
-    accepts: ['song'],
-    inputMode: 'url',
-    placeholder: 'https://www.youtube.com/watch?v=11位视频ID（含 YouTube Music / youtu.be / Shorts）',
+    accepts: ['song', 'album'],
+    chips: ['大陆需自备网络', '自动取信息', '合辑需声明专辑'],
+    placeholder:
+      'https://www.youtube.com/watch?v=视频ID，或专辑播放列表 playlist?list=列表ID',
+    // 单曲：watch / youtu.be / shorts / embed；专辑：playlist?list= 或带 list= 的视频链接
     inputPattern:
-      /^https?:\/\/(?:(?:www\.|music\.|m\.)?youtube\.com\/(?:watch\?(?:\S*&)?v=[\w-]{11}|shorts\/[\w-]{6,}|embed\/[\w-]{6,}|v\/[\w-]{6,})|youtu\.be\/[\w-]{11})\S*$/i,
-    invalidHint: '应为 YouTube 单个视频链接（watch / youtu.be / Shorts）；播放列表（list=）不能投稿',
-    tier: 'A',
-    limitation: '官方 oEmbed 自动取信息；注意自动带出的「歌手」是频道名，若与真实歌手不符可手动修改',
+      /^https?:\/\/(?:(?:www\.|music\.|m\.)?youtube\.com\/(?:watch\?(?:\S*&)?v=[\w-]{11}|playlist\?(?:\S*&)?list=[\w-]{12,}|shorts\/[\w-]{6,}|embed\/[\w-]{6,}|v\/[\w-]{6,})|youtu\.be\/[\w-]{11})\S*$/i,
+    invalidHint: '应为 YouTube 单曲链接或专辑播放列表（playlist?list=）链接；RD 开头的自动电台不能投稿',
+    limitation:
+      '通过 Google 官方 IFrame API 在统一播放器内播出（收起时只出声），单曲与专辑列表均可自动联播。' +
+      '播放列表只接受「专辑」：YouTube Music 官方专辑（OLAK5uy 开头）最稳妥，普通自建歌单 / 系统歌单审核会被拒绝。' +
+      '合辑标题需手填，曲目清单识别时自动抓取。注意：YouTube 在中国大陆无法直接访问，听众需自备网络条件，可能影响收听体验。',
+    playerKind: 'youtube-api',
+    canAutoAdvance: true,
     brandColor: '#ff0000',
-    buildEmbed: (item, opts) =>
-      `https://www.youtube.com/embed/${encodeURIComponent(item.platform_id)}?rel=0&autoplay=${opts?.autoplay ? 1 : 0}`,
+    buildEmbed: (item, opts) => {
+      if (item.media_type === 'album') {
+        // videoseries + list 播放专辑列表
+        return `https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(item.platform_id)}&rel=0${opts?.autoplay ? '&autoplay=1' : ''}`
+      }
+      return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(item.platform_id)}?rel=0${opts?.autoplay ? '&autoplay=1' : ''}`
+    },
     iframeAllow:
       'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
   },
   {
-    key: 'bilibili',
-    label: 'B站',
-    accepts: ['song'],
-    inputMode: 'url',
-    placeholder: 'https://www.bilibili.com/video/BV1xx... 或 b23.tv 短链',
-    inputPattern:
-      /^https?:\/\/(?:www\.)?bilibili\.com\/video\/(?:BV[0-9A-Za-z]{8,}|av\d+)(?:[?/]\S*)?$|^https?:\/\/b23\.tv\/\S+$/i,
-    invalidHint: '应为 B站单个视频链接（BV 号 / av 号）；合集、专栏、直播、番剧不能投稿',
-    tier: 'B',
-    limitation: '无官方 oEmbed，曲名/UP 主需手填；播放器自带封面与弹幕开关',
-    brandColor: '#00a1d6',
-    buildEmbed: (item, opts) => {
-      const id = item.platform_id
-      const idParam = /^av/i.test(id) ? `aid=${id.replace(/^av/i, '')}` : `bvid=${id}`
-      return `https://player.bilibili.com/player.html?${idParam}&page=1&danmaku=0&autoplay=${opts?.autoplay ? 1 : 0}&poster=1`
-    },
-    iframeAllow: 'fullscreen; autoplay; encrypted-media',
-  },
-  {
-    key: 'spotify',
-    label: 'Spotify',
-    accepts: ['song', 'album'],
-    inputMode: 'url',
-    placeholder: 'https://open.spotify.com/track/单曲ID 或 /album/专辑ID（支持 spotify.link 短链）',
-    inputPattern:
-      /^https?:\/\/(?:open\.spotify\.com\/(?:intl-[a-z-]+\/)?(?:track|album)\/[\w]+|spotify\.link\/\S+)\S*$/i,
-    invalidHint: '应为 Spotify 单曲（/track/）或专辑（/album/）链接；歌单、艺人、播客不能投稿',
-    tier: 'A',
-    limitation: '未登录访客通常只能听 30 秒预览，登录 Spotify 后可听完整曲',
-    brandColor: '#1db954',
-    buildEmbed: (item, opts) =>
-      // Spotify 自动播放由批次④的 iFrame API 控制；这里预留 auto_play 参数（官方对未登录用户仍可能忽略）
-      `https://open.spotify.com/embed/${item.media_type === 'album' ? 'album' : 'track'}/${encodeURIComponent(item.platform_id)}?utm_source=generator&theme=0${opts?.autoplay ? '&autoplay=true' : ''}`,
-    iframeAllow: 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture',
-  },
-  {
-    key: 'apple_music',
-    label: 'Apple Music',
-    accepts: ['song', 'album'],
-    inputMode: 'url',
-    placeholder: 'https://music.apple.com/cn/album/专辑名/专辑ID（专辑内单曲链接带 ?i=歌曲ID）',
-    inputPattern:
-      /^https?:\/\/music\.apple\.com\/[a-z]{2}\/album\/(?:[^/?#]+\/)?\d+(?:\?[^\s]*i=\d+)?\S*$/i,
-    invalidHint: '应为 Apple Music 专辑或专辑内单曲（链接带 ?i=）链接；歌单、艺人、MV 不能投稿',
-    tier: 'A',
-    limitation: '未登录访客通常只能听 30 秒预览',
-    brandColor: '#fa243c',
-    buildEmbed: (item, opts) => {
-      // platform_id 复合串：{cc}/{albumId}/{songId|0}
-      const [cc = 'us', albumId = '', songId = '0'] = item.platform_id.split('/')
-      const qs = new URLSearchParams()
-      if (songId && songId !== '0') qs.set('i', songId)
-      if (opts?.autoplay) qs.set('autoplay', 'true')
-      const q = qs.toString()
-      return `https://embed.music.apple.com/${cc}/album/${albumId}${q ? `?${q}` : ''}`
-    },
-    iframeAllow: 'autoplay; encrypted-media; fullscreen',
-  },
-  {
     key: 'soundcloud',
     label: 'SoundCloud',
-    accepts: ['song'],
-    inputMode: 'url',
-    placeholder: 'https://soundcloud.com/歌手/单曲名（支持 on.soundcloud.com 短链；/sets/ 歌单禁投）',
+    accepts: ['song', 'album'],
+    chips: ['大陆需自备网络', '自动取信息', 'sets 需声明专辑'],
+    placeholder: 'https://soundcloud.com/歌手/单曲名，或 /sets/专辑名（支持 on.soundcloud.com 短链）',
     inputPattern:
-      /^https?:\/\/(?:www\.|on\.)?soundcloud\.com\/(?!sets\/)[^/\s]+\/[^/\s]+\S*$/i,
-    invalidHint: '应为 SoundCloud 单曲链接（soundcloud.com/歌手/歌名）；/sets/ 合集与用户主页不能投稿',
-    tier: 'A',
-    limitation: '官方 oEmbed 自动取信息；独立音乐人内容较多，部分艺人可关闭站外嵌入',
+      /^https?:\/\/(?:www\.|on\.)?soundcloud\.com\/[^/\s]+\/(?:sets\/[^/\s]+|[^/\s]+)\S*$/i,
+    invalidHint: '应为 SoundCloud 单曲链接或专辑合辑（/sets/名称）链接；用户主页不能投稿',
+    limitation:
+      '官方 Widget API 在统一播放器内播出，单曲与 sets 专辑均可自动联播，以独立音乐人内容为主。' +
+      '/sets/ 合辑只接受「专辑」，普通自建歌单审核会被拒绝；少数艺人关闭了站外嵌入，建议先试播确认。' +
+      '注意：SoundCloud 在中国大陆无法直接访问，听众需自备网络条件，可能影响收听体验。',
+    playerKind: 'soundcloud-api',
+    canAutoAdvance: true,
     brandColor: '#ff5500',
     buildEmbed: (item, opts) =>
-      `https://w.soundcloud.com/player/?url=${encodeURIComponent(item.source_url || item.platform_id)}&color=%23ec4899&auto_play=${opts?.autoplay ? 'true' : 'false'}&hide_related=true&show_comments=false&show_user=true&show_teaser=false&visual=true`,
+      `https://w.soundcloud.com/player/?url=${encodeURIComponent(item.source_url || item.platform_id)}&color=%23ec4899&auto_play=${opts?.autoplay ? 'true' : 'false'}&hide_related=true&show_comments=false&show_user=true&show_teaser=false`,
     iframeAllow: 'autoplay',
-  },
-  {
-    key: 'deezer',
-    label: 'Deezer',
-    accepts: ['song', 'album'],
-    inputMode: 'url',
-    placeholder: 'https://www.deezer.com/track/单曲ID 或 /album/专辑ID（支持 deezer.page.link 短链）',
-    inputPattern:
-      /^https?:\/\/(?:www\.)?deezer\.com\/(?:[a-z]{2}\/)?(?:track|album)\/\d+\S*$|^https?:\/\/deezer\.page\.link\/\S+$/i,
-    invalidHint: '应为 Deezer 单曲（/track/）或专辑（/album/）链接；歌单、艺人、播客不能投稿',
-    tier: 'A',
-    limitation: '未登录访客通常只能听 30 秒预览',
-    brandColor: '#a238ff',
-    buildEmbed: (item) =>
-      `https://widget.deezer.com/widget/auto/${item.media_type === 'album' ? 'album' : 'track'}/${encodeURIComponent(item.platform_id)}`,
-    iframeAllow: 'autoplay; encrypted-media; fullscreen',
-  },
-  {
-    key: 'tidal',
-    label: 'Tidal',
-    accepts: ['song', 'album'],
-    inputMode: 'url',
-    placeholder: 'https://tidal.com/track/单曲ID 或 /album/专辑ID（/browse/track/ 旧链接亦可）',
-    inputPattern:
-      /^https?:\/\/(?:listen\.)?tidal\.com\/(?:browse\/)?(?:track|album)\/\d+\S*$/i,
-    invalidHint: '应为 Tidal 单曲（/track/）或专辑（/album/）链接；歌单、艺人、MV 不能投稿',
-    // 实测（2026-10）：Tidal oEmbed 对任意数字 ID（含不存在的）都只回嵌入壳，无标题/封面，无法校验存在性
-    tier: 'B',
-    limitation: '官方不提供元数据接口，曲名歌手需手填；未登录访客只能听 30 秒预览；请用下方试播确认内容存在',
-    brandColor: '#000000',
-    buildEmbed: (item) =>
-      `https://embed.tidal.com/${item.media_type === 'album' ? 'albums' : 'tracks'}/${encodeURIComponent(item.platform_id)}?layout=gridify`,
-    iframeAllow: 'encrypted-media; fullscreen',
-  },
-  {
-    key: 'bandcamp',
-    label: 'Bandcamp',
-    accepts: ['song', 'album'],
-    inputMode: 'embed',
-    placeholder: '在 Bandcamp 歌曲/专辑页点「Share/Embed」，复制整段嵌入代码粘贴到这里',
-    inputPattern: /bandcamp\.com\/EmbeddedPlayer\/(?:track|album)=\d+/i,
-    invalidHint: '需要粘贴 Bandcamp 官方 Share/Embed 弹窗里的整段嵌入代码（地址栏链接里没有播放器数字 ID）',
-    tier: 'B',
-    limitation: '官方不提供按链接查 ID 的接口，也无 oEmbed；曲名歌手会尝试从嵌入代码预填，可手动修改。部分艺人会关闭嵌入',
-    brandColor: '#629aa9',
-    buildEmbed: (item) => {
-      // platform_id：'t123'（单曲）/ 'a123'（专辑）
-      const isTrack = item.platform_id.startsWith('t')
-      const num = item.platform_id.slice(1)
-      return `https://bandcamp.com/EmbeddedPlayer/${isTrack ? 'track' : 'album'}=${num}/size=large/tracklist=false/artwork=small/linkcol=e99708/transparent=true/`
-    },
-    iframeAllow: 'fullscreen',
   },
 ]
 
 /** key → 配置映射 */
-export const MUSIC_PLATFORM_MAP: Record<MusicPlatformKey, MusicPlatformConfig> = Object.fromEntries(
+export const MUSIC_PLATFORM_MAP = Object.fromEntries(
   MUSIC_PLATFORMS.map(p => [p.key, p]),
 ) as Record<MusicPlatformKey, MusicPlatformConfig>
 
@@ -250,9 +192,29 @@ export function getMusicPlatform(key: string): MusicPlatformConfig | undefined {
   return MUSIC_PLATFORM_MAP[key as MusicPlatformKey]
 }
 
-/** 平台中文名（后台表格/卡片等场景） */
+/** 平台中文名（后台表格 / 卡片等场景） */
 export function musicPlatformLabel(key: string): string {
   return getMusicPlatform(key)?.label || key
+}
+
+/**
+ * 试播容器尺寸（投稿页 / 后台审核）：
+ * - YouTube 单曲 16:9，合辑列表也用 16:9；
+ * - SoundCloud 单曲/合辑官方推荐高度；
+ * - 网易云为自研 <audio> 音频条，由调用方自行给高度（不在此表）。
+ */
+export function musicEmbedFrameStyle(
+  platform: MusicPlatformKey,
+  mediaType: MusicMediaType,
+): Record<string, string> {
+  switch (platform) {
+    case 'youtube':
+      return { aspectRatio: '16 / 9' }
+    case 'soundcloud':
+      return { height: mediaType === 'album' ? '380px' : '200px' }
+    default:
+      return { height: '86px' }
+  }
 }
 
 // ============================================================

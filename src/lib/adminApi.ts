@@ -127,12 +127,12 @@ export const adminApi = {
 
   /**
    * 合并贡献者账号（原子操作，库端单事务）：
-   * 把 source 的全部歌曲/歌词版本/投稿引用转给 target，按 profile 写回保留账号资料，再删除 source。
+   * 把 source 的全部歌曲/歌词版本/投稿/歌曲分享引用转给 target，按 profile 写回保留账号资料，再删除 source。
    * 对应 RPC：public.admin_merge_contributors(text, text, jsonb)，仅 authenticated 可执行。
    * @param sourceId 被合并并删除的账号 id
    * @param targetId 保留账号 id
    * @param profile  逐字段挑选后的保留账号最终资料（8 个字段，结构需与 RPC 契约一致）
-   * @returns 双方名称 + 三表实际转移行数
+   * @returns 双方名称 + 四张表实际转移行数（含歌曲分享全部状态行）
    */
   async mergeContributors(
     sourceId: string,
@@ -147,6 +147,7 @@ export const adminApi = {
     songs_moved: number
     versions_moved: number
     submissions_moved: number
+    music_shares_moved: number
   }> {
     const { data, error } = await supabase.rpc('admin_merge_contributors', {
       p_source: sourceId,

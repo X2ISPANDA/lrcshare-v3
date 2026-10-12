@@ -686,6 +686,67 @@ export const api = {
   },
 
   /**
+   * 实时换取网易云播放直链（音频地址带时效，必须点播放时实时取，不能缓存入库）。
+   * 返回 { url, trial, trialStart, trialEnd }：
+   *   trial=false 完整曲；trial=true 会员曲免费试听片段（通常 30~45 秒）；
+   * 完全锁死（会员/版权曲无任何直链）或上游失败时抛出中文错误，由调用方提示。
+   */
+  async getMusicStreamUrl(
+    platform: MusicPlatformKey,
+    trackId: string,
+  ): Promise<{ url: string; br: number; trial: boolean; trialStart: number; trialEnd: number }> {
+    const base = import.meta.env.VITE_MAIL_BASE as string | undefined
+    if (!base) throw new Error('未配置 VITE_MAIL_BASE（解析服务地址），请检查 .env 后重启开发服务器')
+    const qs = `platform=${encodeURIComponent(platform)}&id=${encodeURIComponent(trackId)}`
+    const res = await fetch(base + '/api/music-stream?' + qs)
+    let json: {
+      code: number
+      data?: { url: string; br?: number; trial?: boolean; trial_start?: number; trial_end?: number }
+      error?: string
+    }
+    try {
+      json = await res.json()
+    } catch {
+      throw new Error('播放服务返回异常，请稍后重试')
+    }
+    if (json.code !== 0 || !json.data?.url) throw new Error(json.error || '播放地址获取失败')
+    return {
+      url: json.data.url,
+      br: typeof json.data.br === 'number' ? json.data.br : 0,
+      trial: !!json.data.trial,
+      trialStart: json.data.trial_start || 0,
+      trialEnd: json.data.trial_end || 0,
+    }
+  },
+
+  /**
+   * 实时获取网易云歌词（LRC 不入库，播放端需要时实时拉，短缓存）。
+   * 返回原文/译文 LRC 文本；纯音乐 instrumental=true、lrc=null。
+   * 上游失败（含「暂无歌词」）抛出中文错误，由调用方决定降级文案。
+   */
+  async getMusicLyric(
+    platform: MusicPlatformKey,
+    trackId: string,
+  ): Promise<{ lrc: string | null; tlyric: string | null; instrumental: boolean }> {
+    const base = import.meta.env.VITE_MAIL_BASE as string | undefined
+    if (!base) throw new Error('未配置 VITE_MAIL_BASE（解析服务地址），请检查 .env 后重启开发服务器')
+    const qs = `platform=${encodeURIComponent(platform)}&id=${encodeURIComponent(trackId)}`
+    const res = await fetch(base + '/api/music-lyric?' + qs)
+    let json: {
+      code: number
+      data?: { lrc: string | null; tlyric: string | null; instrumental: boolean }
+      error?: string
+    }
+    try {
+      json = await res.json()
+    } catch {
+      throw new Error('歌词服务返回异常，请稍后重试')
+    }
+    if (json.code !== 0 || !json.data) throw new Error(json.error || '歌词获取失败')
+    return json.data
+  },
+
+  /**
    * 投稿前查重：同平台 ID + 跨平台同名同歌手（approved/pending 双层）。
    * pending 行 anon 在 RLS 下读不到，统一由 SECURITY DEFINER RPC 代查，只返回最小提示信息。
    */
@@ -716,11 +777,15 @@ export const api = {
       title: payload.title,
       artist: payload.artist || null,
       cover_url: payload.cover_url || null,
+      // 专辑曲目快照（单曲 null）；同样在 SQL 的 anon INSERT 白名单内
+      tracks: payload.tracks || null,
       reason: payload.reason || null,
       is_own_work: !!payload.is_own_work,
       contributor_id: payload.contributor_id || null,
       submitter_name: payload.submitter_name,
       submitter_contact: payload.submitter_contact || {},
+      // 投稿人公开联系方式意愿（SQL 16 号迁移已把该列加入 anon INSERT 白名单）
+      submitter_public_contact: !!payload.submitter_public_contact,
       user_email: payload.user_email || null,
       // 注意：status 不在 anon INSERT 白名单中，由数据库默认值 'pending' 与 RLS WITH CHECK 兜底
       created_at: payload.created_at || new Date().toISOString(),
@@ -739,10 +804,33 @@ export const api = {
     const { data, error } = await supabase
       .from('music_shares')
       .select(
-        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, reason, is_own_work, contributor_id, submitter_name, sort, approved_at, created_at, contributors(id, name, avatar, tags)',
+        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, tags, public_contact, contact_value)',
       )
       .eq('status', 'approved')
       .limit(options.limit ?? 200)
+    if (error) throw error
+    const rows = (data || []) as unknown as MusicShare[]
+    const pinned = rows.filter(r => r.sort > 0).sort((a, b) => a.sort - b.sort)
+    const rest = rows
+      .filter(r => !r.sort)
+      .sort((a, b) => (b.approved_at || '').localeCompare(a.approved_at || ''))
+    return [...pinned, ...rest]
+  },
+
+  /**
+   * 前台获取某贡献者名下已通过的歌曲分享（贡献者主页「TA 分享的歌曲」区块）。
+   * anon 的 SELECT RLS 只放行 approved，公共页面只展示已通过内容。
+   * 排序同 getMusicShares：置顶优先，其余按通过时间倒序。
+   */
+  async getMusicSharesByContributor(contributorId: string): Promise<MusicShare[]> {
+    const { data, error } = await supabase
+      .from('music_shares')
+      .select(
+        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, tags, public_contact, contact_value)',
+      )
+      .eq('status', 'approved')
+      .eq('contributor_id', contributorId)
+      .limit(100)
     if (error) throw error
     const rows = (data || []) as unknown as MusicShare[]
     const pinned = rows.filter(r => r.sort > 0).sort((a, b) => a.sort - b.sort)

@@ -18,13 +18,14 @@
           </div>
         </div>
       </div>
-      <div v-else-if="!contributors?.length" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+      <div v-else-if="!visibleContributors.length" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
         <div class="col-span-full text-center py-8 text-gray-400">暂无贡献者</div>
       </div>
       <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
         <!-- 外层不能用 a（RouterLink）：内部还有联系方式 a，SSG 预渲染的嵌套 a 会被浏览器解析拆散导致闪现错位 -->
+        <!-- 仅展示位过滤：tags 恰为 ['歌曲分享'] 的账号不进歌词站贡献者名单（下拉框不过滤） -->
         <div
-          v-for="c in contributors"
+          v-for="c in visibleContributors"
           :key="c.id"
           class="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-5 border border-pink-100 hover:shadow-md transition relative cursor-pointer"
           @click="router.push(`/contributor/${c.id}`)"
@@ -62,10 +63,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useHead } from '@unhead/vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
+import { isMusicOnlyContributor } from '@/lib/contributorTags'
 import { useUiStore } from '@/stores/ui'
 import { LOGO_URL } from '@/lib/constants'
 import ContactIcons from '@/components/contributor/ContactIcons.vue'
@@ -83,6 +86,11 @@ const { data: contributors, loading } = useSSGData<Contributor[]>('contributors'
   api.getContributors(),
 )
 
+/** 纯「歌曲分享」单标签账号不进歌词站贡献者名单（仅此展示位过滤，下拉框全量） */
+const visibleContributors = computed(() =>
+  (contributors.value || []).filter(c => !isMusicOnlyContributor(c)),
+)
+
 /** tags 兼容数组/逗号分隔字符串 */
 function tagArray(tags: string[] | string | null | undefined): string[] {
   if (!tags) return []
@@ -92,6 +100,7 @@ function tagArray(tags: string[] | string | null | undefined): string[] {
 
 function chipColor(tag: string): string {
   const t = tag || ''
+  if (t.includes('歌曲分享')) return 'chip-pink'
   if (t.includes('LOGO') || t.includes('设计')) return 'chip-pink'
   if (t.includes('歌词') || t.includes('贡献')) return 'chip-purple'
   if (t.includes('文案')) return 'chip-blue'
