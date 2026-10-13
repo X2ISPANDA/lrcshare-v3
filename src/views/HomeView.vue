@@ -262,7 +262,7 @@
             <button
               v-if="picked"
               type="button"
-              class="text-pink-600 hover:underline text-sm inline-flex items-center gap-1"
+              class="text-pink-600 hover:text-pink-700 hover:underline text-sm inline-flex items-center gap-1 cursor-pointer transition-colors"
               @click="shufflePicked"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z" /></svg>
@@ -358,14 +358,14 @@
             <!-- 按钮沉底：mt-auto 保证无论理由长短，按钮始终贴卡片底部，与左栏视觉齐平。
                  右侧为置顶轮播的数字分页（北大官网式 1—2—3，仅多条置顶时出现） -->
             <div class="mt-auto pt-4 flex items-center gap-3 flex-wrap justify-between">
-              <div class="flex items-center gap-3 flex-wrap">
+              <!-- gap-2：三按钮总宽比卡片内容区宽出约 13px，收紧间距保证桌面端同一行；更窄视口仍由 flex-wrap 自然兜底 -->
+              <div class="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-                  style="background: linear-gradient(135deg, #ec4899, #a855f7)"
+                  class="rec-act rec-act--play gap-2 px-5 py-2"
                   @click="playPicked"
                 >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                   播放这首
                 </button>
                 <!-- 去原平台收听 / 支持正版：普通曲为粉边描边；创作者自荐作品用金色实心强化引导 -->
@@ -373,8 +373,8 @@
                   :href="picked.source_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="rec-support inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition"
-                  :class="picked.is_own_work ? 'rec-support--own text-white shadow-sm' : 'border border-pink-300 text-pink-600 bg-white hover:bg-pink-50'"
+                  class="rec-act rec-act--ghost gap-1.5 px-3 py-2"
+                  :class="{ 'rec-act--gold': picked.is_own_work }"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
                     <path d="M12 21s-7.5-4.6-10-9.2C.4 8.4 2 5 5.5 5c2 0 3.4 1.1 4.5 2.6C11.1 6.1 12.5 5 14.5 5 18 5 19.6 8.4 22 11.8 19.5 16.4 12 21 12 21z" />
@@ -385,9 +385,12 @@
                 <!-- 听众自荐入口：与「播放这首/支持正版」同行，直达歌曲分享投稿页（空态另有同款链接） -->
                 <RouterLink
                   to="/music-share/submit"
-                  class="inline-flex items-center gap-1.5 rounded-full border border-pink-300 bg-white px-4 py-2 text-sm font-semibold text-pink-600 shadow-sm transition hover:bg-pink-50"
+                  class="rec-act rec-act--ghost gap-1.5 px-3 py-2"
                 >
-                  🎵 我也要分享一首歌
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                    <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z" />
+                  </svg>
+                  我也要分享一首歌
                 </RouterLink>
               </div>
 
@@ -804,12 +807,62 @@ function snippet(song: SongWithNames): string {
 .rec-quote--own .rec-quote-mark {
   color: rgba(252, 211, 77, 0.75) !important;
 }
-/* 支持按钮：创作者作品金色实心 */
-.rec-support--own {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+/* ============ 推荐卡操作按钮行（播放 / 支持正版 / 我也要分享） ============ */
+/* 统一胶囊基座：原生 <button>/<a> 默认不带手型，这里显式 pointer */
+.rec-act {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease,
+    background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
-.rec-support--own:hover {
+.rec-act:active {
+  transform: translateY(0) scale(0.97);
+}
+/* 主操作：粉紫渐变实心 + 品牌色投影，悬停微上浮 */
+.rec-act--play {
+  color: #fff;
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  box-shadow: 0 4px 14px rgba(236, 72, 153, 0.35);
+}
+.rec-act--play:hover {
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(236, 72, 153, 0.42);
+}
+/* 次操作：白底粉边描边 */
+.rec-act--ghost {
+  color: #db2777;
+  background: #fff;
+  border-color: #f9a8d4;
+  box-shadow: 0 1px 2px rgba(236, 72, 153, 0.08);
+}
+.rec-act--ghost:hover {
+  color: #be185d;
+  background: #fdf2f8;
+  border-color: #f472b6;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(236, 72, 153, 0.18);
+}
+/* 自荐作品：描边钮切换为暖金实心 */
+.rec-act--gold,
+.rec-act--gold:hover {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.32);
+}
+.rec-act--gold:hover {
+  transform: translateY(-1px);
   background: linear-gradient(135deg, #d97706, #b45309);
+  box-shadow: 0 8px 20px rgba(217, 119, 6, 0.4);
 }
 
 /* ============ 新歌推荐限时置顶（粉紫品牌色，与金色自荐区分） ============ */
