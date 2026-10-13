@@ -382,6 +382,13 @@
                   {{ picked.is_own_work ? '去平台支持 TA' : '去平台听 · 支持正版' }}
                   <span aria-hidden="true">↗</span>
                 </a>
+                <!-- 听众自荐入口：与「播放这首/支持正版」同行，直达歌曲分享投稿页（空态另有同款链接） -->
+                <RouterLink
+                  to="/music-share/submit"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-pink-300 bg-white px-4 py-2 text-sm font-semibold text-pink-600 shadow-sm transition hover:bg-pink-50"
+                >
+                  🎵 我也要分享一首歌
+                </RouterLink>
               </div>
 
               <!-- 数字分页 + 左右箭头：多条置顶轮播时出现；点击切换并重置 30s 计时 -->
@@ -402,16 +409,6 @@
             </div>
           </div>
           </Transition>
-        </div>
-
-        <!-- 听众自荐入口：把喜欢的歌分享到推荐位（与空态同一目标路由） -->
-        <div class="mt-4 text-center">
-          <RouterLink
-            to="/music-share/submit"
-            class="inline-flex items-center gap-2 rounded-full border border-pink-300 bg-white px-5 py-2 text-sm font-semibold text-pink-600 shadow-sm transition hover:bg-pink-50 hover:opacity-90"
-          >
-            🎵 我也要分享一首歌
-          </RouterLink>
         </div>
       </section>
     </main>

@@ -68,9 +68,16 @@ const VOLUME_KEY = 'lrcshare_music_volume'
 const volume = ref(1)
 const muted = ref(false)
 try {
-  const saved = Number(localStorage.getItem(VOLUME_KEY))
-  if (Number.isFinite(saved) && saved >= 0 && saved <= 1) volume.value = saved
-  muted.value = volume.value === 0
+  // 注意：未调过音量时 getItem 返回 null，Number(null)===0 会误判为静音，
+  // 必须先判 null——只有用户真实存过音量（含手动拖到 0）才恢复
+  const raw = localStorage.getItem(VOLUME_KEY)
+  if (raw !== null) {
+    const saved = Number(raw)
+    if (Number.isFinite(saved) && saved >= 0 && saved <= 1) {
+      volume.value = saved
+      muted.value = saved === 0
+    }
+  }
 } catch {
   /* localStorage 不可用时保持默认 */
 }
