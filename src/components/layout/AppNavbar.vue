@@ -2,7 +2,7 @@
   <header class="bg-white shadow-sm sticky top-0 z-50">
     <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
       <RouterLink to="/" class="flex items-center gap-2 text-2xl font-bold">
-        <img :src="LOGO_URL" alt="LrcShare Logo" class="w-8 h-8" />
+        <img :src="logoUrl()" alt="LrcShare Logo" class="w-8 h-8" />
         <span class="nav-art-title">LrcShare</span>
       </RouterLink>
 
@@ -62,7 +62,7 @@
     <div class="mobile-menu" :class="{ 'is-open': menuOpen }">
       <div class="pt-4 pb-2 px-5 border-b border-gray-100">
         <div class="flex items-center gap-2 text-xl font-bold">
-          <img :src="LOGO_URL" alt="Logo" class="w-7 h-7" />
+          <img :src="logoUrl()" alt="Logo" class="w-7 h-7" />
           <span class="nav-art-title">LrcShare</span>
         </div>
       </div>
@@ -97,7 +97,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
-import { LOGO_URL } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 
 const ui = useUiStore()
 const menuOpen = ref(false)

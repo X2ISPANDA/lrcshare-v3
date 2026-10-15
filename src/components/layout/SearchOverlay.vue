@@ -113,7 +113,7 @@
                     class="flex items-center gap-2 px-3 py-2 hover:bg-pink-50 rounded-lg transition"
                     @click="ui.closeSearch()"
                   >
-                    <img :src="artist.avatar || DEFAULT_AVATAR" class="w-8 h-8 rounded-full bg-gray-100 object-cover" />
+                    <img :src="artist.avatar || logoUrl()" class="w-8 h-8 rounded-full bg-gray-100 object-cover" />
                     <div class="text-sm font-medium text-gray-800 truncate">
                       <span v-html="highlight(artist.name)"></span>
                       <span v-if="artist.disambiguation" class="text-xs text-purple-500"> ({{ artist.disambiguation }})</span>
@@ -162,7 +162,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { api } from '@/lib/api'
 import { highlightHtml, lrcSnippet } from '@/lib/highlight'
-import { LOGO_URL as DEFAULT_AVATAR } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 import { useUiStore } from '@/stores/ui'
 import type { Album, Artist, SongWithNames } from '@/lib/types'
 

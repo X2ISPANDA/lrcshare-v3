@@ -13,15 +13,15 @@
     <template v-else-if="contributor">
       <!-- Hero 卡（与艺术家主页同款结构：默认背景图 + 白字 + 联系方式纯 logo 图标） -->
       <div class="contributor-hero rounded-2xl shadow-sm overflow-hidden relative">
-        <img :src="HERO_BG_URL" alt="" class="hero-bg-img" />
+        <img :src="heroBgUrl()" alt="" class="hero-bg-img" />
         <div class="relative z-10 px-6 py-6">
           <div class="flex flex-col items-center md:flex-row md:items-start gap-4">
             <div class="flex flex-col items-center gap-1.5 flex-shrink-0">
               <img
-                :src="contributor.avatar || LOGO_URL"
+                :src="contributor.avatar || logoUrl()"
                 :alt="contributor.name"
                 class="w-[calc(var(--spacing)*35)] h-[calc(var(--spacing)*35)] rounded-full border-4 border-white shadow-lg bg-gray-200 object-cover cursor-zoom-in"
-                @click="ui.openPreview([contributor.avatar || LOGO_URL])"
+                @click="ui.openPreview([contributor.avatar || logoUrl()])"
               />
               <span class="text-sm text-white/90 flex items-center gap-1">🎵 {{ contributor.song_count || 0 }} 件作品</span>
             </div>
@@ -106,7 +106,7 @@ import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import { useMusicPlayerStore } from '@/stores/musicPlayer'
-import { LOGO_URL, HERO_BG_URL } from '@/lib/constants'
+import { logoUrl, heroBgUrl } from '@/lib/imageSource'
 import AppIcon from '@/components/common/AppIcon.vue'
 import ContactIcons from '@/components/contributor/ContactIcons.vue'
 import MusicShareCardGrid from '@/components/music/MusicShareCardGrid.vue'

@@ -7,13 +7,13 @@
       <EntityHeader
         :cover="avatar"
         cover-shape="circle"
-        :cover-contain="avatar === LOGO_URL"
-        :bg-image="artist.bg_image || HERO_BG_URL"
+        :cover-contain="avatar === logoUrl()"
+        :bg-image="artist.bg_image || heroBgUrl()"
         bg-adjustable
         :bg-position="artist.bg_position_y ?? 50"
         intro-title="歌手简介"
         :intro-html="artist.bio ?? undefined"
-        :preview-images="[avatar, artist.bg_image || HERO_BG_URL]"
+        :preview-images="[avatar, artist.bg_image || heroBgUrl()]"
       >
         <div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
           <!-- 桌面端整行不换行：名字+消歧义+别名超出容器宽度时统一省略号截断 -->
@@ -87,7 +87,7 @@
                     class="w-full h-full rounded-lg object-cover cursor-zoom-in"
                     @click.prevent.stop="ui.openPreview([album.cover!], 0)"
                   />
-                  <img v-else :src="LOGO_URL" alt="" class="w-full h-full rounded-lg object-contain p-1" />
+                  <img v-else :src="logoUrl()" alt="" class="w-full h-full rounded-lg object-contain p-1" />
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="font-medium text-gray-800 truncate">{{ album.name }}</div>
@@ -160,7 +160,8 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
-import { LOGO_URL, HERO_BG_URL, ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'
+import { ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'
+import { logoUrl, heroBgUrl } from '@/lib/imageSource'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { AlbumWithArtists, Artist, SongWithNames } from '@/lib/types'
 
@@ -213,7 +214,7 @@ const { data: page, loading } = useSSGData<ArtistPageData>(`artist:${artistId}`,
 const artist = computed(() => page.value?.artist)
 const songs = computed(() => page.value?.songs || [])
 const albums = computed(() => page.value?.albums || [])
-const avatar = computed(() => artist.value?.avatar || LOGO_URL)
+const avatar = computed(() => artist.value?.avatar || logoUrl())
 
 useHead({
   title: computed(() => (artist.value ? `${artist.value.name} - LrcShare` : '艺术家详情 - LrcShare')),

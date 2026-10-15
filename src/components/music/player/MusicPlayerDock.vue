@@ -27,7 +27,7 @@ import type { MusicLyric } from '@/lib/musicLyric'
 import type { PlayerControls, PlayerProgress, PlayerTrackMeta } from './types'
 import MusicPlayerStage from './MusicPlayerStage.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
-import { LOGO_URL } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 
 defineOptions({ name: 'MusicPlayerDock' })
 
@@ -110,7 +110,7 @@ const stageStyle = computed((): Record<string, string> => {
 /** 哪些平台的 adapter 有可视化播放画面（网易云只有声音） */
 const canShowStage = computed(() => share.value?.platform !== 'netease')
 
-const coverUrl = computed(() => track.value?.cover_url || share.value?.cover_url || LOGO_URL)
+const coverUrl = computed(() => track.value?.cover_url || share.value?.cover_url || logoUrl())
 
 /** 展示曲名：专辑曲目优先，其次 adapter 实时曲名，最后分享行标题 */
 const displayTitle = computed(() => {
@@ -340,7 +340,7 @@ function queueItemArtist(i: number): string {
 }
 function queueItemCover(i: number): string {
   const qi = player.queue[i]
-  return qi?.track?.cover_url || qi?.share.cover_url || LOGO_URL
+  return qi?.track?.cover_url || qi?.share.cover_url || logoUrl()
 }
 
 /** 点击队列条目：切到别的项走 store；点当前项则回到本曲开头 */

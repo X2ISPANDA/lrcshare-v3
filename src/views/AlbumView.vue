@@ -7,7 +7,7 @@
       <EntityHeader
         :cover="cover"
         cover-shape="square"
-        :cover-contain="cover === LOGO_URL"
+        :cover-contain="cover === logoUrl()"
         :bg-image="cover"
         intro-title="专辑简介"
         :intro-html="descriptionHtml"
@@ -111,7 +111,7 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
-import { LOGO_URL } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 import type { AlbumWithArtists, Artist, SongWithNames } from '@/lib/types'
 
 const route = useRoute()
@@ -150,7 +150,7 @@ const { data: page, loading } = useSSGData<AlbumPageData>(`album:${albumId}`, as
 const album = computed(() => page.value?.album)
 const songs = computed(() => page.value?.songs || [])
 const artistMap = computed(() => new Map((page.value?.artists || []).map(a => [a.id, a])))
-const cover = computed(() => album.value?.cover || LOGO_URL)
+const cover = computed(() => album.value?.cover || logoUrl())
 const descriptionHtml = computed(() => mdToHtml(album.value?.description))
 
 /** 按碟号分组（disc 为空视为 Disc 1）；单碟时 hasMultipleDiscs=false，不显示分组标题 */

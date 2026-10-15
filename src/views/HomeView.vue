@@ -2,9 +2,9 @@
   <div>
     <!-- Hero 区：背景图 + 艺术字标题 + 搜索框 -->
     <section class="hero-bg text-white py-20">
-      <img :src="HERO_BG_URL" alt="背景" class="hero-bg-img" />
+      <img :src="heroBgUrl()" alt="背景" class="hero-bg-img" />
       <div class="hero-content max-w-3xl mx-auto px-4 text-center">
-        <img :src="LOGO_URL" alt="LrcShare Logo" class="w-24 h-24 mx-auto mb-4" />
+        <img :src="logoUrl()" alt="LrcShare Logo" class="w-24 h-24 mx-auto mb-4" />
         <h1 class="text-4xl md:text-5xl font-bold mb-4">
           <span
             v-for="(c, i) in HERO_CHARS"
@@ -55,7 +55,7 @@
                     :to="`/artist/${artist.id}`"
                     class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50"
                   >
-                    <img :src="artist.avatar || LOGO_URL" class="w-8 h-8 rounded-full bg-gray-200 object-cover" />
+                    <img :src="artist.avatar || logoUrl()" class="w-8 h-8 rounded-full bg-gray-200 object-cover" />
                     <div class="flex-1">
                       <div class="text-sm font-medium text-gray-800">
                         <span v-html="hl(artist.name)"></span>
@@ -160,7 +160,7 @@
             :to="`/artist/${artist.id}`"
             class="bg-white rounded-2xl p-4 shadow-sm hover:shadow-lg transition text-center"
           >
-            <img :src="artist.avatar || LOGO_URL" :alt="artist.name" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain cursor-zoom-in" @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])" />
+            <img :src="artist.avatar || logoUrl()" :alt="artist.name" class="w-16 h-16 rounded-full mx-auto mb-2 bg-gray-100 object-contain cursor-zoom-in" @click.prevent.stop="ui.openPreview([artist.avatar || logoUrl()])" />
             <div class="font-semibold text-gray-800 truncate">{{ artist.name }}</div>
             <div v-if="artist.disambiguation" class="text-xs text-purple-500 truncate">{{ artist.disambiguation }}</div>
             <div class="mt-1 text-xs text-gray-400">{{ artistTypeIcons(artist.types) }}</div>
@@ -208,7 +208,7 @@
             class="group flex w-16 flex-col items-center gap-1.5"
           >
             <img
-              :src="c.avatar || LOGO_URL"
+              :src="c.avatar || logoUrl()"
               :alt="c.name"
               class="h-11 w-11 rounded-full bg-gray-100 object-cover ring-1 ring-pink-100 transition group-hover:ring-pink-400"
             >
@@ -297,7 +297,7 @@
           >
             <div class="flex gap-4">
               <img
-                :src="picked.cover_url || LOGO_URL"
+                :src="picked.cover_url || logoUrl()"
                 :alt="picked.title"
                 class="w-24 h-24 rounded-xl object-cover bg-pink-50 shrink-0"
               >
@@ -426,7 +426,8 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { highlightHtml, lrcSnippet } from '@/lib/highlight'
 import { mdToText } from '@/lib/markdown'
-import { HERO_BG_URL, LOGO_URL, artistTypeIcons } from '@/lib/constants'
+import { artistTypeIcons } from '@/lib/constants'
+import { logoUrl, heroBgUrl } from '@/lib/imageSource'
 import { useSSGData } from '@/composables/useSSGData'
 import { isMusicOnlyContributor } from '@/lib/contributorTags'
 import { useUiStore } from '@/stores/ui'

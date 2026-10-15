@@ -23,8 +23,8 @@ import {
   contactLabel,
   contactPlaceholder,
   contactValueError,
-  LOGO_URL as DEFAULT_LOGO,
 } from '@/lib/constants'
+import { logoUrl as defaultLogo } from '@/lib/imageSource'
 
 /** 身份面板数据（v-model）：与两个投稿页的表单字段一一对应 */
 export interface SubmitterIdentity {
@@ -337,7 +337,7 @@ defineExpose({
       >
         <el-option v-for="c in contributorOptions" :key="c.id" :label="c.name" :value="c.name">
           <div class="flex items-center gap-2">
-            <img :src="c.avatar || DEFAULT_LOGO" class="w-6 h-6 rounded-full object-cover" />
+            <img :src="c.avatar || defaultLogo()" class="w-6 h-6 rounded-full object-cover" />
             <span class="font-medium">{{ c.name }}</span>
             <span v-if="c.tags && c.tags.length" class="text-xs text-gray-400 ml-1">{{ c.tags.slice(0, 2).join(' · ') }}</span>
           </div>

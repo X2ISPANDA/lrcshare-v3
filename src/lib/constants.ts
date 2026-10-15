@@ -6,14 +6,36 @@ export const TTML_HUB_BASE = 'https://2755337087.github.io/ttml-hub/'
 export const LOGO_URL =
   'https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png'
 
+/** Logo 的 OSS 灾备地址（image_source=aliyun 时前台经 imageSource 助手取用；后台始终用原地址） */
+export const LOGO_URL_BACKUP =
+  'https://lrcshare.oss-cn-shanghai.aliyuncs.com/backup/05/05a15b493b65178749efb27ac066fd29de3c1ba39a620e5e809e1643d48057bb.png'
+
 export const HERO_BG_URL =
   'https://i0.hdslb.com/bfs/article/a009cfa6551237d38e6f64ce46fd739037977624.jpg'
+
+/** 首页 / 实体页头大图背景的 OSS 灾备地址 */
+export const HERO_BG_URL_BACKUP =
+  'https://lrcshare.oss-cn-shanghai.aliyuncs.com/backup/db/db611e025e751fde68203c9975c803398e10c0d52eba291293ffaaae8756671b.jpg'
 
 /** 赞赏二维码（微信 / 支付宝），SupportView 与 RewardModal 共用 */
 export const QR_CODES = [
   'https://i0.hdslb.com/bfs/openplatform/954a7ef000973598f054011146df90b5c3f2a71f.jpg',
   'https://i0.hdslb.com/bfs/openplatform/a5de338082f11e2f2876bc7059cde436af978568.jpg',
 ]
+
+/** 赞赏二维码 OSS 灾备地址（顺序与 QR_CODES 一一对应） */
+export const QR_CODES_BACKUP = [
+  'https://lrcshare.oss-cn-shanghai.aliyuncs.com/backup/c2/c208ec97f7f86a1fd50769d2aa11eb44fd9a9e631aaa0c15f164e62ea26815ea.jpg',
+  'https://lrcshare.oss-cn-shanghai.aliyuncs.com/backup/80/806b9542697c71fca0970cca0a09e0db8071143ec1bd44ed1c1d30ed20c8bca1.jpg',
+]
+
+/** 隐藏歌词占位图（歌曲被隐藏 / 口令锁定时的提示图） */
+export const HIDDEN_PLACEHOLDER_IMG =
+  'https://i0.hdslb.com/bfs/openplatform/6e065deeee2d046c05347d3f76592b6fb39c66a8.png'
+
+/** 隐藏歌词占位图的 OSS 灾备地址 */
+export const HIDDEN_PLACEHOLDER_IMG_BACKUP =
+  'https://lrcshare.oss-cn-shanghai.aliyuncs.com/backup/dc/dc90e5cd590cf004d1d3c36ecae82410a8ab9b3149885620cc00303bd2d9be31.png'
 
 /** 艺术家身份类型 → 图标 */
 export const ARTIST_TYPE_ICONS: Record<string, string> = {

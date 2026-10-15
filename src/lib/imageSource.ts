@@ -15,6 +15,17 @@
  * 后台（adminApi/supabaseAdmin）不经过此开关，管理员始终看到、编辑原始外链。
  */
 
+import {
+  LOGO_URL,
+  LOGO_URL_BACKUP,
+  HERO_BG_URL,
+  HERO_BG_URL_BACKUP,
+  HIDDEN_PLACEHOLDER_IMG,
+  HIDDEN_PLACEHOLDER_IMG_BACKUP,
+  QR_CODES,
+  QR_CODES_BACKUP,
+} from './constants'
+
 export type ImageSource = 'origin' | 'aliyun'
 
 let mode: ImageSource = 'origin'
@@ -38,6 +49,30 @@ export function setImageSource(v: unknown): ImageSource {
   mode = v === 'aliyun' ? 'aliyun' : 'origin'
   return mode
 }
+
+/**
+ * 代码常量静态图（不入库、不经过 fetch 拦截器）按当前图片源取址：
+ * logo / 首页大图背景 / 赞赏二维码 / 隐藏歌词占位图。
+ * 引导（bootstrapImageSource）在应用挂载前被 await，组件渲染期调用读到的就是终态，
+ * 故无需响应式；后台界面不要使用这些助手（后台始终显示原外链）。
+ */
+export function staticImage(origin: string, backup?: string | null): string {
+  return mode === 'aliyun' && backup ? backup : origin
+}
+
+/** 默认头像 / 封面 logo */
+export const logoUrl = (): string => staticImage(LOGO_URL, LOGO_URL_BACKUP)
+
+/** 首页与实体页头大图背景 */
+export const heroBgUrl = (): string => staticImage(HERO_BG_URL, HERO_BG_URL_BACKUP)
+
+/** 隐藏 / 口令锁定歌词占位图 */
+export const hiddenPlaceholderUrl = (): string =>
+  staticImage(HIDDEN_PLACEHOLDER_IMG, HIDDEN_PLACEHOLDER_IMG_BACKUP)
+
+/** 赞赏二维码（微信 / 支付宝，顺序与 constants.QR_CODES 对齐） */
+export const qrCodeUrls = (): string[] =>
+  QR_CODES.map((u, i) => staticImage(u, QR_CODES_BACKUP[i]))
 
 /** 从 settings 表读开关（anon REST；RLS 仅放行 image_source 这一行），失败默认 origin */
 export async function fetchImageSource(): Promise<ImageSource> {

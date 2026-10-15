@@ -6,7 +6,7 @@
   >
     <!-- 背景层：歌手=自定义背景图（可滚轮/拖拽调整位置）；专辑/歌曲=封面模糊铺底（调整功能关闭） -->
     <img
-      :src="bgImage || HERO_BG_URL"
+      :src="bgImage || heroBgUrl()"
       alt=""
       class="entity-bg-img"
       :class="{ 'is-adjustable': bgAdjustable, 'is-blurred': !bgAdjustable }"
@@ -87,7 +87,7 @@
 import { ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useUiStore } from '@/stores/ui'
-import { HERO_BG_URL } from '@/lib/constants'
+import { heroBgUrl } from '@/lib/imageSource'
 
 /**
  * 实体详情页统一头部卡（歌手 / 专辑 / 歌曲三页复用）

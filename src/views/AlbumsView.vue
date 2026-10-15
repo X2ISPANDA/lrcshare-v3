@@ -57,10 +57,10 @@
           >
             <div class="relative mx-auto mb-3 w-24 h-24">
               <img
-                :src="album.cover || LOGO_URL"
+                :src="album.cover || logoUrl()"
                 :alt="album.name"
                 class="w-24 h-24 rounded-xl mx-auto bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
-                @click.prevent.stop="ui.openPreview([album.cover || LOGO_URL], 0)"
+                @click.prevent.stop="ui.openPreview([album.cover || logoUrl()], 0)"
               />
             </div>
             <div class="font-bold text-gray-800 truncate text-lg">{{ album.name }}</div>
@@ -96,7 +96,7 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
-import { LOGO_URL } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 import { groupByInitial, type AlphaGroup } from '@/lib/pinyinGroup'
 import type { AlbumWithArtists } from '@/lib/types'
 

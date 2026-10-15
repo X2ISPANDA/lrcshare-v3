@@ -5,7 +5,7 @@
     <!-- 全局不发 Referrer（B 站图床 hdslb.com 防盗链，缺它 403）；各处 img 不再单独加 referrerpolicy -->
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="https://i0.hdslb.com/bfs/article/a2323ad6e33924c39061b35ae29f9fd937977624.png" />
+    <!-- favicon 由 App.vue 的 useHead 按图片源开关动态输出（logoUrl，灾备切 OSS 时一并切换） -->
     <title>LrcShare</title>
   </head>
   <body>

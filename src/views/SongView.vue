@@ -4,7 +4,7 @@
 
     <!-- 隐藏歌词占位（未解锁） -->
     <div v-else-if="isHidden" class="flex flex-col items-center justify-center py-20">
-      <img :src="HIDDEN_PLACEHOLDER_IMG" alt="此歌词已被隐藏" class="max-w-md w-full rounded-2xl shadow-lg mb-8" />
+      <img :src="hiddenPlaceholderUrl()" alt="此歌词已被隐藏" class="max-w-md w-full rounded-2xl shadow-lg mb-8" />
       <p class="text-gray-400 text-lg text-center mb-6">此歌词已被隐藏</p>
       <button class="px-6 py-3 bg-pink-500 text-white rounded-xl hover:bg-pink-600 transition shadow-md" @click="unlock">
         🔑 输入口令解锁
@@ -16,7 +16,7 @@
       <EntityHeader
         :cover="cover"
         cover-shape="square"
-        :cover-contain="cover === LOGO_URL"
+        :cover-contain="cover === logoUrl()"
         :bg-image="cover"
         intro-title="歌曲简介"
         :intro-html="descriptionHtml"
@@ -410,7 +410,8 @@ import { useElementVisibility } from '@vueuse/core'
 import { api } from '@/lib/api'
 import { mdToHtml } from '@/lib/markdown'
 import { useSSGData } from '@/composables/useSSGData'
-import { LOGO_URL, TIP_ICONS } from '@/lib/constants'
+import { TIP_ICONS } from '@/lib/constants'
+import { logoUrl, hiddenPlaceholderUrl } from '@/lib/imageSource'
 import { copyText } from '@/lib/clipboard'
 import {
   LYRIC_KIND_LABEL,
@@ -442,8 +443,6 @@ import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
 const route = useRoute()
 const router = useRouter()
 const songId = route.params.id as string
-
-const HIDDEN_PLACEHOLDER_IMG = 'https://i0.hdslb.com/bfs/openplatform/6e065deeee2d046c05347d3f76592b6fb39c66a8.png'
 
 /** 页面组合数据（一次 SSG 预取全部，避免多 key 时序问题） */
 interface SongPageData {
@@ -569,7 +568,7 @@ async function unlock() {
 }
 
 // ============ 展示 computed ============
-const cover = computed(() => song.value?.cover || song.value?.album_cover || song.value?.artists[0]?.avatar || LOGO_URL)
+const cover = computed(() => song.value?.cover || song.value?.album_cover || song.value?.artists[0]?.avatar || logoUrl())
 
 /** 作词/作曲/编曲：按角色从中间表 credits 取 id 列表 → 链接数组（查找范围含 credit 字段专属艺术家，如编曲人不在 artist_ids 中） */
 const ROLE_FIELD: Record<string, string> = { lyricist: 'lyricist', composer: 'composer', arranger: 'arranger' }

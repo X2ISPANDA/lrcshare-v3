@@ -33,7 +33,7 @@
               </template>
               <div class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition">
                 <a :href="item.url" target="_blank" rel="noopener" class="shrink-0">
-                  <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+                  <img :src="item.avatar || logoUrl()" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || logoUrl()])" />
                 </a>
                 <div class="min-w-0 flex-1">
                   <!-- 名称 + 附加链接图标同一行（不影响卡片高度） -->
@@ -81,7 +81,7 @@
               </template>
               <div class="bg-white rounded-xl shadow-sm p-5 flex items-start gap-4 hover:-translate-y-0.5 hover:shadow-md transition">
                 <a :href="item.url" target="_blank" rel="noopener" class="shrink-0">
-                  <img :src="item.avatar || LOGO_URL" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || LOGO_URL])" />
+                  <img :src="item.avatar || logoUrl()" :alt="item.name" class="w-14 h-14 rounded-full object-cover bg-gray-100 cursor-zoom-in" @click.prevent.stop="ui.openPreview([item.avatar || logoUrl()])" />
                 </a>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 mb-1">
@@ -121,7 +121,8 @@
 import { computed } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
-import { LOGO_URL, contactLabel } from '@/lib/constants'
+import { contactLabel } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
 import AppIcon from '@/components/common/AppIcon.vue'

@@ -78,10 +78,10 @@
                 >{{ ARTIST_TYPE_ICONS[t] || '🎨' }} {{ ARTIST_TYPE_LABELS[t] || t }}</span>
               </div>
               <img
-                :src="artist.avatar || LOGO_URL"
+                :src="artist.avatar || logoUrl()"
                 :alt="artist.name"
                 class="w-20 h-20 rounded-full mx-auto mb-3 bg-gray-100 object-contain group-hover:scale-105 transition shadow-md cursor-zoom-in"
-                @click.prevent.stop="ui.openPreview([artist.avatar || LOGO_URL])"
+                @click.prevent.stop="ui.openPreview([artist.avatar || logoUrl()])"
               />
               <div class="font-bold text-gray-800 text-lg truncate" :title="artist.disambiguation ? `${artist.name} (${artist.disambiguation})` : artist.name">
                 {{ artist.name }}
@@ -131,7 +131,8 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
-import { LOGO_URL, ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'
+import { ARTIST_TYPE_ICONS, ARTIST_TYPE_LABELS, ARTIST_TYPE_GRADIENTS } from '@/lib/constants'
+import { logoUrl } from '@/lib/imageSource'
 import { groupByInitial, type AlphaGroup } from '@/lib/pinyinGroup'
 import AppIcon from '@/components/common/AppIcon.vue'
 import type { Artist } from '@/lib/types'

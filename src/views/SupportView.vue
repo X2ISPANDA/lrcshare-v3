@@ -141,13 +141,13 @@
         <div class="flex justify-center gap-4">
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img :src="QR_CODES[0]" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(QR_CODES, 0)" />
+              <img :src="qrCodes[0]" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(qrCodes, 0)" />
             </div>
             <div class="text-sm text-gray-600">微信赞助</div>
           </div>
           <div class="text-center">
             <div class="w-40 h-40 rounded-xl overflow-hidden mb-2 border border-gray-100">
-              <img :src="QR_CODES[1]" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(QR_CODES, 1)" />
+              <img :src="qrCodes[1]" class="w-full h-full object-cover cursor-zoom-in" @click="ui.openPreview(qrCodes, 1)" />
             </div>
             <div class="text-sm text-gray-600">支付宝赞助</div>
           </div>
@@ -163,10 +163,13 @@ import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { useSSGData } from '@/composables/useSSGData'
 import { useUiStore } from '@/stores/ui'
-import { QR_CODES } from '@/lib/constants'
+import { qrCodeUrls } from '@/lib/imageSource'
 import type { Sponsor } from '@/lib/types'
 
 useHead({ title: '赞助名单 - LrcShare' })
+
+/** 赞赏二维码（随图片源开关在原外链 / OSS 灾备间切换） */
+const qrCodes = computed(() => qrCodeUrls())
 
 const ui = useUiStore()
 const { data: sponsors, loading } = useSSGData<Sponsor[]>('support', () => api.getSponsors())

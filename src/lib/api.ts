@@ -18,14 +18,14 @@ import type {
 } from './types'
 import type { MusicPlatformKey, MusicResolveResult } from './musicPlatforms'
 
-/** 歌手字段精简选择（列表场景，避免拉全量） */
-const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, types, disambiguation, is_show, aliases, bio, urls, initial'
+/** 歌手字段精简选择（列表场景，避免拉全量；备份列供图片源开关切换 OSS） */
+const ARTIST_LIST_FIELDS = 'id, name, sort, avatar, avatar_backup, bg_image_backup, types, disambiguation, is_show, aliases, bio, urls, initial'
 
 /** 匿名端歌曲查询列：不含口令（独立口令已拆至 song_secrets 表，anon 零授权，
  *  前后台均经 verify_hidden_unlock_code RPC 校验；全局口令存 settings）。
  *  歌手/词曲编关系一律经 song_contributors 中间表嵌入，api 层计算 artist_ids（=歌手）装饰回对象 */
 const SONG_PUBLIC_FIELDS =
-  'id, title, aliases, album_id, duration, track, disc, status, is_hidden, description, genres, lrc_text, lyrics_text, video_url, cover, contributor_id, created_at, song_contributors(role,artist_id)'
+  'id, title, aliases, album_id, duration, track, disc, status, is_hidden, description, genres, lrc_text, lyrics_text, video_url, cover, cover_backup, contributor_id, created_at, song_contributors(role,artist_id)'
 
 /** 专辑贡献关系（专辑艺术家）嵌入列 */
 const ALBUM_CONTRIB_EMBED = 'album_contributors(artist_id)'
@@ -64,7 +64,7 @@ async function getArtistFullMap(ids: Iterable<string>): Promise<Map<string, Arti
   if (unique.length === 0) return map
   const { data } = await supabase
     .from('artists')
-    .select('id, name, is_show, sort, avatar, types, disambiguation, aliases, bio, urls')
+    .select('id, name, is_show, sort, avatar, avatar_backup, types, disambiguation, aliases, bio, urls')
     .in('id', unique)
   ;(data || []).forEach(a => map.set(a.id, a as Artist))
   return map
@@ -74,9 +74,9 @@ function joinNames(ids: string[] | null | undefined, map: Map<string, string>): 
   return (ids || []).map(id => map.get(id) || '').filter(Boolean).join(' / ')
 }
 
-/** 歌词库/首页卡片行嵌入列：封面 + 专辑名/封面 + 投稿人（不含歌词正文） */
+/** 歌词库/首页卡片行嵌入列：封面 + 专辑名/封面 + 投稿人（不含歌词正文）；备份列随取供图片源切换 */
 const SONG_LIBRARY_FIELDS =
-  `id, title, album_id, duration, track, disc, status, is_hidden, cover, contributor_id, created_at, ${SONG_CONTRIB_EMBED}, contributors(id, name, avatar), albums(name, cover)`
+  `id, title, album_id, duration, track, disc, status, is_hidden, cover, cover_backup, contributor_id, created_at, ${SONG_CONTRIB_EMBED}, contributors(id, name, avatar, avatar_backup), albums(name, cover, cover_backup)`
 
 /**
  * 已发布歌曲列表查询（封面/专辑/投稿人嵌入）：
@@ -90,7 +90,7 @@ async function fetchPublishedSongRows(
   const build = (embedContributor: boolean) => {
     const fields = embedContributor
       ? SONG_LIBRARY_FIELDS
-      : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar)', '')
+      : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar, avatar_backup)', '')
     let q = supabase
       .from('songs')
       .select(fields, { count: opts.from != null ? 'exact' : undefined })
@@ -116,7 +116,7 @@ async function fetchPublishedSongRows(
     ]
     const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
     if (cids.length) {
-      const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
+      const { data: cdata } = await supabase.from('contributors').select('id, name, avatar, avatar_backup').in('id', cids)
       for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
     }
     data = ((data || []) as any[]).map(r => ({
@@ -353,7 +353,7 @@ export const api = {
           .select(
             embedContributor
               ? SONG_LIBRARY_FIELDS
-              : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar)', ''),
+              : SONG_LIBRARY_FIELDS.replace(', contributors(id, name, avatar, avatar_backup)', ''),
           )
       let { data, error } = await build(true)
       if (error) {
@@ -369,7 +369,7 @@ export const api = {
         ]
         const cMap = new Map<string, { id: string; name: string; avatar: string | null }>()
         if (cids.length) {
-          const { data: cdata } = await supabase.from('contributors').select('id, name, avatar').in('id', cids)
+          const { data: cdata } = await supabase.from('contributors').select('id, name, avatar, avatar_backup').in('id', cids)
           for (const c of (cdata || []) as any[]) cMap.set(c.id as string, c)
         }
         data = ((data || []) as any[]).map(r => ({
@@ -390,7 +390,7 @@ export const api = {
   async getSong(id: string): Promise<SongWithNames & { artists: Artist[]; credit_artists: Artist[]; credits: { role: string; artist_ids: string[] }[] }> {
     const { data, error } = await supabase
       .from('songs')
-      .select(`${SONG_PUBLIC_FIELDS}, albums(name, year, cover)`)
+      .select(`${SONG_PUBLIC_FIELDS}, albums(name, year, cover, cover_backup)`)
       .eq('id', id)
       .single()
     if (error) throw error
@@ -566,7 +566,7 @@ export const api = {
     const { data, error } = await supabase
       .from('contributors')
       .select(
-        'id, name, avatar, bio, public_bio, contact_value, public_contact, tags, is_owner, created_at, sort',
+        'id, name, avatar, avatar_backup, bio, public_bio, contact_value, public_contact, tags, is_owner, created_at, sort',
       )
       .eq('id', id)
       .single()
@@ -808,7 +808,7 @@ export const api = {
     const { data, error } = await supabase
       .from('music_shares')
       .select(
-        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, tags, public_contact, contact_value)',
+        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, cover_url_backup, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, avatar_backup, tags, public_contact, contact_value)',
       )
       .eq('status', 'approved')
       .limit(options.limit ?? 200)
@@ -830,7 +830,7 @@ export const api = {
     const { data, error } = await supabase
       .from('music_shares')
       .select(
-        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, tags, public_contact, contact_value)',
+        'id, platform, media_type, platform_id, source_url, title, artist, cover_url, cover_url_backup, tracks, reason, is_own_work, contributor_id, submitter_name, sort, pinned_until, approved_at, created_at, contributor:contributors(id, name, avatar, avatar_backup, tags, public_contact, contact_value)',
       )
       .eq('status', 'approved')
       .eq('contributor_id', contributorId)
