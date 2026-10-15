@@ -50,6 +50,31 @@
       </el-form>
     </div>
 
+    <!-- 图片灾备 -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-5">
+      <div class="font-semibold text-gray-800 mb-4">🖼 图片灾备</div>
+      <el-form label-width="110px" class="max-w-xl">
+        <el-form-item label="图片源">
+          <div class="w-full">
+            <el-switch
+              v-model="imageSourceAliyun"
+              :loading="savingImageSource"
+              active-text="启用阿里云 OSS"
+              inactive-text="默认外链（B站图床等）"
+              inline-prompt
+              style="--el-switch-on-color: #ec4899"
+              @change="onImageSourceChange"
+            />
+            <div class="text-xs text-gray-400 mt-2 leading-5">
+              关闭（默认）：全站图片走外链，OSS 不产生任何请求与流量费用；<br />
+              启用：全站图片统一切换为阿里云 OSS 备份地址（个别图片尚未备份时自动回退外链，不会裂图），外链故障时再关闭即可恢复。<br />
+              开关即时保存；访客页面会自动刷新到新模式，预渲染静态页在下次网站部署时同步更新。
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <div class="flex justify-end">
       <el-button type="primary" :loading="saving" @click="save" style="--el-button-bg-color: #ec4899; --el-button-border-color: #ec4899; --el-button-hover-bg-color: #db2777; --el-button-hover-border-color: #db2777">保存设置</el-button>
     </div>
@@ -67,6 +92,9 @@ const SETTING_KEYS = ['admin_email', 'smtp_host', 'smtp_port', 'smtp_user', 'smt
 
 const loading = ref(false)
 const saving = ref(false)
+// 图片灾备开关：true=全站走 OSS，false=走默认外链（独立即时保存，不混入下方批量保存）
+const imageSourceAliyun = ref(false)
+const savingImageSource = ref(false)
 const settings = ref<Record<string, string>>({
   admin_email: '',
   smtp_host: '',
@@ -82,6 +110,8 @@ async function load() {
     const rows = await adminApi.getAll<Setting>('settings')
     const m = new Map(rows.map(r => [r.key, r.value]))
     for (const k of SETTING_KEYS) settings.value[k] = m.get(k) || ''
+    // 图片源开关（image_source 不参与 SETTING_KEYS 批量保存，单独即时切换）
+    imageSourceAliyun.value = m.get('image_source') === 'aliyun'
   } catch (e: any) {
     ElMessage.error('加载失败：' + e.message)
   } finally {
@@ -100,6 +130,22 @@ async function save() {
     ElMessage.error('保存失败：' + e.message)
   } finally {
     saving.value = false
+  }
+}
+
+/** 图片源开关即时保存；失败时把开关弹回原状态 */
+async function onImageSourceChange(val: boolean | string | number) {
+  const enabled = Boolean(val)
+  const previous = !enabled
+  savingImageSource.value = true
+  try {
+    await adminApi.upsert('settings', { key: 'image_source', value: enabled ? 'aliyun' : 'origin' }, 'key')
+    ElMessage.success(enabled ? '已启用阿里云 OSS，全站图片将走备份地址' : '已恢复默认外链，OSS 将不再产生流量')
+  } catch (e: any) {
+    imageSourceAliyun.value = previous
+    ElMessage.error('切换失败：' + e.message)
+  } finally {
+    savingImageSource.value = false
   }
 }
 

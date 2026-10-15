@@ -3,15 +3,22 @@ import { createPinia } from 'pinia'
 import { ID_INJECTION_KEY, ZINDEX_INJECTION_KEY } from 'element-plus'
 import App from './App.vue'
 import routes, { setupAdminGuard } from './router'
+import { bootstrapImageSource } from './lib/imageSource'
 import './styles/main.css'
 
 // vite-ssg 入口：导出 createApp（而非直接 mount），构建时预渲染前台页面。
 // 动态路由（/song/:id 等）的实体清单由 vite.config.ts 的 ssgOptions.includedRoutes
 // 在构建时从数据库拉取，每首歌生成真实 HTML（Google 可收录）。
-export const createApp = ViteSSG(App, { routes }, ({ app, router, initialState }) => {
+export const createApp = ViteSSG(App, { routes }, async ({ app, router, initialState }) => {
   app.use(createPinia())
   // SSG 数据预取状态：useSSGData 写入、vite-ssg 序列化进 HTML 并在客户端恢复
   app.provide('initialState', initialState)
+
+  // 图片灾备开关引导（必须在任何页面数据查询前完成）：
+  // 构建时读库决定预渲染 HTML 的图片源；客户端水合后校对，站长切换后自动重载一次。
+  // vite-ssg 会 await 本回调（await fn(context)），故此处可安全 await。
+  await bootstrapImageSource(initialState as Record<string, unknown> | undefined)
+
   // Element Plus SSR/水合要求：提供稳定的服务端 ID 与 z-index 起点
   app.provide(ID_INJECTION_KEY, { prefix: 1024, current: 0 })
   app.provide(ZINDEX_INJECTION_KEY, { current: 0 })

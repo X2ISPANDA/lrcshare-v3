@@ -593,7 +593,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { adminApi } from '@/lib/adminApi'
-import { supabase } from '@/lib/supabase'
+// 后台统一使用 supabaseAdmin 原始客户端：不受前台图片源灾备切换影响，始终读写原始外链
+import { supabaseAdmin as supabase } from '@/lib/supabase'
 import { recomputeArtistTypes } from '@/lib/artistTypes'
 import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelations'
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'

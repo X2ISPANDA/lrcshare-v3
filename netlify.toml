@@ -2,6 +2,8 @@
 # 部署：将本仓库接入 Netlify（站点任意命名），环境变量配置：
 #   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
 #   （mailer 需 service_role 绕过 RLS 读 settings 表的 smtp 配置；anon 读不到会 fail-closed）
+#   OSS_REGION / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
+#   （image-backup 转存图片到阿里云 OSS；RAM 子账号建议仅授 bucket 的 backup/ 前缀读写）
 # 前端通过 VITE_MAIL_BASE 指向本站点地址（如 https://mail.lrcshare.netlify.app）
 
 [build]
@@ -37,5 +39,12 @@
 [[redirects]]
   from = "/api/music-lyric"
   to = "/.netlify/functions/music-lyric"
+  status = 200
+  force = true
+
+# /api/image-backup → function（图片灾备：外链图片转存阿里云 OSS，仅管理员可调）
+[[redirects]]
+  from = "/api/image-backup"
+  to = "/.netlify/functions/image-backup"
   status = 200
   force = true

@@ -8,6 +8,8 @@ export interface Artist {
   id: string
   name: string
   avatar: string | null
+  /** 头像 OSS 备份（灾备切换列；image_source=aliyun 时替代 avatar，空值回退） */
+  avatar_backup?: string | null
   /** 身份类型：singer/lyricist/composer/arranger 等 */
   types: string[] | null
   /** 消歧义信息（同名艺术家区分） */
@@ -20,6 +22,8 @@ export interface Artist {
   urls?: Record<string, string> | null
   /** 详情页背景图 */
   bg_image?: string | null
+  /** 背景图 OSS 备份（灾备切换列；image_source=aliyun 时替代 bg_image，空值回退） */
+  bg_image_backup?: string | null
   /** 背景图纵向位置（百分比） */
   bg_position_y?: number | null
   /** 手动置顶排序，越大越靠前 */
@@ -36,6 +40,8 @@ export interface Album {
   id: string
   name: string
   cover: string | null
+  /** 封面 OSS 备份（灾备切换列；image_source=aliyun 时替代 cover，空值回退） */
+  cover_backup?: string | null
   year: string | null
   /** 专辑艺术家（可含唱片公司等非创作者实体）——api 层由 album_contributors 中间表计算装饰 */
   artist_ids: string[] | null
@@ -75,6 +81,8 @@ export interface Song {
   video_url?: string | null
   /** 单曲封面（预热单曲等场景；为空时回退专辑封面） */
   cover?: string | null
+  /** 单曲封面 OSS 备份（灾备切换列；空值回退 cover / 专辑封面） */
+  cover_backup?: string | null
   contributor_id?: string | null
   created_at: string
   /** 关联查询带出 */
@@ -125,6 +133,8 @@ export interface Contributor {
   id: string
   name: string
   avatar: string | null
+  /** 头像 OSS 备份（灾备切换列；image_source=aliyun 时替代 avatar，空值回退） */
+  avatar_backup?: string | null
   bio: string | null
   /** 公开简介（false 时前台不展示 bio） */
   public_bio: boolean
@@ -189,6 +199,8 @@ export interface Article {
   title: string
   content: string
   cover?: string | null
+  /** 封面 OSS 备份（灾备切换列；image_source=aliyun 时替代 cover，空值回退） */
+  cover_backup?: string | null
   summary?: string | null
   /** 作者（'站长' 时前台替换为站长真实名称） */
   author?: string | null
@@ -216,6 +228,8 @@ export interface Friend {
   name: string
   url: string
   avatar: string | null
+  /** 头像 OSS 备份（灾备切换列；image_source=aliyun 时替代 avatar，空值回退） */
+  avatar_backup?: string | null
   descr: string | null
   category_id: string | null
   /** 附加链接数组：label 为平台英文键（与 AppIcon ICON_MAP 对齐），url 为链接 */
@@ -260,6 +274,8 @@ export interface MusicShare {
   title: string
   artist: string | null
   cover_url: string | null
+  /** 平台封面 OSS 备份（灾备切换列；image_source=aliyun 时替代 cover_url，空值回退） */
+  cover_url_backup?: string | null
   /** 专辑曲目快照（单曲为 null）：识别时写入，播放时展开为队列，避免每次依赖平台接口拉取 */
   tracks?: import('./musicPlatforms').MusicTrack[] | null
   reason: string | null

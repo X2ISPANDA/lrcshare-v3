@@ -353,7 +353,8 @@ import RichContentView from '@/components/common/RichContentView.vue'
 import type { LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import { GENRE_OPTIONS, TIP_ICONS, OWNER_CONTRIBUTOR_ID } from '@/lib/constants'
 import { loadLyricLines, loadLyricVersionMetas, groupVersionsByContainer, parseTrackBox, fillCommonRows, rowsHaveWordTags, rowsToLrcText, parseLrcToRows, parseTtmlToRows, composeMixedLrc, saveLyricLines, resolveDefaultLinesVersionId, rebuildLyricLines, splitLrcToVersions, detectLang, detectTtmlLangs, LYRIC_LANG_OPTIONS, TRANSLIT_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, parseTtmlForEdit, composeTtml, emptyTtmlEditModel, parseTranslitTokens, alignTranslitTokens, generateTtmlVariant, generateLrcVariant, expandRomanSyntax, prettifyTtml, stripWordTags, type LyricKind, type LyricVersion, type TtmlEditModel } from '@/lib/lyricLines'
-import { supabase } from '@/lib/supabase'
+// 后台统一使用 supabaseAdmin 原始客户端：不受前台图片源灾备切换影响，始终读写原始外链
+import { supabaseAdmin as supabase } from '@/lib/supabase'
 import type { Artist, ArtistTag, Contributor } from '@/lib/types'
 
 /**

@@ -130,7 +130,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { supabase } from '@/lib/supabase'
+// 后台统一使用 supabaseAdmin 原始客户端：不受前台图片源灾备切换影响，始终读写原始外链
+import { supabaseAdmin as supabase } from '@/lib/supabase'
 import { loadLyricLines, groupVersions, rowsToLrcText, stripWordTags, LYRIC_LANG_OPTIONS, TRANSLIT_LANG_OPTIONS, LYRIC_KIND_LABEL, langLabel, type LyricVersion, type LyricKind } from '@/lib/lyricLines'
 
 /** 存疑清单：展示迁移拆行判不出的行，人工归位 lang/kind + 标记 resolved */

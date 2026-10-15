@@ -1,10 +1,165 @@
-import { supabase } from './supabase'
+import { ElMessage } from 'element-plus'
+import { supabaseAdmin as supabase } from './supabase'
 
 /**
  * 管理后台数据层（Supabase CRUD 封装）
  * 与前台 api.ts 的区别：面向管理端全字段读写，登录后借 auth session 通过 RLS。
  * 相比 v2 的改进：批量删除走 in() 单请求；不再提供全表 8 连拉，由各页面按需加载。
+ *
+ * 图片灾备（2026-10）：
+ * 下方所有写方法统一经过 withImageBackups 拦截——载荷出现外链图片列时，
+ * 自动调 Netlify /api/image-backup 转存 OSS 并补写对应 *_backup 列；
+ * update 时先按主键核对旧值：图片 URL 未变且已有备份的列跳过转存（备份缺失则补转自愈）；
+ * 图片被清空时备份列同步清空。转存失败不阻塞业务保存（备份置空，
+ * 灾时回退原外链），界面弹出警告并提示运行 scripts/backup-images.mjs 批量回填补齐。
+ * 注意：本文件使用 supabaseAdmin 原始客户端，后台永远读写原始外链，
+ * 不受前台 image_source 一键切换影响。
  */
+
+/** 图片灾备白名单：表 → { 主列: OSS 备份列 }，与 sql/19 新增列一一对应 */
+const IMAGE_BACKUP_COLUMNS: Record<string, Record<string, string>> = {
+  albums: { cover: 'cover_backup' },
+  artists: { avatar: 'avatar_backup', bg_image: 'bg_image_backup' },
+  songs: { cover: 'cover_backup' },
+  contributors: { avatar: 'avatar_backup' },
+  articles: { cover: 'cover_backup' },
+  friends: { avatar: 'avatar_backup' },
+  music_shares: { cover_url: 'cover_url_backup' },
+}
+
+function isHttpUrl(v: unknown): v is string {
+  return typeof v === 'string' && /^https?:\/\//i.test(v.trim())
+}
+
+/** 判断是否已是阿里云 OSS 地址（已是 OSS 则无需再转存，直接互为备份值） */
+function isAliyunOssUrl(v: string): boolean {
+  try {
+    const h = new URL(v).hostname
+    return h === 'aliyuncs.com' || h.endsWith('.aliyuncs.com')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 调图片转存函数（管理员 JWT 鉴权，与 callMailServer 同一套会话头）。
+ * 未配置 VITE_MAIL_BASE（本地开发）时静默跳过、返回 null。
+ */
+async function backupImageUrl(url: string): Promise<string | null> {
+  const base = import.meta.env.VITE_MAIL_BASE as string | undefined
+  if (!base) return null
+  const { data: { session } } = await supabase.auth.getSession()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+  const res = await fetch(base + '/api/image-backup', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ url }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok || json.code !== 0 || !json.data?.url) {
+    throw new Error(json.error || '图片转存服务返回异常')
+  }
+  return String(json.data.url)
+}
+
+/** 单张图片转存失败记录（用于保存成功后汇总提示管理员） */
+interface BackupFailure {
+  /** 表名.图片列名，如 albums.cover */
+  location: string
+  /** 失败原因（转存服务返回的 error 文案） */
+  reason: string
+}
+
+/** 归一化图片列值：null/undefined/空白串一律视为 null，其余 trim */
+function normalizeImageValue(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t || null
+}
+
+/**
+ * 写库前补齐图片备份列（就地修改 record）：
+ *   - 载荷未带该图片列 → 不动；
+ *   - 调用方显式带了备份列 → 尊重调用方，不覆盖；
+ *   - 提供 existing（更新前该行旧值）且图片 URL 未变化：
+ *       · 已有备份列 → 整列跳过（不调函数、不重写备份，省掉无谓抓图）；
+ *       · 备份列为空 → 照常转存（历史漏备在下次保存时自愈）；
+ *   - 图片清空（null/空串）→ 备份同步置 null，避免灾时显示已删除的旧图；
+ *   - 非 http(s) 值（data URI 等本站不使用的形态）→ 不动；
+ *   - 已是 aliyuncs.com 地址 → 备份列直接指向它；
+ *   - 其余外链 → 调转存服务；失败置 null 并告警，不中断保存。
+ * @param existing 更新前该行的图片列/备份列旧值（仅 update 传入，insert 为 undefined）
+ * @returns 本次载荷中转存失败的图片清单（空数组=全部成功或无需转存）
+ */
+async function withImageBackups(
+  table: string,
+  record: Record<string, any>,
+  existing?: Record<string, any> | null,
+): Promise<BackupFailure[]> {
+  const failures: BackupFailure[] = []
+  const colMap = IMAGE_BACKUP_COLUMNS[table]
+  if (!colMap || !record || typeof record !== 'object') return failures
+  for (const [srcCol, backupCol] of Object.entries(colMap)) {
+    if (!(srcCol in record) || backupCol in record) continue
+    const raw = record[srcCol]
+
+    // 更新场景：URL 与库中旧值一致时无需重复转存
+    if (existing && srcCol in existing) {
+      const newUrl = normalizeImageValue(raw)
+      const oldUrl = normalizeImageValue(existing[srcCol])
+      if (newUrl === oldUrl) {
+        // 已有备份 → 完全跳过（record 不带 backupCol，更新不会覆盖原备份）；
+        // 备份缺失（历史失败/漏备）→ 落到下方逻辑补转，保存即自愈
+        if (newUrl !== null && normalizeImageValue(existing[backupCol])) continue
+      }
+    }
+
+    if (raw === null || raw === undefined || (typeof raw === 'string' && !raw.trim())) {
+      record[backupCol] = null
+      continue
+    }
+    if (!isHttpUrl(raw)) continue
+    const url = raw.trim()
+    if (isAliyunOssUrl(url)) {
+      record[backupCol] = url
+      continue
+    }
+    try {
+      record[backupCol] = (await backupImageUrl(url)) ?? null
+    } catch (e) {
+      record[backupCol] = null
+      const reason = e instanceof Error ? e.message : '转存服务异常'
+      console.warn(`[image-backup] ${table}.${srcCol} 转存失败，本次保存不阻断，可用回填脚本补齐：`, e)
+      failures.push({ location: `${table}.${srcCol}`, reason })
+    }
+  }
+  return failures
+}
+
+/** 批量写前逐行补齐（各行不同图片互不影响，并发转存），返回全部失败项 */
+async function withImageBackupsBatch(table: string, records: Record<string, any>[]): Promise<BackupFailure[]> {
+  const results = await Promise.all(records.map(r => withImageBackups(table, r)))
+  return results.flat()
+}
+
+/**
+ * 业务保存已成功后，若有图片灾备失败，弹一条非阻断警告告知管理员补救方式。
+ * 多张失败合并为一条提示，避免浮层刷屏；延长停留时间并可手动关闭，方便读清命令。
+ */
+function notifyBackupFailures(failures: BackupFailure[]): void {
+  if (!failures.length) return
+  const locations = Array.from(new Set(failures.map(f => f.location))).slice(0, 5).join('、')
+  const more = failures.length > 5 ? ` 等 ${failures.length} 处` : ''
+  const reason = failures[0]?.reason ? `（原因：${failures[0].reason}）` : ''
+  ElMessage.warning({
+    message: `内容已保存，但 ${failures.length} 张图片灾备失败${more}：${locations}${reason}。请在项目目录运行 node scripts/backup-images.mjs 补齐备份`,
+    duration: 10000,
+    showClose: true,
+  })
+}
+
 
 export interface GetAllOpts {
   select?: string
@@ -70,21 +225,43 @@ export const adminApi = {
   },
 
   async insert<T = any>(table: string, record: Partial<T>): Promise<T | null> {
+    const backupFailures = await withImageBackups(table, record as Record<string, any>)
     const { data, error } = await supabase.from(table).insert(record as any).select().single()
     if (error) throw error
+    notifyBackupFailures(backupFailures)
     return data
   },
 
   /** 条件更新：opts.filters 附加等值条件（如 { status: 'pending' } 做状态门控）。
    *  条件命中 0 行时返回 null（不抛错），调用方可据此识别"已被处理过"的重复提交 */
   async update<T = any>(table: string, id: string, record: Partial<T>, opts?: { filters?: Record<string, unknown> }): Promise<T | null> {
+    // 图片列旧值核对：载荷带了白名单图片列时，先按主键查该行旧值（单表主键查询），
+    // URL 没变且已有备份的列直接跳过转存。查询失败则退回旧行为（照常转存），不阻断保存
+    let existing: Record<string, any> | null = null
+    const colMap = IMAGE_BACKUP_COLUMNS[table]
+    if (colMap) {
+      const touchedSrcCols = Object.keys(colMap).filter(c => c in record)
+      if (touchedSrcCols.length) {
+        const selectCols = Array.from(new Set(touchedSrcCols.flatMap(c => [c, colMap[c]]))).join(',')
+        const { data, error } = await supabase
+          .from(table)
+          .select(selectCols)
+          .eq('id', id)
+          .maybeSingle()
+        if (!error) existing = (data as Record<string, any>) ?? null
+      }
+    }
+    const backupFailures = await withImageBackups(table, record as Record<string, any>, existing)
     let q = supabase.from(table).update(record as any).eq('id', id)
     if (opts?.filters) {
       for (const [k, v] of Object.entries(opts.filters)) q = q.eq(k, v as any)
     }
     const { data, error } = await q.select()
     if (error) throw error
-    return (data?.[0] as T) ?? null
+    const row = (data?.[0] as T) ?? null
+    // 条件未命中（保存实际未生效）时不提示，避免"未保存却提示补备份"的矛盾
+    if (row) notifyBackupFailures(backupFailures)
+    return row
   },
 
   async remove(table: string, id: string): Promise<void> {
@@ -108,21 +285,27 @@ export const adminApi = {
   /** 批量插入：单请求，替代逐行 insert */
   async insertBatch<T = any>(table: string, records: Partial<T>[]): Promise<void> {
     if (!records.length) return
+    const backupFailures = await withImageBackupsBatch(table, records as Record<string, any>[])
     const { error } = await supabase.from(table).insert(records as any)
     if (error) throw error
+    notifyBackupFailures(backupFailures)
   },
 
   /** 通用 upsert（song_secrets 等按业务键冲突的表用） */
   async upsert<T = any>(table: string, record: Partial<T>, onConflict: string): Promise<void> {
+    const backupFailures = await withImageBackups(table, record as Record<string, any>)
     const { error } = await supabase.from(table).upsert(record as any, { onConflict })
     if (error) throw error
+    notifyBackupFailures(backupFailures)
   },
 
   /** 批量 upsert：单请求（settings 等多行一次保存用） */
   async upsertBatch<T = any>(table: string, records: Partial<T>[], onConflict: string): Promise<void> {
     if (!records.length) return
+    const backupFailures = await withImageBackupsBatch(table, records as Record<string, any>[])
     const { error } = await supabase.from(table).upsert(records as any, { onConflict })
     if (error) throw error
+    notifyBackupFailures(backupFailures)
   },
 
   /**

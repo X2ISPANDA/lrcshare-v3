@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { supabase } from '@/lib/supabase'
+// 后台统一使用 supabaseAdmin 原始客户端：不受前台图片源灾备切换影响，始终读写原始外链
+import { supabaseAdmin as supabase } from '@/lib/supabase'
 
 /**
  * 管理后台登录态（模块级单例）
