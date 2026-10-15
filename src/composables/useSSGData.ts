@@ -1,15 +1,21 @@
 import { inject, onMounted, onServerPrefetch, ref, shallowRef } from 'vue'
 import type { Ref } from 'vue'
+import { isImageSourceStale } from '@/lib/imageSource'
 
 /**
  * SSG 数据预取：服务端（构建预渲染）时执行 fetcher 并写入 initialState
  * （vite-ssg 会序列化进 HTML），客户端水合时直接复用、零二次请求；
  * SPA 客户端导航（无预取状态）时在 onMounted 拉取。
  * shallowRef：数据为一次性整体替换，无需深层响应。
+ *
+ * 例外：站长在后台切换图片源后、下次重新部署前，HTML 内嵌数据里的图链仍是旧源，
+ * 此时 isImageSourceStale() 为 true，客户端必须丢弃内嵌数据强制重拉
+ * （supabase 响应拦截器会按最新模式替换图链），使开关实时生效、无需重新部署。
  */
 export function useSSGData<T>(key: string, fetcher: () => Promise<T>): { data: Ref<T | null>; loading: Ref<boolean> } {
   const state = inject<Record<string, unknown>>('initialState', {})
-  const data = shallowRef<T | null>((state[key] as T) ?? null) as Ref<T | null>
+  const ignoreEmbedded = !import.meta.env.SSR && isImageSourceStale()
+  const data = shallowRef<T | null>(ignoreEmbedded ? null : ((state[key] as T) ?? null)) as Ref<T | null>
   const loading = ref(data.value === null)
 
   async function load() {

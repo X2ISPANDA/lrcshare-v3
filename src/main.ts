@@ -15,7 +15,8 @@ export const createApp = ViteSSG(App, { routes }, async ({ app, router, initialS
   app.provide('initialState', initialState)
 
   // 图片灾备开关引导（必须在任何页面数据查询前完成）：
-  // 构建时读库决定预渲染 HTML 的图片源；客户端水合后校对，站长切换后自动重载一次。
+  // 构建时读库决定预渲染 HTML 的图片源；客户端水合时校对库内最新值，
+  // 站长切换过开关则标记 stale，useSSGData 强制重拉——开关实时生效、无需重新部署。
   // vite-ssg 会 await 本回调（await fn(context)），故此处可安全 await。
   await bootstrapImageSource(initialState as Record<string, unknown> | undefined)
 
