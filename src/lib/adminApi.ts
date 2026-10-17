@@ -44,11 +44,12 @@ function isAliyunOssUrl(v: string): boolean {
 /**
  * 调图片转存函数（阿里云 FC · 国内节点，避免 Netlify 美国节点抓 B站失败）。
  * 管理员 JWT 鉴权，与 callMailServer 同一套会话头。
- * 未配置 VITE_IMAGE_BACKUP_URL 时静默跳过、返回 null（本地开发）。
+ * 未配置 VITE_IMAGE_BACKUP_URL 时抛错，由调用方记录为灾备失败并提示管理员，
+ * 避免静默跳过导致管理员误以为备份成功。
  */
-async function backupImageUrl(url: string): Promise<string | null> {
+async function backupImageUrl(url: string): Promise<string> {
   const fcUrl = import.meta.env.VITE_IMAGE_BACKUP_URL as string | undefined
-  if (!fcUrl) return null
+  if (!fcUrl) throw new Error('未配置 VITE_IMAGE_BACKUP_URL，图片灾备已跳过')
   const { data: { session } } = await supabase.auth.getSession()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
