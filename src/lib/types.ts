@@ -150,6 +150,19 @@ export interface Contributor {
   song_count?: number
 }
 
+/** API Key（开放 API 注册制） */
+export interface ApiKey {
+  id: string
+  name: string
+  key_hash: string
+  /** Key 前 8 位，后台列表识别用 */
+  key_prefix: string
+  status: 'active' | 'banned'
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
 /** 投稿（song_data 的多艺术家结构） */
 export interface SongSubmissionData {
   type: string

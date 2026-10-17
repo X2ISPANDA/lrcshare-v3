@@ -12,6 +12,10 @@ GET /v1/catalog
 
 文本已统一转为小写、去重、按行拼接（`\n` 分隔）。
 
+::: warning 此端点无需 `X-LrcShare-Session`
+`/v1/catalog` 是唯一不需要会话凭证的端点，但仍需携带 `X-API-Key`。响应中会返回 `session_token`，用于访问其他端点。
+:::
+
 ## 为什么需要它：负向预过滤
 
 搜索接口的所有匹配都是**子串匹配**（`keyword` 整串、`title`/`artist` 分字段，均含别名）。因此有一条严格的数学保证：
@@ -30,7 +34,8 @@ LrcShare 是小众曲库，批量工具面对的歌单里绝大多数歌根本�
     "songs": 1234,
     "artists": 567,
     "albums": 89,
-    "text": "right now\nright now (otaku mobb remix)\n龍胆紫\n龙胆紫purplesoul\n..."
+    "text": "right now\nright now (otaku mobb remix)\n龍胆紫\n龙胆紫purplesoul\n...",
+    "session_token": "eyJjbGllbnRfaWQiOiIuLi4iLCJpYXQiOjE3OTIyNDUyNzQ3MDJ9.xxxxx"
   }
 }
 ```
@@ -40,14 +45,20 @@ LrcShare 是小众曲库，批量工具面对的歌单里绝大多数歌根本�
 | `generated_at` | 快照生成时间（ISO 8601），可用于对比新旧 |
 | `songs` / `artists` / `albums` | 对应实体数量（计数用途） |
 | `text` | 全库可搜索文本，小写、去重、`\n` 分隔。**预过滤只需要这一个字段** |
+| `session_token` | 会话凭证，有效期 24h。访问其他端点时需在 `X-LrcShare-Session` 头中携带 |
 
-- 边缘缓存 1 小时；建议调用方本地再缓存 24 小时（新歌入库后最多一天可搜到）
+- 此端点**不走边缘缓存**（响应含 per-client session_token），数据本体由服务端 KV 缓存兜底
+- 建议调用方本地缓存 `text` 24 小时（新歌入库后最多一天可搜到）；`session_token` 同样缓存 24h
 
 ## 推荐用法：批量匹配模式
 
 ```js
-// ① 每日拉一次目录（本地缓存 24h）
-const { data: catalog } = await fetch('https://api.lrcshare.com/v1/catalog').then(r => r.json())
+// ① 每日拉一次目录（本地缓存 24h），同时拿到 session_token
+const API_KEY = 'ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+const { data: catalog } = await fetch('https://api.lrcshare.com/v1/catalog', {
+  headers: { 'X-API-Key': API_KEY }
+}).then(r => r.json())
+const sessionToken = catalog.session_token
 
 // ② 本地负向过滤：token 不在目录文本中 → 库里必然没有，跳过
 const batch = [
@@ -60,9 +71,10 @@ for (const song of batch) {
     catalog.text.includes(song.artist.toLowerCase())
   if (!inLibrary) continue
 
-  // ③ 候选才调结构化搜索，选中后取详情
+  // ③ 候选才调结构化搜索，带 X-API-Key + X-LrcShare-Session
   const res = await fetch(
-    `https://api.lrcshare.com/v1/search?type=song&title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`
+    `https://api.lrcshare.com/v1/search?type=song&title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`,
+    { headers: { 'X-API-Key': API_KEY, 'X-LrcShare-Session': sessionToken } }
   ).then(r => r.json())
   // ...选中后 GET /v1/song/:id
 }
@@ -71,14 +83,19 @@ for (const song of batch) {
 ```python
 import requests
 
-catalog = requests.get('https://api.lrcshare.com/v1/catalog').json()['data']
+API_KEY = 'ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+headers = {'X-API-Key': API_KEY}
+
+catalog = requests.get('https://api.lrcshare.com/v1/catalog', headers=headers).json()['data']
 text = catalog['text']
+session_token = catalog['session_token']
+api_headers = {**headers, 'X-LrcShare-Session': session_token}
 
 for song in my_library:  # 十万首
     if song['title'].lower() not in text:
         continue  # 目录里没有 → 必然搜不到 → 跳过，不发请求
     # 候选才搜索
-    r = requests.get('https://api.lrcshare.com/v1/search', params={
+    r = requests.get('https://api.lrcshare.com/v1/search', headers=api_headers, params={
         'type': 'song', 'title': song['title'], 'artist': song['artist'],
     }).json()
 ```
@@ -90,5 +107,5 @@ for song in my_library:  # 十万首
 ## 示例
 
 ```bash
-curl "https://api.lrcshare.com/v1/catalog"
+curl -H "X-API-Key: ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" "https://api.lrcshare.com/v1/catalog"
 ```

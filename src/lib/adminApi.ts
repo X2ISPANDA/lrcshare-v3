@@ -376,4 +376,38 @@ export const adminApi = {
     if (!res.ok) throw new Error(data.error || 'Mail server error')
     return data
   },
+
+  /**
+   * 生成 API Key：返回 { key, hash, prefix }。
+   * 明文 key 只在生成时返回一次（前端显示 + 复制），库内只存 SHA-256 hash。
+   * 格式：ls_ + 32 位十六进制随机字符。
+   */
+  async generateApiKey(): Promise<{ key: string; hash: string; prefix: string }> {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+    const key = `ls_${hex}`
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key))
+    const hash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+    return { key, hash, prefix: key.slice(0, 8) }
+  },
+
+  /**
+   * 通知 Worker 清除 API Key KV 缓存（封禁/启用 Key 后调用，使变更即时生效）。
+   * 调 POST /internal/refresh-keys，带管理员 JWT 鉴权。
+   */
+  async refreshApiKeyCache(): Promise<void> {
+    const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.lrcshare.com'
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const res = await fetch(`${base}/internal/refresh-keys`, {
+      method: 'POST',
+      headers,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.message || '刷新缓存失败')
+    }
+  },
 }

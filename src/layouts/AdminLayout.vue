@@ -85,6 +85,7 @@ const menus = [
   { path: '/admin/contributors', icon: '🏆', label: '贡献者管理' },
   { path: '/admin/friends', icon: '🔗', label: '友链管理' },
   { path: '/admin/mail-logs', icon: '📨', label: '发信日志' },
+  { path: '/admin/api-keys', icon: '🔑', label: 'API Key 管理' },
   { path: '/admin/settings', icon: '⚙️', label: '系统设置' },
 ]
 

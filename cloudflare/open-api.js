@@ -2,11 +2,19 @@
  * LrcShare 开放 API 网关（Cloudflare Worker）
  * 部署：本目录（cloudflare/）下 `npx wrangler deploy`（wrangler.toml main=open-api.js，
  *       esbuild 会把 import 的 ./shared/lang.mjs 一并打包；Dashboard 粘贴单文件的旧方式不再支持）
- * 环境变量（Worker Settings → Variables 或 wrangler.toml）：
+ * 环境变量（Worker Settings → Variables 或 wrangler secret put）：
  *   SUPABASE_URL       形如 https://spb-xxx.supabase.opentrust.net（不带尾斜杠、不带反引号）
  *   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）
+ *   SESSION_SECRET     HMAC 签名密钥，用于签发/校验 session_token（随机长字符串）
+ * KV 绑定（wrangler.toml kv_namespaces）：
+ *   API_KV             存 active key hash 列表 + catalog 数据本体
  *
  * 设计要点：
+ * - 鉴权（2026-10 升级）：所有 /v1/* 端点强制要求 X-API-Key 头（注册制，后台手动签发）；
+ *   除 /v1 和 /v1/catalog 外，还要求 X-LrcShare-Session 头（从 /v1/catalog 响应获取，24h 有效）。
+ *   API Key 校验走 KV 缓存（兜底 5min），封禁后调 POST /internal/refresh-keys 主动清缓存即时生效。
+ * - catalog-first：调用方必须先调 GET /v1/catalog 获取 session_token，才能访问其他端点。
+ *   catalog 数据本体缓存到 KV（1h），响应附带 per-client token，不走边缘缓存（no-store）。
  * - 两段式流程：搜索/列表只返回轻量歌曲摘要（id/歌名/歌手/专辑名+年份/风格/封面），
  *   调用方确认目标后再经 /v1/song/:id 获取含歌词、词曲编、comment 在内的全部数据
  * - 回源只用 anon key：数据库层 RLS + 列级收权是第二道防线
@@ -41,6 +49,122 @@ function safeDecode(s) {
   try { return decodeURIComponent(s) } catch { return null }
 }
 
+// ============ 鉴权工具 ============
+
+/** SHA-256 十六进制（用于 API Key 哈希校验，与后台入库时的哈希算法一致） */
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** HMAC-SHA256 十六进制（用于 session_token 签名） */
+async function hmacSha256Hex(secret, data) {
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * 签发 session_token：base64url(payload) + "." + hmac_signature
+ * payload = { client_id, iat }（iat 为毫秒时间戳）
+ * token 无状态，不存库，24h 后自然失效。
+ */
+async function signSession(clientId, secret) {
+  const payload = JSON.stringify({ client_id: clientId, iat: Date.now() })
+  const payloadB64 = btoa(payload).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const sig = await hmacSha256Hex(secret, payloadB64)
+  return `${payloadB64}.${sig}`
+}
+
+/**
+ * 校验 session_token：签名 + 过期 + client_id 匹配。
+ * 返回 true=通过，false=无效/过期。
+ */
+async function verifySession(token, secret, expectedClientId) {
+  if (!token || typeof token !== 'string') return false
+  const parts = token.split('.')
+  if (parts.length !== 2) return false
+  const [payloadB64, sig] = parts
+  const expectedSig = await hmacSha256Hex(secret, payloadB64)
+  if (sig !== expectedSig) return false
+  try {
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')))
+    if (!payload || typeof payload.iat !== 'number' || typeof payload.client_id !== 'string') return false
+    if (payload.client_id !== expectedClientId) return false
+    if (Date.now() - payload.iat > SESSION_TTL_MS) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 获取 active API Key 的 hash 列表（Set<string>）。
+ * 优先读 KV 缓存；KV 无值则调 Supabase RPC（get_active_api_key_hashes，SECURITY DEFINER）
+ * 并写回 KV。
+ */
+async function getActiveApiKeyHashes(env) {
+  const kv = env.API_KV
+  if (kv) {
+    const cached = await kv.get(API_KEYS_KV_KEY, { type: 'json' })
+    if (cached && Array.isArray(cached.hashes)) {
+      return new Set(cached.hashes)
+    }
+  }
+  // KV 未命中 → 回源 Supabase RPC（SECURITY DEFINER，anon 可调用）
+  const res = await pgRpc(env, 'get_active_api_key_hashes', {})
+  const hashes = (res && res.data) || []
+  const set = new Set(hashes)
+  if (kv) {
+    // 写回 KV（TTL 兜底 5min）；不阻塞当前请求
+    ctxWaitUntilSafe(env, kv.put(API_KEYS_KV_KEY, JSON.stringify({ hashes }), { expirationTtl: API_KEYS_CACHE_TTL }))
+  }
+  return set
+}
+
+/** ctx.waitUntil 的安全包装：某些环境（如本地 dev）ctx 可能不可用 */
+function ctxWaitUntilSafe(env, promise) {
+  if (env.__ctx && typeof env.__ctx.waitUntil === 'function') {
+    env.__ctx.waitUntil(promise)
+  }
+  // 没有 ctx 时 promise 自然执行（不 await 也不阻塞）
+}
+
+/**
+ * 内部接口：POST /internal/refresh-keys
+ * 后台封禁/启用 API Key 后调用，主动删除 KV 中的 active key 缓存，
+ * 使封禁立即生效（否则要等 5min TTL 兜底）。
+ * 鉴权：Authorization Bearer <Supabase admin JWT>，调 Supabase /auth/v1/user 验证。
+ */
+async function handleRefreshKeys(env, request) {
+  const auth = request.headers.get('Authorization')
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return jsonError(401, 'missing authorization')
+  }
+  const token = auth.slice(7)
+  // 调 Supabase Auth 验证 JWT
+  const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  if (!authRes.ok) {
+    return jsonError(401, 'invalid or expired session')
+  }
+  // JWT 有效（Supabase 返回了用户信息），执行清缓存
+  const kv = env.API_KV
+  if (kv) {
+    await kv.delete(API_KEYS_KV_KEY)
+  }
+  return new Response(
+    JSON.stringify({ code: 200, data: { refreshed: true } }),
+    { status: 200, headers: corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }) },
+  )
+}
+
 /** 上游请求超时（毫秒）：Supabase/文档站 hang 住时及时失败，不挂到平台 wall-clock 上限白占并发 */
 const FETCH_TIMEOUT_MS = 8000
 
@@ -72,6 +196,17 @@ const MAX_LIMIT = 100
 const TTL_DETAIL = 3600 // 详情缓存 1h
 const TTL_LIST = 600 // 列表/搜索缓存 10min
 
+// ============ 鉴权与 catalog-first（2026-10 升级）============
+// 环境变量（wrangler secret 设置）：
+//   SESSION_SECRET   HMAC 签名密钥，用于签发/校验 session_token
+// KV 绑定（wrangler.toml 的 kv_namespaces）：
+//   API_KV           存 active key hash 列表 + catalog 数据本体
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // session_token 有效期 24h
+const API_KEYS_KV_KEY = 'active_api_keys' // KV 中 active key hash 列表的 key
+const API_KEYS_CACHE_TTL = 300 // active key 列表 KV 缓存 TTL（5min，兜底用，正常靠主动删即时生效）
+const CATALOG_KV_KEY = 'catalog_snapshot' // KV 中 catalog 数据本体的 key
+const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
+
 /** 中间表嵌入行 → 各角色 id 列表 */
 const singerIdsOf = row => ((row && row.song_contributors) || []).filter(r => r.role === 'singer').map(r => r.artist_id)
 const albumArtistIdsOf = a => ((a && a.album_contributors) || []).map(r => r.artist_id)
@@ -81,7 +216,7 @@ const albumArtistIdsOf = a => ((a && a.album_contributors) || []).map(r => r.art
 function corsHeaders(extra = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': '*',
     ...extra,
   }
@@ -495,38 +630,69 @@ async function handleAlbumSearchStructured(env, title, artist, limit, offset) {
  *  search_songs v3 一致，覆盖演唱/词/曲/编四路关联）的 name/aliases + 专辑名。
  *  覆盖范围必须 ⊇ /v1/search 的全部匹配范围，才能保证调用方的负向过滤不漏判：
  *  「查询串（整串或任意 title/artist 切分）不在快照文本中 ⇒ 搜索必然 0 结果 ⇒ 可安全跳过请求」 */
-async function handleCatalog(env) {
-  const [songs, artists, albums] = await Promise.all([
-    pgListAll(env, 'songs', { select: 'title,aliases', status: 'eq.published', order: 'id.asc' }),
-    pgListAll(env, 'artists', { select: 'name,aliases', or: '(is_show.neq.false,is_show.is.null)', order: 'id.asc' }),
-    pgListAll(env, 'albums', { select: 'name', order: 'id.asc' }),
-  ])
-  if (!songs || !artists || !albums) return jsonError(502, 'upstream error')
+/**
+ * 目录快照：全库可搜索文本，供调用方本地负向预过滤。
+ * 2026-10 升级：
+ *   - 数据本体缓存到 KV（1h），避免每次打 Supabase；
+ *   - 响应附带 per-client session_token（HMAC 签名，绑定 key_hash）；
+ *   - 不走边缘缓存（Cache-Control: no-store），否则 token 会串给所有客户端。
+ */
+async function handleCatalog(env, clientKeyHash) {
+  // 1. 从 KV 读 catalog 数据本体；KV 无值则回源 Supabase 并写回 KV
+  const kv = env.API_KV
+  let snapshot = null
+  if (kv) {
+    snapshot = await kv.get(CATALOG_KV_KEY, { type: 'json' })
+  }
+  if (!snapshot) {
+    const [songs, artists, albums] = await Promise.all([
+      pgListAll(env, 'songs', { select: 'title,aliases', status: 'eq.published', order: 'id.asc' }),
+      pgListAll(env, 'artists', { select: 'name,aliases', or: '(is_show.neq.false,is_show.is.null)', order: 'id.asc' }),
+      pgListAll(env, 'albums', { select: 'name', order: 'id.asc' }),
+    ])
+    if (!songs || !artists || !albums) return jsonError(502, 'upstream error')
 
-  const tokens = new Set()
-  const add = v => {
-    const s = String(v || '').trim().toLowerCase()
-    if (s) tokens.add(s)
-  }
-  for (const s of songs) {
-    add(s.title)
-    for (const a of s.aliases || []) add(a)
-  }
-  for (const a of artists) {
-    add(a.name)
-    for (const al of a.aliases || []) add(al)
-  }
-  for (const a of albums) add(a.name)
+    const tokens = new Set()
+    const add = v => {
+      const s = String(v || '').trim().toLowerCase()
+      if (s) tokens.add(s)
+    }
+    for (const s of songs) {
+      add(s.title)
+      for (const a of s.aliases || []) add(a)
+    }
+    for (const a of artists) {
+      add(a.name)
+      for (const al of a.aliases || []) add(al)
+    }
+    for (const a of albums) add(a.name)
 
-  return jsonOk(
-    {
+    snapshot = {
       generated_at: new Date().toISOString(),
       songs: songs.length,
       artists: artists.length,
       albums: albums.length,
       text: [...tokens].join('\n'),
+    }
+    if (kv) {
+      // 写回 KV（TTL 1h），不阻塞当前请求
+      ctxWaitUntilSafe(env, kv.put(CATALOG_KV_KEY, JSON.stringify(snapshot), { expirationTtl: CATALOG_KV_TTL }))
+    }
+  }
+
+  // 2. 签发 per-client session_token（绑定 key_hash，24h 有效）
+  const sessionToken = await signSession(clientKeyHash, env.SESSION_SECRET)
+
+  // 3. 返回（no-store：禁止边缘缓存，否则 token 会串）
+  return new Response(
+    JSON.stringify({ code: 200, data: { ...snapshot, session_token: sessionToken } }),
+    {
+      status: 200,
+      headers: corsHeaders({
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      }),
     },
-    TTL_DETAIL,
   )
 }
 
@@ -1698,6 +1864,8 @@ async function handleArtistSongs(env, id, url) {
 
 export default {
   async fetch(request, env, ctx) {
+    // 把 ctx 挂到 env 上，供 ctxWaitUntilSafe 在异步函数中使用
+    env.__ctx = ctx
     const url = new URL(request.url)
     const reqHost = url.hostname
 
@@ -1711,6 +1879,13 @@ export default {
       return html404(reqHost)
     }
 
+    const path = url.pathname.replace(/\/+$/, '') // 去尾斜杠
+
+    // ===== 内部管理接口（POST /internal/refresh-keys）：封禁 Key 后主动清 KV 缓存 =====
+    if (path === '/internal/refresh-keys' && request.method === 'POST') {
+      return handleRefreshKeys(env, request)
+    }
+
     // CORS 预检
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() })
@@ -1719,20 +1894,45 @@ export default {
       return jsonError(405, 'method not allowed, GET only')
     }
 
-    const path = url.pathname.replace(/\/+$/, '') // 去尾斜杠
     if (path !== '/v1' && !path.startsWith('/v1/')) {
       return jsonError(404, 'not found, see /v1/ for available endpoints')
     }
 
-    // 缓存命中直接返回（仅 GET，天然满足）
+    // ===== 鉴权 1：API Key 校验（所有 /v1/* 端点都需要） =====
+    if (!env.SESSION_SECRET) {
+      return jsonError(500, 'worker not configured: missing SESSION_SECRET')
+    }
+    const apiKey = request.headers.get('X-API-Key')
+    if (!apiKey) {
+      return jsonError(401, 'missing X-API-Key header')
+    }
+    const keyHash = await sha256Hex(apiKey)
+    const activeHashes = await getActiveApiKeyHashes(env)
+    if (!activeHashes.has(keyHash)) {
+      return jsonError(403, 'invalid or banned api key')
+    }
+
+    // ===== 鉴权 2：catalog-first session 校验（/v1 和 /v1/catalog 不需要 session） =====
+    if (path !== '/v1' && path !== '/v1/catalog') {
+      const sessionToken = request.headers.get('X-LrcShare-Session')
+      const ok = await verifySession(sessionToken, env.SESSION_SECRET, keyHash)
+      if (!ok) {
+        return jsonError(419, 'session expired, call GET /v1/catalog first')
+      }
+    }
+
+    // catalog 不走边缘缓存（响应含 per-client session_token，缓存会串）
+    const isCatalog = path === '/v1/catalog'
     const cache = caches.default
     const cacheKey = new Request(url.toString(), { method: 'GET' })
-    const cached = await cache.match(cacheKey)
-    if (cached) {
-      const headers = corsHeaders({ 'Content-Type': cached.headers.get('Content-Type') || 'application/json' })
-      const cc = cached.headers.get('Cache-Control')
-      if (cc) headers['Cache-Control'] = cc
-      return new Response(cached.body, { status: cached.status, headers })
+    if (!isCatalog) {
+      const cached = await cache.match(cacheKey)
+      if (cached) {
+        const headers = corsHeaders({ 'Content-Type': cached.headers.get('Content-Type') || 'application/json' })
+        const cc = cached.headers.get('Cache-Control')
+        if (cc) headers['Cache-Control'] = cc
+        return new Response(cached.body, { status: cached.status, headers })
+      }
     }
 
     // 路由
@@ -1746,7 +1946,7 @@ export default {
       } else if (path === '/v1/search') {
         res = await handleSearch(env, url)
       } else if (path === '/v1/catalog') {
-        res = await handleCatalog(env)
+        res = await handleCatalog(env, keyHash)
       } else if (path === '/v1/songs') {
         res = await handleSongs(env, url)
       } else if (path === '/v1/albums') {
@@ -1786,8 +1986,8 @@ export default {
       res = jsonError(500, 'internal error')
     }
 
-    // 写入缓存（只缓存成功的 GET 响应）
-    if (res.status === 200 && res.headers.get('Cache-Control')) {
+    // 写入缓存（只缓存成功的 GET 响应；catalog 不缓存）
+    if (!isCatalog && res.status === 200 && res.headers.get('Cache-Control')) {
       ctx.waitUntil(cache.put(cacheKey, res.clone()))
     }
     return res

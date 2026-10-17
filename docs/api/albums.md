@@ -2,6 +2,10 @@
 
 ## 专辑列表
 
+::: tip 鉴权
+需携带 `X-API-Key` 和 `X-LrcShare-Session`（先调 `/v1/catalog` 获取）。详见[使用要求](/guide/requirements)。
+:::
+
 按专辑名排序的全量专辑列表。
 
 ```
@@ -76,6 +80,6 @@ GET /v1/album/:id
 ## 示例
 
 ```bash
-curl "https://api.lrcshare.com/v1/albums?limit=30"
-curl "https://api.lrcshare.com/v1/album/alb_xxx"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/albums?limit=30"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/album/alb_xxx"
 ```

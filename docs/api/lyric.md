@@ -2,6 +2,10 @@
 
 ## GET /v1/lyric/:id {#get-lyric}
 
+::: tip 鉴权
+需携带 `X-API-Key` 和 `X-LrcShare-Session`（先调 `/v1/catalog` 获取）。详见[使用要求](/guide/requirements)。
+:::
+
 返回歌曲的纯歌词，不带任何歌曲标签字段（无 `title`/`artists`/`album`）。适合已经拿到歌曲信息、只要歌词文本的调用方。
 
 歌词以版本为单位：每个 `(lang, kind)` 组合一个版本——`kind` 为 `original`（原文）/ `translation`（译文）/ `romanization`（罗马音）。
@@ -19,13 +23,13 @@
 
 ```bash
 # 所有版本
-curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/lyric/s_masiwei_002"
 
 # 指定格式 TTML
-curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_format=ttml"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_format=ttml"
 
 # 结构化行
-curl "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/lyric/s_masiwei_002?lyric_lines=1"
 ```
 
 ### 响应（不带参数）

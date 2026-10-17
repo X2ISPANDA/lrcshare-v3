@@ -2,6 +2,10 @@
 
 ## GET /v1/songs {#song-list}
 
+::: tip 鉴权
+需携带 `X-API-Key` 和 `X-LrcShare-Session`（先调 `/v1/catalog` 获取）。详见[使用要求](/guide/requirements)。
+:::
+
 最新收录的歌曲（按收录时间倒序），用于增量同步全站曲目。
 
 ### 参数
@@ -14,7 +18,7 @@
 ### 请求
 
 ```bash
-curl "https://api.lrcshare.com/v1/songs?limit=10&offset=20"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/songs?limit=10&offset=20"
 ```
 
 ### 响应
@@ -54,7 +58,7 @@ curl "https://api.lrcshare.com/v1/songs?limit=10&offset=20"
 ### 请求
 
 ```bash
-curl "https://api.lrcshare.com/v1/song/s_masiwei_002"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/song/s_masiwei_002"
 ```
 
 ### 响应

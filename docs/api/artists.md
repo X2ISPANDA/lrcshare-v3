@@ -2,6 +2,10 @@
 
 ## 艺术家列表
 
+::: tip 鉴权
+需携带 `X-API-Key` 和 `X-LrcShare-Session`（先调 `/v1/catalog` 获取）。详见[使用要求](/guide/requirements)。
+:::
+
 按名称排序的展示艺术家列表（仅 `is_show=true`，唱片公司等非创作者实体不返回）。
 
 ```
@@ -104,6 +108,6 @@ GET /v1/artist/:id/songs
 ## 示例
 
 ```bash
-curl "https://api.lrcshare.com/v1/artists?limit=50"
-curl "https://api.lrcshare.com/v1/artist/art_gai/songs?limit=100"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/artists?limit=50"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/artist/art_gai/songs?limit=100"
 ```

@@ -1,16 +1,32 @@
 # 使用要求
 
-LrcShare API 免费开放、无需注册，但服务能力有限（Cloudflare Workers 免费额度 10 万请求/天）。请实现你的客户端时保持克制，让免费服务能长久供所有人使用。
+LrcShare API 免费开放，但需要申请 **API Key** 才能使用。服务能力有限（Cloudflare Workers 免费额度 10 万请求/天），请保持克制，让免费服务能长久供所有人使用。
 
-## 客户端标识（User-Agent）
+## API Key（X-API-Key）
 
-建议在请求中设置 `User-Agent` 头，标识你的应用名称、版本和主页或邮箱，方便我们排查问题：
+所有请求必须携带 `X-API-Key` 头：
 
 ```
-YourApp v1.0 (https://example.com)
+X-API-Key: ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-浏览器环境无法自定义 `User-Agent`（JavaScript 限制该头），可用 `X-User-Agent` 头替代。
+申请方式：联系站长获取 API Key。Key 格式为 `ls_` 前缀 + 32 位字符。
+
+- 缺失 Key → HTTP **401**
+- Key 无效或已被封禁 → HTTP **403**
+- 滥用 API Key 会被封禁，封禁后立即失效
+
+## Catalog-First（必须先拉目录）
+
+除 `/v1/catalog` 本身外，访问其他端点前必须先调用 `GET /v1/catalog`，从响应中获取 `session_token`，并在后续请求中携带 `X-LrcShare-Session` 头：
+
+```
+X-LrcShare-Session: <catalog 返回的 session_token>
+```
+
+`session_token` 有效期 24 小时，过期后需重新拉 catalog。未携带或已过期 → HTTP **419**。
+
+官方 Lyrico 插件已内置此逻辑（自动获取并缓存 session_token）。
 
 ## 速率限制
 
@@ -46,3 +62,17 @@ YourApp v1.0 (https://example.com)
 ## 空结果是正常业务结果
 
 LrcShare 是小众人工整理曲库，命中是概率事件。`items: []` 不是错误，请做好兜底逻辑，不要重试轰炸。
+
+## 错误码
+
+| 状态码 | 含义 | 触发场景 |
+| --- | --- | --- |
+| 400 | 请求参数错误 | 缺参数、参数互斥、非法编码等 |
+| 401 | 缺少 API Key | 未带 `X-API-Key` 头 |
+| 403 | API Key 无效或已封禁 | Key 不存在 / 已被封禁 |
+| 419 | Session 过期 | `X-LrcShare-Session` 缺失/无效/过期，需重新调 `/v1/catalog` |
+| 404 | 资源不存在 | 歌曲/专辑/艺术家不存在，或路径未知 |
+| 405 | 方法不允许 | 非 GET 请求 |
+| 429 | 请求过于频繁 | 单个 IP 超过 100 次 / 10 秒，约 10 秒后自动解封 |
+| 500 | 内部错误 | Worker 异常 |
+| 502 | 上游错误 | Supabase 查询失败 |

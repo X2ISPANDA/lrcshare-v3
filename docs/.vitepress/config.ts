@@ -72,6 +72,7 @@ export default defineConfig({
         text: '参考',
         items: [
           { text: '数据对象', link: '/api/objects' },
+          { text: '错误码', link: '/api/errors' },
           { text: 'FAQ', link: '/faq' },
           { text: '更新日志', link: '/changelog' },
         ],

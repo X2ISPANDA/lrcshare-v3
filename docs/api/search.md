@@ -6,6 +6,10 @@ GET /v1/search
 
 四维度搜索，一次搜一个维度（与主站搜索框的四个 tab 一致）。
 
+::: tip 鉴权
+需携带 `X-API-Key` 和 `X-LrcShare-Session`（先调 `/v1/catalog` 获取）。详见[使用要求](/guide/requirements)。
+:::
+
 ## 参数
 
 | 参数 | 必填 | 类型 | 说明 |
@@ -99,10 +103,10 @@ GET /v1/search
 
 ```bash
 # 查 BuzzY.D 与 NKidd 的合作曲
-curl "https://api.lrcshare.com/v1/search?type=song&artist=BuzzY.D&artist=NKidd"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?type=song&artist=BuzzY.D&artist=NKidd"
 
 # 名字含斜杠的艺人也按整名处理，不会被拆
-curl "https://api.lrcshare.com/v1/search?type=song&artist=AC/DC&artist=Bob"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?type=song&artist=AC/DC&artist=Bob"
 ```
 
 **斜杠字符串模式（兜底）**：单值 `artist=A/B/C`，服务端按 `/` 拆分后 AND 匹配。适用于调用方只有一个拼接串的场景（如 tag 的 `TPE1=A/B/C`）。规则与限制：
@@ -149,20 +153,20 @@ curl "https://api.lrcshare.com/v1/search?type=song&artist=AC/DC&artist=Bob"
 
 ```bash
 # 搜单曲
-curl "https://api.lrcshare.com/v1/search?keyword=紫&type=song"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?keyword=紫&type=song"
 
 # 搜专辑
-curl "https://api.lrcshare.com/v1/search?keyword=逍遥客&type=album"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?keyword=逍遥客&type=album"
 
 # 用歌词内容反查歌曲
-curl "https://api.lrcshare.com/v1/search?keyword=我说的&type=lyric&limit=5"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?keyword=我说的&type=lyric&limit=5"
 
 # 结构化查询：歌名 + 演唱者（打标场景，来自文件 tag）
-curl "https://api.lrcshare.com/v1/search?type=song&title=Right%20now&artist=YoungQueenz"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?type=song&title=Right%20now&artist=YoungQueenz"
 
 # 结构化查询：只传艺术家，列出其全部已发布歌曲（含别名命中）
-curl "https://api.lrcshare.com/v1/search?type=song&artist=龙胆紫"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?type=song&artist=龙胆紫"
 
 # 结构化查询：同名专辑 + 专辑艺术家精确定位
-curl "https://api.lrcshare.com/v1/search?type=album&title=II&artist=西红"
+curl -H "X-API-Key: $LS_API_KEY" -H "X-LrcShare-Session: $LS_SESSION" "https://api.lrcshare.com/v1/search?type=album&title=II&artist=西红"
 ```

@@ -61,6 +61,7 @@ export default <RouteRecordRaw[]>[
       { path: 'contributors', name: 'admin-contributors', component: () => import('@/views/admin/ContributorsView.vue') },
       { path: 'friends', name: 'admin-friends', component: () => import('@/views/admin/FriendsView.vue') },
       { path: 'mail-logs', name: 'admin-mail-logs', component: () => import('@/views/admin/MailLogsView.vue') },
+      { path: 'api-keys', name: 'admin-api-keys', component: () => import('@/views/admin/ApiKeysView.vue') },
       { path: 'settings', name: 'admin-settings', component: () => import('@/views/admin/SettingsView.vue') },
     ],
   },
