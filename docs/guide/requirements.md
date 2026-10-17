@@ -2,6 +2,16 @@
 
 LrcShare API 免费开放，但需要申请 **API Key** 才能使用。服务能力有限（Cloudflare Workers 免费额度 10 万请求/天），请保持克制，让免费服务能长久供所有人使用。
 
+## 如何获取 API Key
+
+API Key 由站长手动签发，暂不支持自助申请。请通过以下方式联系站长：
+
+1. 访问 [LrcShare 主站关于页](https://lrcshare.com/about) 获取联系方式
+2. 说明你的使用场景（个人打标 / 播放器插件 / 批量工具等）与预计调用量
+3. 站长审核后发放 Key，格式为 `ls_` 前缀 + 32 位字符
+
+Key 发放后请妥善保管，若被滥用站长有权随时封禁。
+
 ## API Key（X-API-Key）
 
 所有请求必须携带 `X-API-Key` 头：
@@ -9,8 +19,6 @@ LrcShare API 免费开放，但需要申请 **API Key** 才能使用。服务能
 ```
 X-API-Key: ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
-
-申请方式：联系站长获取 API Key。Key 格式为 `ls_` 前缀 + 32 位字符。
 
 - 缺失 Key → HTTP **401**
 - Key 无效或已被封禁 → HTTP **403**
