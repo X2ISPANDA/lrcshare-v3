@@ -1,5 +1,13 @@
 # 更新日志
 
+## v1.5.0 - 2026-10-18
+
+- **API Key 鉴权**：所有请求必须携带 `X-API-Key` 头，缺失返回 401，无效/已封禁返回 403。Key 由后台签发（格式 `ls_` + 32 位字符），可随时封禁，封禁即时生效
+- **Catalog-First 会话机制**：除 `/v1/catalog` 外，访问其他端点前必须先调 `GET /v1/catalog` 获取 `session_token`（24h 有效），后续请求携带 `X-LrcShare-Session` 头，缺失/过期返回 419。session 绑定签发时的 API Key，Key 被封禁后 session 同步失效
+- **后台 API Key 管理**：管理后台新增「API Key 管理」页面，支持签发（明文仅显示一次）、启用/封禁、删除；封禁后调用 `/internal/refresh-keys` 即时刷新 Worker 缓存
+- **错误码列表**：新增 `docs/api/errors.md` 集中错误码对照表（含 429 限流），侧边栏「参考」分组新增入口
+- 官方 Lyrico 插件已适配：内置 API Key，自动获取并缓存 session_token
+
 ## v1.4.2 - 2026-09-03
 
 - **音译语言码跟随 BCP47 国际标准**：`kind: romanization` 版本的 `lang` 不再折叠为站内码，直接使用 TTML 源中的拉丁化标签原值——日语罗马音 `ja-Latn`、粤拼 `zh-Latn-jyutping`、韩语罗马音 `ko-Latn`（与 Apple Music TTML 标注一致）；修复日语罗马音被错误归类为英语（`ja-Latn → en`）的历史问题
