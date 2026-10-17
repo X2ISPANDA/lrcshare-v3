@@ -12,6 +12,7 @@ docs/.vitepress/cache
 debug.log
 lyrico-plugin/
 docs/主流程草稿.md
-# 嵌套的独立 Android 工程与云函数早期原型，仅本地参考，不属于本站
+# 嵌套的独立 Android 工程，仅本地参考，不属于本站
 /Lyrico/
-/cloud-fn/
+# 云函数源码入库，打包产物忽略
+cloud-fn/**/*.zip

@@ -42,16 +42,17 @@ function isAliyunOssUrl(v: string): boolean {
 }
 
 /**
- * 调图片转存函数（管理员 JWT 鉴权，与 callMailServer 同一套会话头）。
- * 未配置 VITE_MAIL_BASE（本地开发）时静默跳过、返回 null。
+ * 调图片转存函数（阿里云 FC · 国内节点，避免 Netlify 美国节点抓 B站失败）。
+ * 管理员 JWT 鉴权，与 callMailServer 同一套会话头。
+ * 未配置 VITE_IMAGE_BACKUP_URL 时静默跳过、返回 null（本地开发）。
  */
 async function backupImageUrl(url: string): Promise<string | null> {
-  const base = import.meta.env.VITE_MAIL_BASE as string | undefined
-  if (!base) return null
+  const fcUrl = import.meta.env.VITE_IMAGE_BACKUP_URL as string | undefined
+  if (!fcUrl) return null
   const { data: { session } } = await supabase.auth.getSession()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
-  const res = await fetch(base + '/api/image-backup', {
+  const res = await fetch(fcUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({ url }),

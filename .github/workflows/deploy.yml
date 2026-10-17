@@ -3,6 +3,7 @@
 #   1. 仓库 Settings → Pages → Build and deployment → Source 选「GitHub Actions」
 #   2. 仓库 Settings → Secrets and variables → Actions 添加三个 secret：
 #      VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / VITE_MAIL_BASE（Netlify 邮件站点地址）
+#      VITE_IMAGE_BACKUP_URL（阿里云 FC 图片灾备转存服务地址，留空则跳过自动转存）
 name: Deploy to GitHub Pages
 
 on:
@@ -54,6 +55,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_MAIL_BASE: ${{ secrets.VITE_MAIL_BASE }}
+          VITE_IMAGE_BACKUP_URL: ${{ secrets.VITE_IMAGE_BACKUP_URL }}
 
       # GitHub Pages 404 兜底：/404 路由已由 vite-ssg 预渲染为 dist/404.html（真实 404 页，无首页闪烁），
       # 未知路径返回它（状态码 404），SPA 水合后由 catch-all 路由接管；仅当构建异常缺失时回退首页副本

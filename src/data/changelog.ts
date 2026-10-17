@@ -21,6 +21,15 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-10-17",
+    "entries": [
+      {
+        "title": "图片灾备转存迁移至阿里云函数计算，修复后台保存图片时灾备一直失败的问题",
+        "body": "此前图片灾备转存函数部署在 Netlify（美国节点），由于 B 站图床（i0.hdslb.com）对境外 IP 做了地域限制与防盗链，导致后台保存任何图片时灾备转存全部失败。现将转存函数迁移至阿里云函数计算（上海节点，与 OSS 同区域），国内出口可正常抓取 B 站图片并同区域上传至 OSS，后台保存图片时灾备转存恢复正常。函数通过 Supabase 管理员 JWT 鉴权，匿名请求一律拒绝；RAM 子账号仅授予 backup 目录的读写权限"
+      }
+    ]
+  },
+  {
     "date": "2026-10-15",
     "entries": [
       {

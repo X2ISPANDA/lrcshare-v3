@@ -1,0 +1,9 @@
+{
+  "name": "lrcshare-image-backup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "LrcShare 图片灾备转存服务（阿里云函数计算 FC · Node.js 18+）",
+  "dependencies": {}
+}

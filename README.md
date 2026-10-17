@@ -55,7 +55,7 @@
 
 - **双备份架构**：站内全部图片（专辑封面、艺人头像与背景图、单曲封面、贡献者头像、友链头像、文章封面、歌曲分享封面共 7 张表 8 个备份列）在保留原外链（B站图床等）的同时，自动备份一份到阿里云 OSS；站点 Logo / favicon、首页大图、赞赏码、隐藏歌词占位图等代码常量图同样纳入
 - **内容哈希寻址**：对象 key 为图片内容 SHA-256（`backup/{哈希前2位}/{哈希}.{ext}`），同一张图物理上只存一份（647 处引用去重为 615 个对象）；公共读桶，RAM 子账号仅授 `backup/` 目录读写，密钥只存服务端
-- **自动转存**：后台新增 / 修改图片保存时由 Netlify 函数服务端抓图转存，URL 未变更且已有备份自动短路，转存失败不阻断保存并提示回填脚本（`scripts/backup-images.mjs`）补齐
+- **自动转存**：后台新增 / 修改图片保存时由阿里云 FC（国内节点）服务端抓图转存，URL 未变更且已有备份自动短路，转存失败不阻断保存并提示回填脚本（`scripts/backup-images.mjs`）补齐
 - **一键切换图片源**：后台系统设置在「原外链 / OSS 备份」间切换：默认原外链（OSS 零流量费用），图床故障时一键切 OSS，前台经 Supabase 自定义 fetch 递归替换全部图链，缺备份自动回退原地址；客户端引导时校对库内最新值，构建快照过期则丢弃内嵌数据强制重拉，**切换实时生效、无需重新部署**，任意一次重新构建后自动恢复零额外请求
 - **前后台隔离**：灾备开关只作用于前台；后台管理界面始终显示、编辑原始外链
 
@@ -103,7 +103,8 @@ npm run docs:dev       # API 文档站（可选）
 环境变量说明见 [.env.example](.env.example)：
 
 - `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`：Supabase 项目凭据（anon key 为公开密钥）
-- `VITE_MAIL_BASE`：Netlify 函数站基地址（邮件通知 + 音乐识别取链 + 图片灾备转存共用），留空则跳过邮件通知
+- `VITE_MAIL_BASE`：Netlify 函数站基地址（邮件通知 + 音乐识别取链），留空则跳过邮件通知
+- `VITE_IMAGE_BACKUP_URL`：阿里云 FC 图片灾备转存服务地址（国内节点，避免 Netlify 美国节点抓 B站失败），留空则跳过自动转存
 - OSS / SMTP / service_role 等服务端密钥仅配置在云端，不入库不下发
 
 ## 常用脚本
@@ -137,19 +138,22 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
    │     ├─ /api/mailer          投稿/审核邮件
    │     ├─ /api/resolve-music   三平台链接识别（标题/艺人/封面/专辑曲目）
    │     ├─ /api/music-stream    实时播放换链（公益 Meting 优先，官方接口回退）
-   │     ├─ /api/music-lyric     网易云逐句歌词实时获取（不入库）
-   │     └─ /api/image-backup    外链图片转存阿里云 OSS（仅管理员）
+   │     └─ /api/music-lyric     网易云逐句歌词实时获取（不入库）
+   │
+   ├─► 阿里云函数计算 FC（VITE_IMAGE_BACKUP_URL，上海·与 OSS 同地域）：
+   │     └─ image-backup         外链图片转存阿里云 OSS（仅管理员，Netlify 美国节点抓 B站失败故迁国内）
    │
    └─► 阿里云 OSS（lrcshare 桶，backup/ 前缀）——图片灾备源，SHA-256 内容寻址公共读
 ```
 
 各部分部署要点：
 
-- **前台主站**：构建流程见 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)，需在 Actions Secrets 配置 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `VITE_MAIL_BASE`；数据库新增内容最迟 6 小时随定时重建上线
+- **前台主站**：构建流程见 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)，需在 Actions Secrets 配置 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `VITE_MAIL_BASE` / `VITE_IMAGE_BACKUP_URL`；数据库新增内容最迟 6 小时随定时重建上线
 - **开放 API**：源码 [cloudflare/open-api.js](cloudflare/open-api.js)，在 `cloudflare/` 目录执行 `wrangler deploy`（共享模块经 esbuild 打包），密钥用 `wrangler secret put` 配置
 - **TTML Hub 同步**：[cloudflare/ttml-sync/](cloudflare/ttml-sync/)，Cron 定时 + `X-Sync-Token` 请求头手动触发，外部地址强制同源校验防 SSRF
 - **API 文档站**：Cloudflare Pages，构建命令 `npm run docs:build`，输出 `docs/.vitepress/dist`
-- **Netlify 函数站**：独立站点仅部署函数（[netlify.toml](netlify.toml)），需配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` / `OSS_REGION` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` 及 SMTP 变量
+- **Netlify 函数站**：独立站点仅部署函数（[netlify.toml](netlify.toml)），需配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 及 SMTP 变量
+- **图片灾备转存（阿里云 FC）**：源码 [cloud-fn/image-backup/](cloud-fn/image-backup/)，Node.js 18+ HTTP 触发器，需配置 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `OSS_REGION` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`；FC 每月 100 万次调用免费
 - **数据库变更**：迁移脚本存于 `sql/`，一律单事务、幂等（`IF NOT EXISTS` / `CREATE OR REPLACE` / 先 DROP 再建）；RPC 显式声明列清单、显式 REVOKE anon 执行权
 
 ## 目录结构
@@ -157,12 +161,13 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
 ```
 ├── .github/workflows/   # deploy.yml：SSG 构建 → GitHub Pages（push + 6h cron + 手动）
 ├── cloudflare/          # open-api（开放 API）· ttml-sync（曲库同步）· shared/（三端共享语言规则）
+├── cloud-fn/            # 阿里云函数计算：image-backup（图片灾备转存）· netease-stream（网易云取链·SCF备用）
 ├── docs/                # API 文档站（VitePress → api.lrcshare.com/docs/）
 │   ├── api/             # 六组端点文档 + 数据对象字段表
 │   └── guide/           # 快速开始 / Lyrico 集成教程
 ├── netlify/
-│   ├── functions/       # mailer / resolve-music / music-stream / music-lyric / image-backup
-│   └── functions/_lib/  # oss.mjs（转存/SHA-256 寻址）· netease-public.mjs（公益 Meting）
+│   ├── functions/       # mailer / resolve-music / music-stream / music-lyric
+│   └── functions/_lib/  # oss.mjs（转存/SHA-256 寻址，FC 版见 cloud-fn/image-backup/）· netease-public.mjs（公益 Meting）
 ├── public/              # robots.txt 等静态文件
 ├── scripts/             # changelog 同步 · git 钩子安装 · OSS 回填 · TTML 同步触发
 ├── sql/                 # 数据库迁移脚本 + 架构演进文档（站内 /docs 数据源）

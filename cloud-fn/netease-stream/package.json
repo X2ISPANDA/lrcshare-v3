@@ -1,0 +1,8 @@
+{
+  "name": "lrcsearch-netease-stream",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "LrcShare 网易云播放直链国内取链函数（腾讯云 SCF，零依赖单文件）",
+  "main": "index.js"
+}
