@@ -1826,19 +1826,6 @@ export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {
     return [{ lang: 'und', kind: 'original', rows }]
   }
 
-  // primary_lang 众数
-  const counts: Record<string, number> = {}
-  for (const r of timed) {
-    const l = detectLang(r.text)
-    if (l === 'unknown') continue
-    counts[l] = (counts[l] || 0) + 1
-  }
-  let primary = 'und'
-  let best = -1
-  for (const [l, c] of Object.entries(counts)) {
-    if (c > best) { best = c; primary = l }
-  }
-
   // 同戳分组（保留文件行序）
   const byTs = new Map<number, LyricRow[]>()
   for (const r of timed) {
@@ -1872,22 +1859,51 @@ export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {
   }
   const isTranslationSong = totalGroups > 0 && multiGroups / totalGroups >= 0.5
 
-  // 翻译歌原文语言 = 多行组「第一行」语言的众数（第一行即原文；公共行/元数据随原文走，
-  // 显示与 API 由 fillCommonRows 给各译文补齐公共行，底层只存一份）。
-  // 全行众数不可用：译文行数 ≥ 原文时会把译文语言误判为原文（如三语歌 zh/ja 行数超过 en）
-  let origLang = primary
+  // 语言判定：先判翻译歌，再分别算原文/译文语言，避免全行众数被译文/音译行污染。
+  // - 非翻译歌：origLang = 所有时间戳行语言众数（无译文/音译，全行即原文）
+  // - 翻译歌：
+  //     origLang  = 多行组「第一行」语言众数（第一行即原文）
+  //     transLang = 多行组「译文行」语言众数（第 2 行起；hasRoman 时末行是音译，故到倒数第 2 行）
+  //   全行众数不可用：译文行数 ≥ 原文时会把译文语言误判为原文（如三语歌 zh/ja 行数超过 en）
+  let origLang = 'und'
+  let transLang = 'und'
+  const allCounts: Record<string, number> = {}
+  for (const r of timed) {
+    const l = detectLang(r.text)
+    if (l === 'unknown') continue
+    allCounts[l] = (allCounts[l] || 0) + 1
+  }
   if (isTranslationSong) {
     const firstCounts: Record<string, number> = {}
+    const transCounts: Record<string, number> = {}
     for (const g of byTs.values()) {
       const lyric = g.filter(r => !isNonLyricRow(r))
       if (lyric.length < 2) continue
-      const l = detectLang(lyric[0].text)
-      if (l !== 'unknown') firstCounts[l] = (firstCounts[l] || 0) + 1
+      const fl = detectLang(lyric[0].text)
+      if (fl !== 'unknown') firstCounts[fl] = (firstCounts[fl] || 0) + 1
+      // 译文行范围：第 2 行起；hasRoman 时末行是音译，不计入译文
+      const transEnd = hasRoman ? lyric.length - 1 : lyric.length
+      for (let i = 1; i < transEnd; i++) {
+        const tl = detectLang(lyric[i].text)
+        if (tl !== 'unknown') transCounts[tl] = (transCounts[tl] || 0) + 1
+      }
     }
-    let best = -1
+    let bestO = -1
     for (const [l, c] of Object.entries(firstCounts)) {
+      if (c > bestO) { bestO = c; origLang = l }
+    }
+    let bestT = -1
+    for (const [l, c] of Object.entries(transCounts)) {
+      if (c > bestT) { bestT = c; transLang = l }
+    }
+    // 译文行众数为空（如纯 2 行原文+音译歌）时，transLang 回退到 origLang
+    if (transLang === 'und') transLang = origLang
+  } else {
+    let best = -1
+    for (const [l, c] of Object.entries(allCounts)) {
       if (c > best) { best = c; origLang = l }
     }
+    transLang = origLang
   }
 
   // 音译轨默认语言：原文日语→ja-Latn、韩语→ko-Latn、其余（中文/粤语）→拼音；用户可在轨道下拉改
@@ -1903,7 +1919,7 @@ export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {
     }
     // 非翻译歌 → 归原文（含注解堆叠、角色标注）
     if (!isTranslationSong) {
-      return { lang: primary, kind: 'original' as LyricKind }
+      return { lang: origLang, kind: 'original' as LyricKind }
     }
     // 翻译歌：组内真歌词行按行序拆（第 1 行原文，其余译文；勾选含音译时末行为音译）
     const parts = g.filter(x => !isEmptyRow(x) && !isSymbolRow(x) && !isCreditRow(x))
@@ -1915,15 +1931,16 @@ export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {
     // 与首行文本完全相同的后续行 = 制作失误堆重，跳过
     if (pos > 1 && stripWordTags(r.text).trim() === stripWordTags(parts[0].text).trim()) return null
     if (pos === 1) {
-      const l = detectLang(r.text)
-      return { lang: l === 'unknown' ? origLang : l, kind: 'original' as LyricKind }
+      // 翻译歌原文行统一用 origLang（多行组第一行众数），不逐行 detect，
+      // 避免哼唱/拉丁行被误判为另一语言的原文轨
+      return { lang: origLang, kind: 'original' as LyricKind }
     }
     // 勾选「含音译」：组内最后一行判音译（不管 2 行还是 3+ 行，勾选即声明）
     if (hasRoman && pos === parts.length) {
       return { lang: romanLangOf(origLang), kind: 'romanization' as LyricKind }
     }
-    const l = detectLang(r.text)
-    return { lang: l === 'unknown' ? origLang : l, kind: 'translation' as LyricKind }
+    // 译文行统一用 transLang（多行组译文行众数），不逐行 detect
+    return { lang: transLang, kind: 'translation' as LyricKind }
   })
 
   // 组装 versions（按 lang+kind 分组，元数据行归原文版本）
