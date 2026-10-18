@@ -17,9 +17,9 @@
     </button>
     <el-button size="small" title="选中文字后输入读音，显示为文字上方小注音" @click="wrapRuby">📝 注音</el-button>
     <el-divider direction="vertical" />
-    <el-button size="small" title="Markdown 加粗 **文字**" @click="wrapSelection('**', '**')"><b>B</b></el-button>
-    <el-button size="small" title="Markdown 斜体 *文字*" @click="wrapSelection('*', '*')"><i>I</i></el-button>
-    <el-button size="small" title="Markdown 删除线 ~~文字~~" @click="wrapSelection('~~', '~~')"><s>S</s></el-button>
+    <el-button size="small" title="Markdown 加粗 **文字**（再次点击取消）" @click="wrapMd('**', '**')"><b>B</b></el-button>
+    <el-button size="small" title="Markdown 斜体 *文字*（再次点击取消）" @click="wrapMd('*', '*')"><i>I</i></el-button>
+    <el-button size="small" title="Markdown 删除线 ~~文字~~（再次点击取消）" @click="wrapMd('~~', '~~')"><s>S</s></el-button>
     <el-button size="small" title="在光标处插入换行（Markdown 单行换行）" @click="insertBr">↵ 换行</el-button>
     <el-button size="small" @click="wrapLink">链接</el-button>
   </div>
@@ -94,6 +94,78 @@ function wrapSelection(prefix: string, suffix: string) {
   const s = getSel()
   if (!s) return
   apply(s.start, s.end, prefix, s.sel, suffix)
+}
+
+/**
+ * 判断字符是否为 CommonMark 标点 = Unicode 标点类(P) + ASCII 符号
+ * （CommonMark 规定标点含 !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~，其中部分属 Unicode S 类而非 P 类，
+ *  故不能只用 \p{P}，否则 ~$+<=>@\^`| 等会漏判，导致 flanking 边界补空格失效）
+ */
+const CM_PUNCT_RE = /[\p{P}!-\/:-@\[-`{-~]/u
+function isPunct(ch: string): boolean {
+  return ch.length > 0 && CM_PUNCT_RE.test(ch)
+}
+/** 判断字符是否为 Unicode 空白 */
+function isSpace(ch: string): boolean {
+  return ch.length > 0 && /\s/.test(ch)
+}
+
+/**
+ * Markdown 行内强调标记（** / * / ~~）插入：带 CommonMark flanking 边界修复 + toggle 取消。
+ *
+ * 背景：CommonMark 规定强调分隔符 ** * ~~ 在「首/尾字符为标点 + 外侧紧贴非空白非标点」
+ *      时不被承认为合法分隔符，导致 `以**滚动歌词（LRC）**为核心` 解析失败。
+ *      本函数在插入时仅针对该边界自动补半角空格，保证产出的永远是合法 Markdown。
+ *
+ * toggle：若选区已被 prefix...suffix 完整包裹（含自动补的外侧空格），则去除标记并清理外侧空格。
+ *
+ * 注意：仅 B/I/S 三个 Markdown 强调按钮调用本函数；HTML 标签（韵脚 span、译文 span、ruby、
+ *      bubble、link）仍走 wrapSelection，因为 HTML 标签不存在 flanking 问题，不应补空格。
+ */
+function wrapMd(prefix: string, suffix: string) {
+  const s = getSel()
+  if (!s) return
+  const { text, start, end, sel } = s
+
+  // ===== toggle 取消：选区本身就是 prefix + inner + suffix =====
+  if (sel.startsWith(prefix) && sel.endsWith(suffix) && sel.length > prefix.length + suffix.length) {
+    const inner = sel.slice(prefix.length, sel.length - suffix.length)
+    // 清理插入时自动补的外侧空格（仅当 inner 首/末字符是标点时才补过）
+    let newStart = start
+    let newEnd = end
+    const beforeChar = start > 0 ? text[start - 1] : ''
+    const afterChar = end < text.length ? text[end] : ''
+    if (beforeChar === ' ' && inner.length > 0 && isPunct(inner[0])) newStart = start - 1
+    if (afterChar === ' ' && inner.length > 0 && isPunct(inner[inner.length - 1])) newEnd = end + 1
+    emit('update:text', text.substring(0, newStart) + inner + text.substring(newEnd))
+    nextTick(() => {
+      const ta = getTextarea()
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(newStart, newStart + inner.length)
+    })
+    return
+  }
+
+  // ===== 插入：检测 flanking 边界，必要时外侧补空格 =====
+  const beforeChar = start > 0 ? text[start - 1] : ''
+  const afterChar = end < text.length ? text[end] : ''
+  const firstChar = sel[0] || ''
+  const lastChar = sel[sel.length - 1] || ''
+
+  // 前缀外侧补空格：inner 首字符是标点，且前面紧贴非空白非标点（汉字/字母/数字）
+  let outerPre = ''
+  if (isPunct(firstChar) && beforeChar && !isSpace(beforeChar) && !isPunct(beforeChar)) {
+    outerPre = ' '
+  }
+  // 后缀外侧补空格：inner 末字符是标点，且后面紧贴非空白非标点
+  let outerSuf = ''
+  if (isPunct(lastChar) && afterChar && !isSpace(afterChar) && !isPunct(afterChar)) {
+    outerSuf = ' '
+  }
+
+  // apply 的选区重设基于 prefix.length，把 outerPre 并入 prefix 即可让选区正确落在 inner 上
+  apply(start, end, outerPre + prefix, sel, suffix + outerSuf)
 }
 
 /** 译文语种预设（快捷选择；语种名任意自定义，如法语/俄语/西班牙语）。
