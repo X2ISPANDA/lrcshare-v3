@@ -264,8 +264,8 @@
           ></textarea>
 
           <div v-if="lyricParsed" class="mt-3">
-            <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认（可增删改）：</div>
-            <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" />
+            <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑；如需修改请返回上方编辑总 LRC）：</div>
+            <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" />
           </div>
         </div>
 

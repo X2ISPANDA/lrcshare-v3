@@ -18,11 +18,12 @@
         v-model="v.lrc"
         type="textarea"
         :rows="5"
-        placeholder="粘贴 LRC 歌词..."
+        :disabled="readonlyContent"
+        :placeholder="readonlyContent ? '由总 LRC 自动拆分，内容只读' : '粘贴 LRC 歌词...'"
         class="font-mono!"
       />
     </div>
-    <el-button size="small" :disabled="addDisabled" @click="addVersion">+ 添加版本</el-button>
+    <el-button v-if="!readonlyContent" size="small" :disabled="addDisabled" @click="addVersion">+ 添加版本</el-button>
   </div>
 </template>
 
@@ -43,10 +44,13 @@ const props = withDefaults(defineProps<{
   addDefaultLang?: string
   /** 新增版本默认类型 */
   addDefaultKind?: LyricKind
+  /** 内容只读：仅允许选语言/类型，不允许改 LRC 内容（投稿端：用户只提交总 LRC，分轨自动生成） */
+  readonlyContent?: boolean
 }>(), {
   addDisabled: false,
   addDefaultLang: 'en',
   addDefaultKind: 'translation',
+  readonlyContent: false,
 })
 
 const model = defineModel<LyricVersionForm[]>({ required: true })

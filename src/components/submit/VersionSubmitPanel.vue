@@ -67,6 +67,11 @@
       <el-input v-model="email" placeholder="you@example.com" />
     </div>
 
+    <!-- 资料维护提示：补充版本仅登记昵称+邮箱，完整资料（简介/联系方式/公开/更新清空）请到投稿新歌曲页 -->
+    <p class="text-xs text-gray-400 mt-2">
+      如需更新/清空你的资料，或补充简介、联系方式、公开设置，请切换到上方「🎵 投稿新歌曲」页填写。
+    </p>
+
     <!-- 已有版本提示 + 查重 -->
     <div v-if="targetSong" class="text-xs space-y-1">
       <div class="text-gray-500">
@@ -96,7 +101,10 @@
       <div class="text-xs mt-1" :class="lyrics ? (isTtml ? 'text-blue-500' : 'text-green-600') : 'text-gray-400'">
         {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : '✓ 识别为 LRC') : '支持自动识别格式' }}
       </div>
-      <el-checkbox v-if="!isTtml" v-model="hasRoman" size="small" class="mt-1">含音译（勾选后同戳组最后一行按音译拆分，2 行组也生效；不勾则除首行外均为翻译）</el-checkbox>
+      <div v-if="lyricParsed && lyricVersions.length" class="mt-3">
+        <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑）：</div>
+        <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" />
+      </div>
     </div>
 
     <el-button type="primary" class="w-full" :loading="submitting" @click="handleSubmit">
@@ -110,6 +118,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '@/lib/api'
 import type { Contributor, SongWithNames } from '@/lib/types'
+import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import {
   parseTtmlToRows,
   rowsToLrcText,
@@ -119,9 +128,11 @@ import {
   loadLyricLines,
   loadLyricVersionMetas,
   detectTimestampDuplicate,
+  parseLrcToRows,
   type ExistingLyricVersion,
   type LyricLineRow,
   type LyricVersion,
+  type LyricKind,
 } from '@/lib/lyricLines'
 
 const props = defineProps<{
@@ -216,6 +227,32 @@ const isTtml = computed(() => {
   return /^<\s*tt\b/i.test(raw) || /<p\s+begin=/i.test(raw)
 })
 
+// ============ 歌词多语言版本（粘贴 LRC 即拆分，对齐投稿新歌；TTML 不拆） ============
+const lyricVersions = ref<LyricVersionForm[]>([])
+const lyricParsed = ref(false)
+
+function parseLyrics(silent = false) {
+  const raw = lyrics.value.trim()
+  if (!raw || isTtml.value) { lyricVersions.value = []; lyricParsed.value = false; return }
+  const versions = splitLrcToVersions(raw, { hasRoman: hasRoman.value })
+  if (!versions.some(v => v.rows.length > 0)) {
+    if (!silent) ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
+    return
+  }
+  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  lyricParsed.value = true
+}
+
+// 输入防抖自动拆分：停止输入 600ms 后静默拆分（失败不打断，提交时兜底）
+let parseTimer: ReturnType<typeof setTimeout> | null = null
+watch(lyrics, (val) => {
+  if (parseTimer) clearTimeout(parseTimer)
+  if (!(val || '').trim()) { lyricVersions.value = []; lyricParsed.value = false; return }
+  parseTimer = setTimeout(() => parseLyrics(true), 600)
+})
+// 「含音译」勾选切换：已有粘贴内容时按新规则静默重拆
+watch(hasRoman, () => { if (lyrics.value.trim() && !isTtml.value) parseLyrics(true) })
+
 // ============ 已有版本 + 同人同格式查重 ============
 const existingVersions = ref<Awaited<ReturnType<typeof loadLyricVersionMetas>>>([])
 watch(targetSong, async (song) => {
@@ -269,14 +306,16 @@ async function handleSubmit() {
     lrcText = rowsToLrcText(rows)
     parsedGroups = [{ lang: 'und', kind: 'original', rows }]
   } else {
-    const split = splitLrcToVersions(raw, { hasRoman: hasRoman.value })
-    const vers = split
-      .filter(v => v.rows.some(r => r.time_ms != null && r.text.trim()))
-      .map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+    // LRC：粘贴时已自动拆分到 lyricVersions（用户可调语言）；兜底重拆后按调整后的版本提交
+    if (!lyricParsed.value) parseLyrics(true)
+    const vers = lyricVersions.value
+      .filter(v => v.lrc.trim())
+      .map(v => ({ lang: v.lang?.trim() || 'zh', kind: v.kind, lrc: v.lrc.trim() }))
     if (!vers.length) { ElMessage.warning('LRC 解析失败：未识别到带时间戳的歌词行'); return }
+    const parsed = vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) }))
     versions = vers
-    lrcText = composeMixedLrc(split, 'line')
-    parsedGroups = split
+    lrcText = composeMixedLrc(parsed, 'line')
+    parsedGroups = parsed
   }
 
   submitting.value = true
