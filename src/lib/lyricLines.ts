@@ -310,8 +310,16 @@ export function groupVersions(rows: LyricLineRow[]): LyricVersion[] {
   return [...map.values()]
 }
 
+/** 创作者信息行前缀（词/曲/编/演唱等前奏署名；与 splitLrcToVersions 内识别口径一致） */
+const CREDIT_PREFIX = /^(作词|作詞|词|詞|作曲|曲|编曲|編曲|演唱|歌手|混音|混声|制作人|製作人|制作|製作|监制|監製|和声|和聲|吉他|结他|鼓|贝斯|貝斯|贝司|键盘|鍵盤|录音|錄音|母带|母帶|后期|後期|字幕|翻译|翻譯|校对|校對|时间轴|時間軸|歌词|歌詞|LRC|Lyrics?|Composer|Composed|Music|Arranger|Arranged|Mixed|Mixing|Mastering|Mastered|Produced|Producer|Video|VSQ|Song|Art|feat\.?|by)\s*[:：]/i
+/** 是否创作者信息行（署名行只在原文存一份，不补齐到译文/音译） */
+export function isCreditRow(r: LyricRow): boolean {
+  return CREDIT_PREFIX.test(stripWordTags(r.text).trim())
+}
+
 /** 补齐公共行（对齐 Worker fillCommonRows）：非 original 版本补齐 original 中该版本没有对应
- *  time_ms 的行（语气词/间奏等公共行），译文版本完整可独立渲染。不修改入参。 */
+ *  time_ms 的行（语气词/间奏等公共行），译文版本完整可独立渲染。
+ *  创作者信息行（作词/作曲等）不补齐——只在原文出现。不修改入参。 */
 export function fillCommonRows(versions: LyricVersion[]): LyricVersion[] {
   const original = versions.find(v => v.kind === 'original')
   if (!original) return versions
@@ -319,7 +327,7 @@ export function fillCommonRows(versions: LyricVersion[]): LyricVersion[] {
     if (v.kind === 'original') return v
     const vTimeSet = new Set(v.rows.map(r => r.time_ms).filter(t => t != null))
     const fill = original.rows
-      .filter(r => r.time_ms != null && !vTimeSet.has(r.time_ms))
+      .filter(r => r.time_ms != null && !vTimeSet.has(r.time_ms) && !isCreditRow(r))
       .map(r => ({ ...r }))
     if (!fill.length) return v
     const rows = [...v.rows, ...fill].sort((a, b) => {
@@ -1842,8 +1850,7 @@ export function splitLrcToVersions(lrc: string, opts: { hasRoman?: boolean } = {
     const s = stripWordTags(r.text).trim()
     return s !== '' && detectLang(s) === 'unknown' // 无任何文字系统的纯符号（:-) ? 等）
   }
-  const CREDIT_PREFIX = /^(作词|作詞|词|詞|作曲|曲|编曲|編曲|演唱|歌手|混音|混声|制作人|製作人|制作|製作|监制|監製|和声|和聲|吉他|结他|鼓|贝斯|貝斯|贝司|键盘|鍵盤|录音|錄音|母带|母帶|后期|後期|字幕|翻译|翻譯|校对|校對|时间轴|時間軸|歌词|歌詞|LRC|Lyrics?|Composer|Composed|Music|Arranger|Arranged|Mixed|Mixing|Mastering|Mastered|Produced|Producer|Video|VSQ|Song|Art|feat\.?|by)\s*[:：]/i
-  const isCreditRow = (r: LyricRow) => CREDIT_PREFIX.test(stripWordTags(r.text).trim())
+  // CREDIT_PREFIX / isCreditRow 已提升到模块级（fillCommonRows 复用）
   const isNonLyricRow = (r: LyricRow) => isEmptyRow(r) || isSymbolRow(r) || isCreditRow(r)
 
   // 歌级结构判定：剔除空行/纯符号/创作者信息后，统计「同戳 ≥2 个真歌词行」的组占比。

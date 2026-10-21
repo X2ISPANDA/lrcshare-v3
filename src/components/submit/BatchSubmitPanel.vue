@@ -139,8 +139,8 @@
                 <el-input v-model="row.lrcText" type="textarea" :autosize="{ minRows: 8, maxRows: 24 }" class="font-mono" />
               </div>
               <div>
-                <div class="text-xs text-gray-500 mb-1">多语言版本（{{ row.versions?.length || 0 }} 个，已自动拆分，可调整）</div>
-                <LyricVersionsEditor v-model="row.versions" :has-roman="!!row.hasRoman" @update:has-roman="(v: boolean) => resplitRowVersions(row, v)" />
+                <div class="text-xs text-gray-500 mb-1">多语言版本（{{ row.versions?.length || 0 }} 个，已自动拆分，可调整语言/类型，内容不可编辑）</div>
+                <LyricVersionsEditor v-model="row.versions" :has-roman="!!row.hasRoman" :readonly-content="true" @update:has-roman="(v: boolean) => resplitRowVersions(row, v)" />
               </div>
             </div>
           </template>

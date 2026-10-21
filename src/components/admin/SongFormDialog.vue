@@ -638,7 +638,7 @@ function splitFullLrc() {
     ElMessage.warning('未检测到时间戳：完整版 LRC 请粘贴到「完整版 LRC」框；纯文本歌词请粘贴到右侧「纯文本」框')
     return
   }
-  const vs = splitLrcToVersions(c.fullLrc, { hasRoman: c.hasRoman })
+  const vs = fillCommonRows(splitLrcToVersions(c.fullLrc, { hasRoman: c.hasRoman }))
   if (vs.length < 2) {
     // 单语言：写入原文轨
     const orig = c.tracks.find(t => t.kind === 'original')
@@ -684,7 +684,7 @@ function deriveTrackSource(t: LrcTrackEntry) {
     return
   }
   if (t.kind === 'original') {
-    const vs = splitLrcToVersions(t.lrc, { hasRoman: c.hasRoman })
+    const vs = fillCommonRows(splitLrcToVersions(t.lrc, { hasRoman: c.hasRoman }))
     if (vs.length > 1) {
       // 原文框粘贴整体多语言 LRC：拆分替换本容器各轨
       c.tracks = vs.map(v => makeTrack(v.lang, v.kind, rowsToLrcText(v.rows, 'enhanced')))
