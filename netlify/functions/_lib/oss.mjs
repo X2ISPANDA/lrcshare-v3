@@ -134,6 +134,97 @@ function extFromResponse(contentType, sourceUrl) {
   return 'img'
 }
 
+/**
+ * GET 下载对象，返回 Buffer（灾备 pull 脚本用）。
+ * 签名同 HEAD：Content-Type 为空串，CanonicalizedResource 带 query 参数。
+ */
+export async function getObject(key) {
+  const { host } = getConfig()
+  const date = gmtDate()
+  const res = await fetch(`https://${host}/${encodeURI(key).replace(/%2F/g, '/')}`, {
+    method: 'GET',
+    headers: {
+      Date: date,
+      Authorization: authHeader('GET', key, '', date),
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`OSS GET 失败：HTTP ${res.status} ${text.slice(0, 200)}`)
+  }
+  return Buffer.from(await res.arrayBuffer())
+}
+
+/**
+ * 列出指定前缀下的对象（bucket 级 GET + List 模式）。
+ * 返回 [{ key, lastModified, size, storageClass }]，按 lastModified 降序。
+ * 自动分页（每次 1000 条上限）。
+ */
+export async function listObjects(prefix, { maxKeys = 1000 } = {}) {
+  const { host, bucket } = getConfig()
+  const results = []
+  let marker = ''
+  let isTruncated = true
+
+  while (isTruncated && results.length < 10000) {
+    // prefix/marker/max-keys 按 key 字典序排列（marker < max-keys < prefix）
+    const subResources = []
+    subResources.push(['marker', marker])
+    subResources.push(['max-keys', String(maxKeys)])
+    subResources.push(['prefix', prefix || ''])
+    // 过滤掉空值（marker 为空时不带）
+    const pairs = subResources.filter(([, v]) => v !== '')
+    // 请求 URL 用的 query：value 需要 URL 编码
+    const urlQuery = pairs.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
+
+    const date = gmtDate()
+    // ListObjects 的 prefix/max-keys 是普通请求参数，不是 sub-resource，
+    // 所以 CanonicalizedResource 只是 /bucket/，不带 query
+    const canonical = `/${bucket}/`
+    const stringToSign = ['GET', '', '', date, canonical].join('\n')
+    const signature = crypto
+      .createHmac('sha1', getConfig().accessKeySecret)
+      .update(stringToSign, 'utf8')
+      .digest('base64')
+
+    const res = await fetch(`https://${host}/?${urlQuery}`, {
+      method: 'GET',
+      headers: {
+        Date: date,
+        Authorization: `OSS ${getConfig().accessKeyId}:${signature}`,
+      },
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`OSS List 失败：HTTP ${res.status} ${text.slice(0, 200)}`)
+    }
+    const xml = await res.text()
+    // 简单 XML 解析（避免加依赖：用正则提关键字段）
+    const entries = []
+    const keyRe = /<Key>([^<]+)<\/Key>/g
+    const lmRe = /<LastModified>([^<]+)<\/LastModified>/g
+    const sizeRe = /<Size>([^<]+)<\/Size>/g
+    let m
+    while ((m = keyRe.exec(xml)) !== null) {
+      entries.push({ key: m[1] })
+    }
+    for (let i = 0; i < entries.length; i++) {
+      const lmMatch = lmRe.exec(xml)
+      const szMatch = sizeRe.exec(xml)
+      entries[i].lastModified = lmMatch ? lmMatch[1] : ''
+      entries[i].size = szMatch ? parseInt(szMatch[1], 10) : 0
+    }
+    results.push(...entries)
+    const truncMatch = xml.match(/<IsTruncated>(true|false)<\/IsTruncated>/)
+    isTruncated = truncMatch ? truncMatch[1] === 'true' : false
+    const nextMarkMatch = xml.match(/<NextMarker>([^<]+)<\/NextMarker>/)
+    marker = nextMarkMatch ? nextMarkMatch[1] : ''
+  }
+
+  results.sort((a, b) => (b.lastModified || '').localeCompare(a.lastModified || ''))
+  return results
+}
+
 /** 判断 URL 是否已经是阿里云 OSS 地址（调用方据此跳过重复转存） */
 export function isAliyunOssUrl(url) {
   try {

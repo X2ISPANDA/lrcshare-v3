@@ -1,0 +1,47 @@
+# LrcShare 数据库灾备（每周自动 dump → OSS）
+# - 每周日凌晨 3:00（UTC 19:00 = 北京 03:00）自动跑
+# - 也可手动在 Actions 页面点 "Run workflow"
+# - 脚本：scripts/db-dump.mjs → Supabase 逐表 SELECT → gzip → OSS db-backup/
+name: DB Backup
+
+on:
+  schedule:
+    - cron: '0 19 * * 0'  # UTC 19:00 = 北京 03:00，每周日
+  workflow_dispatch:       # 允许手动触发
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OSS_REGION: ${{ secrets.OSS_REGION }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+      OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Install pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run DB dump
+        run: node scripts/db-dump.mjs
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "⚠️ DB backup FAILED at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Action failed. Check logs above."

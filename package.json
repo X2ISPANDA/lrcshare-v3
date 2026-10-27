@@ -26,7 +26,9 @@
     "fflate": "^0.8.3",
     "isomorphic-dompurify": "^3.19.0",
     "marked": "^18.0.9",
+    "mysql2": "^3.24.6",
     "nodemailer": "^7.0.13",
+    "pg": "^8.23.1",
     "pinia": "^4.0.3",
     "pinyin-pro": "^3.29.2",
     "vite-ssg": "^28.3.0",
@@ -36,6 +38,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-vue": "^6.0.8",
+    "dotenv": "^18.0.9",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
     "unplugin-auto-import": "^21.1.0",
