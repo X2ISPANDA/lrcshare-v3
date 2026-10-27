@@ -1,0 +1,58 @@
+# LrcShare 数据库热备（每小时同步 阿里云 Supabase → 原生 Supabase）
+# - 每小时整点（UTC）自动跑，最多丢失 1 小时数据
+# - 也可手动在 Actions 页面点 "Run workflow"
+# - 流程：
+#   1. db-dump.mjs 从阿里云 Supabase 导出 → /tmp/dump.json.gz
+#   2. db-restore.mjs 用 pg 直连重建原生 Supabase 的 public schema + 灌数据
+# - 同时保留每周 OSS 冷备（db-backup.yml），两重备份
+name: DB Sync to Backup Supabase
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # 每小时整点（UTC）
+  workflow_dispatch:       # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # 源：阿里云 Supabase
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # 目标：原生 Supabase（热备库）
+      BACKUP_SUPABASE_URL: ${{ secrets.BACKUP_SUPABASE_URL }}
+      BACKUP_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BACKUP_SUPABASE_SERVICE_ROLE_KEY }}
+      BACKUP_SUPABASE_HOST: ${{ secrets.BACKUP_SUPABASE_HOST }}
+      BACKUP_SUPABASE_PORT: ${{ secrets.BACKUP_SUPABASE_PORT }}
+      BACKUP_SUPABASE_USER: ${{ secrets.BACKUP_SUPABASE_USER }}
+      BACKUP_SUPABASE_DATABASE: ${{ secrets.BACKUP_SUPABASE_DATABASE }}
+      BACKUP_SUPABASE_PASSWORD: ${{ secrets.BACKUP_SUPABASE_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Install pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Dump from 阿里云 Supabase
+        run: node scripts/db-dump.mjs --output /tmp/lrcshare-dump.json.gz --no-oss --no-local
+
+      - name: Sync to 原生 Supabase（重建 schema + 灌数据）
+        run: node scripts/db-restore.mjs --source /tmp/lrcshare-dump.json.gz --target supabase --backup --schema --truncate
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "⚠️ DB sync FAILED at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Action failed. Check logs above."

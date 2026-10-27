@@ -16,3 +16,5 @@ docs/主流程草稿.md
 /Lyrico/
 # 云函数源码入库，打包产物忽略
 cloud-fn/**/*.zip
+# 数据库灾备本地副本（OSS 上已有，不需入库）
+/backup/
