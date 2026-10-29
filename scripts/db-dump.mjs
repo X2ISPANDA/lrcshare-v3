@@ -73,8 +73,16 @@ const OSS_PREFIX = process.env.OSS_DB_BACKUP_PREFIX || 'db-backup'
 const DRY_RUN = process.argv.includes('--dry-run')
 const SAVE_LOCAL = !process.argv.includes('--no-local')
 const NO_OSS = process.argv.includes('--no-oss')
-const OUTPUT_ARG = process.argv.find(a => a.startsWith('--output='))
-const OUTPUT_PATH = OUTPUT_ARG ? path.resolve(OUTPUT_ARG.slice(9)) : null
+// 支持 --output=PATH 和 --output PATH 两种写法
+const OUTPUT_IDX = process.argv.findIndex(a => a === '--output' || a.startsWith('--output='))
+let OUTPUT_PATH = null
+if (OUTPUT_IDX !== -1) {
+  const arg = process.argv[OUTPUT_IDX]
+  OUTPUT_PATH = arg.startsWith('--output=')
+    ? arg.slice(9)
+    : process.argv[OUTPUT_IDX + 1]
+  OUTPUT_PATH = OUTPUT_PATH ? path.resolve(OUTPUT_PATH) : null
+}
 
 function checkEnv() {
   const missing = []
