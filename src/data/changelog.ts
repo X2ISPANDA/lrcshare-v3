@@ -21,6 +21,15 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-10-27",
+    "entries": [
+      {
+        "title": "数据库双重灾备体系上线：OSS 冷备 + 原生 Supabase 热备",
+        "body": "为保障歌词数据安全，上线数据库双重备份机制：①阿里云 OSS 冷备——每周日凌晨自动导出全库（表结构+RLS+RPC+触发器+数据）gzip 压缩后上传至 OSS，异地存储；②原生 Supabase 热备——每小时自动将主库数据同步至独立的 Supabase 实例，主库故障时可一键切换，最多丢失 1 小时数据。热备也不可用时，可从 OSS 冷备恢复至任意 PostgreSQL 数据库。同时新增数据库 schema 自动导出机制，完整建表语句、RLS 策略、存储过程、触发器随每次备份一并归档并纳入版本控制。"
+      }
+    ]
+  },
+  {
     "date": "2026-10-19",
     "entries": [
       {
