@@ -88,8 +88,17 @@ function checkEnv() {
   const missing = []
   if (!process.env.VITE_SUPABASE_URL) missing.push('VITE_SUPABASE_URL')
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY')
+  if (!NO_OSS) {
+    if (!process.env.OSS_REGION) missing.push('OSS_REGION')
+    if (!process.env.OSS_BUCKET) missing.push('OSS_BUCKET')
+    if (!process.env.OSS_ACCESS_KEY_ID) missing.push('OSS_ACCESS_KEY_ID')
+    if (!process.env.OSS_ACCESS_KEY_SECRET) missing.push('OSS_ACCESS_KEY_SECRET')
+  }
   if (missing.length) {
     console.error(`❌ 缺少环境变量：${missing.join(', ')}`)
+    if (!NO_OSS && missing.some(m => m.startsWith('OSS_'))) {
+      console.error('   请在 GitHub Secrets 中配置 OSS_* 变量，或使用 --no-oss 跳过 OSS 上传')
+    }
     process.exit(1)
   }
 }
