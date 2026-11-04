@@ -21,6 +21,15 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-11-04",
+    "entries": [
+      {
+        "title": "开放 API 上线调用量监控与滥用溯源，后台可精确封禁单个 IP",
+        "body": "开放 API 新增全链路调用治理：每个请求按 API Key 与来源 IP 上报 Cloudflare Analytics Engine，后台「API 用量分析」页按 KEY → IP 两级聚合展示调用量，一眼看出哪个客户端、哪个 IP 在异常高频调用。定位到滥用 IP 后可一键封禁，Worker 入口即时拦截该 IP 的全部请求——封禁粒度为纯 IP，同一 Key 下其他正常用户不受影响。「IP 黑名单」页支持设置到期时间（到期自动解封）、填写封禁原因、手动解封。另：后台全部管理策略由「任何登录用户可写」收紧为「仅管理员可写」，修复普通注册用户可直接调用数据库接口越权增删数据的漏洞。"
+      }
+    ]
+  },
+  {
     "date": "2026-10-27",
     "entries": [
       {

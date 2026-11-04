@@ -6,8 +6,18 @@ compatibility_date = "2024-09-01"
 #   SUPABASE_URL       形如 https://xxxx.supabase.co（不带尾斜杠）
 #   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）
 #   SESSION_SECRET     HMAC 签名密钥，用于签发/校验 session_token（随机长字符串）
+#   CF_ACCOUNT_ID      Cloudflare 账户 ID（用量查询的 Analytics Engine SQL API 用）
+#   CF_API_TOKEN       Cloudflare API Token（权限：Account Analytics Read）
 
 # KV 命名空间绑定（需先 `wrangler kv:namespace create API_KV` 创建）
 [[kv_namespaces]]
 binding = "API_KV"
 id = "337bea7013504935b1a874cc99796b3a"
+
+# Analytics Engine 数据集绑定（API 用量统计）
+# 写入点：每请求一条 {index1=key_hash, blob1=path, blob2=status, blob3=ip}
+# 查询：POST /internal/usage → CF Analytics Engine SQL API
+# 本地 dev（wrangler dev）默认无此绑定，上报逻辑会跳过，不影响接口功能
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "lrcshare_api_usage"

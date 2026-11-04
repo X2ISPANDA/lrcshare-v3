@@ -1,5 +1,30 @@
 import { ElMessage } from 'element-plus'
 import { supabaseAdmin as supabase } from './supabase'
+import type { ApiUsageRow } from './types'
+
+/**
+ * 封禁用的 IP 归一化（必须与 Worker 端 normalizeIpForBan、sql/23-banned-ips.sql 的
+ * 存储约定完全一致，否则「存的」和「比的」对不上，封禁不生效）。
+ *   - IPv4：原样返回（如 1.2.3.4）
+ *   - IPv6：取前 4 组 + '::/64'（如 2001:db8:0:0::/64），支持完整/压缩写法
+ *   - 非法 IPv6 返回空串（调用方应提示用户，不可落库，否则永远匹配不上）
+ */
+export function normalizeIpForBan(ip: string): string {
+  const s = (ip || '').trim().replace(/::?\/64$/i, '')
+  if (!s) return ''
+  if (!s.includes(':')) return s // IPv4 原样
+  const bare = s.split('%')[0].toLowerCase() // 去掉 zone 标识（fe80::1%eth0）
+  const halves = bare.split('::')
+  if (halves.length > 2) return ''
+  const left = halves[0] ? halves[0].split(':').filter(Boolean) : []
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':').filter(Boolean) : []
+  const missing = 8 - left.length - right.length
+  if (missing < 0) return ''
+  const groups = [...left, ...Array(missing).fill('0'), ...right]
+  if (groups.length !== 8) return ''
+  const head = groups.slice(0, 4).map(g => g.replace(/^0+(?=.)/, '')).join(':')
+  return `${head}::/64`
+}
 
 /**
  * 管理后台数据层（Supabase CRUD 封装）
@@ -402,6 +427,47 @@ export const adminApi = {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
     const res = await fetch(`${base}/internal/refresh-keys`, {
+      method: 'POST',
+      headers,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.message || '刷新缓存失败')
+    }
+  },
+
+  /**
+   * 查 API 用量（Cloudflare Analytics Engine 聚合，按 KEY + IP 分组）。
+   * 调 POST /internal/usage，带管理员 JWT 鉴权。
+   * 注意：AE 写入有约 1 分钟延迟，免费版数据只保留 30 天。
+   * @param days 时间窗口（1..30）
+   * @param keyHash 可选，只查某个 KEY（64 位 hex，走 AE index 最快）
+   */
+  async queryApiUsage(days = 7, keyHash?: string): Promise<ApiUsageRow[]> {
+    const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.lrcshare.com'
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const res = await fetch(`${base}/internal/usage`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ days, keyHash: keyHash || undefined }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.message || '用量查询失败')
+    return ((json.data && json.data.rows) || []) as ApiUsageRow[]
+  },
+
+  /**
+   * 通知 Worker 清除封禁 IP 的 KV 缓存（封禁/解封后调用，使变更即时生效）。
+   * 调 POST /internal/refresh-ips，带管理员 JWT 鉴权。
+   */
+  async refreshIpCache(): Promise<void> {
+    const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.lrcshare.com'
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const res = await fetch(`${base}/internal/refresh-ips`, {
       method: 'POST',
       headers,
     })

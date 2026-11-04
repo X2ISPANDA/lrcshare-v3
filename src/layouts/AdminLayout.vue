@@ -86,6 +86,8 @@ const menus = [
   { path: '/admin/friends', icon: '🔗', label: '友链管理' },
   { path: '/admin/mail-logs', icon: '📨', label: '发信日志' },
   { path: '/admin/api-keys', icon: '🔑', label: 'API Key 管理' },
+  { path: '/admin/api-usage', icon: '📊', label: 'API 用量分析' },
+  { path: '/admin/banned-ips', icon: '🚫', label: 'IP 黑名单' },
   { path: '/admin/settings', icon: '⚙️', label: '系统设置' },
 ]
 
