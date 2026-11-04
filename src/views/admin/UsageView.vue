@@ -162,7 +162,12 @@ const groups = computed<KeyGroup[]>(() => {
 
 function formatTime(v: string) {
   if (!v) return '—'
-  const d = new Date(v)
+  // AE SQL API 返回 "YYYY-MM-DD HH:mm:ss"（UTC，无时区标识）；
+  // 直接 new Date 会按本地时区解析，导致显示比实际早 8 小时。补 T/Z 显式声明 UTC。
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(v)
+    ? v.replace(' ', 'T') + 'Z'
+    : v
+  const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return v
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
