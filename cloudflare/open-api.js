@@ -165,6 +165,189 @@ async function handleRefreshKeys(env, request) {
   )
 }
 
+/**
+ * 校验管理员 JWT（内部管理端点共用）。
+ * 校验方式：调 Supabase Auth /auth/v1/user，能返回用户信息即视为有效 JWT。
+ * @returns {{ ok: boolean, message?: string }}
+ */
+async function verifyAdminJwt(env, request) {
+  const auth = request.headers.get('Authorization')
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return { ok: false, message: 'missing authorization' }
+  }
+  const token = auth.slice(7)
+  const authRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+    },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!authRes.ok) return { ok: false, message: 'invalid or expired session' }
+  return { ok: true }
+}
+
+/**
+ * 展开特殊格式的 IP 字符串（internal）。
+ * IPv6 支持 `::` 压缩写法：`2001:db8::1` → 补零到 8 组。
+ * @returns 8 个分组的数组；无法解析返回 null
+ */
+function expandIpv6(s) {
+  const bare = s.split('%')[0].toLowerCase() // 去掉 zone 标识（fe80::1%eth0）
+  const halves = bare.split('::')
+  if (halves.length > 2) return null
+  const left = halves[0] ? halves[0].split(':') : []
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - left.length - right.length
+  if (missing < 0) return null
+  return [...left, ...Array(missing).fill('0'), ...right]
+}
+
+/**
+ * IP 归一化（封禁统一格式）。
+ * 必须与 sql/23-banned-ips.sql 的存储约定一致，否则「存的」和「比的」对不上，封禁失效。
+ *   - IPv4：原样返回（如 1.2.3.4）
+ *   - IPv6：取前 4 组 + '::/64'（如 2001:db8:0:0::/64）
+ *     理由：完整 IPv6 最长 39 字符，超出 Analytics Engine 的 32 字节 blob 上限；
+ *           封 /64 段可覆盖同一宽带用户的 IPv6 分配，是 IPv6 封禁的常规粒度。
+ * @returns 归一化后的 IP；输入为空或非法 IPv6 返回 ''（不退化截断，避免不同 IP 塌缩导致误封）
+ */
+function normalizeIpForBan(ip) {
+  if (!ip || typeof ip !== 'string') return ''
+  const s = ip.trim().replace(/::?\/64$/i, '')
+  if (!s) return ''
+  if (!s.includes(':')) return s // IPv4 原样
+  const groups = expandIpv6(s)
+  if (!groups || groups.length !== 8) return ''
+  const head = groups.slice(0, 4).map(g => g.replace(/^0+(?=.)/, '')).join(':')
+  return `${head}::/64`
+}
+
+/**
+ * 获取生效中的封禁 IP 列表（Set<string>）。
+ * 优先读 KV 缓存；KV 无值则调 Supabase RPC（get_banned_ips，SECURITY DEFINER）并写回 KV。
+ * 与 getActiveApiKeyHashes 同一套缓存策略：正常靠后台主动删 KV 即时生效，TTL 5min 兜底。
+ */
+async function getBannedIps(env) {
+  const kv = env.API_KV
+  if (kv) {
+    const cached = await kv.get(BANNED_IPS_KV_KEY, { type: 'json' })
+    if (cached && Array.isArray(cached.ips)) {
+      return new Set(cached.ips)
+    }
+  }
+  const res = await pgRpc(env, 'get_banned_ips', {})
+  const ips = (res && res.data) || []
+  const set = new Set(ips)
+  if (kv) {
+    ctxWaitUntilSafe(env, kv.put(BANNED_IPS_KV_KEY, JSON.stringify({ ips }), { expirationTtl: BANNED_IPS_CACHE_TTL }))
+  }
+  return set
+}
+
+/**
+ * 内部接口：POST /internal/refresh-ips
+ * 后台封禁/解封 IP 后调用，主动删除 KV 中的封禁 IP 缓存，使变更立即生效
+ * （否则要等 5min TTL 兜底）。
+ */
+async function handleRefreshIps(env, request) {
+  const auth = await verifyAdminJwt(env, request)
+  if (!auth.ok) return jsonError(401, auth.message)
+  const kv = env.API_KV
+  if (kv) {
+    await kv.delete(BANNED_IPS_KV_KEY)
+  }
+  return new Response(
+    JSON.stringify({ code: 200, data: { refreshed: true } }),
+    { status: 200, headers: corsHeaders({ 'Content-Type': 'application/json; charset=utf-8' }) },
+  )
+}
+
+/**
+ * 上报一次 API 调用到 Analytics Engine（fire-and-forget，失败绝不影响接口响应）。
+ * 数据点结构（AE 硬限制：indexes 只能 1 个且 ≤96 字节，blobs 每项 ≤32 字节）：
+ *   index1 = key_hash（64 位 hex，用于高效过滤单个 KEY）
+ *   blob1  = 请求路径（如 /v1/search）
+ *   blob2  = HTTP 状态码
+ *   blob3  = 归一化 IP（IPv4 原样 / IPv6 取 /64 段）
+ * 只统计 /v1/* 公开端点；内部管理端点不计入。
+ */
+function reportUsage(env, request, status, keyHash) {
+  if (!env.ANALYTICS) return // 本地 dev 无 ANALYTICS 绑定，直接跳过
+  try {
+    const { pathname } = new URL(request.url)
+    if (!pathname.startsWith('/v1')) return
+    env.ANALYTICS.writeDataPoint({
+      indexes: [String(keyHash || 'none').slice(0, 96)],
+      blobs: [
+        pathname.slice(0, 32),
+        String(status),
+        normalizeIpForBan(request.headers.get('CF-Connecting-IP') || '').slice(0, 32),
+      ],
+      doubles: [1],
+    })
+  } catch (e) {
+    console.warn('[analytics] write failed:', e)
+  }
+}
+
+/**
+ * 内部接口：POST /internal/usage
+ * 管理员查 API 用量（按 IP / 路径 / 状态码聚合），数据源为 Analytics Engine SQL API。
+ * body: { days?: 1..30, keyHash?: 64 位 hex }
+ * 返回: { code: 200, data: { rows: [{ key_hash, ip, calls, last_seen }], window_days, key_hash } }
+ * 注意：AE 写入有约 1 分钟延迟，免费版只保留 30 天；查询失败返回 502 由后台提示。
+ */
+async function handleUsage(env, request) {
+  const auth = await verifyAdminJwt(env, request)
+  if (!auth.ok) return jsonError(401, auth.message)
+
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
+    return jsonError(500, 'usage analytics not configured: missing CF_ACCOUNT_ID / CF_API_TOKEN')
+  }
+
+  let body = {}
+  try { body = await request.json() } catch { body = {} }
+  const days = Math.min(USAGE_MAX_DAYS, Math.max(1, Number(body.days) || 7))
+  const keyHash = typeof body.keyHash === 'string' ? body.keyHash.trim() : ''
+  // SQL 注入防护：key_hash 只允许 64 位十六进制，非法直接拒绝（不拼进 SQL）
+  if (keyHash && !/^[a-f0-9]{64}$/i.test(keyHash)) {
+    return jsonError(400, 'invalid keyHash format')
+  }
+
+  const keyFilter = keyHash ? ` AND index1 = '${keyHash}'` : ''
+  // 按 KEY + IP 聚合：后台核心诉求是「哪个 KEY 下的哪个 IP 调用量异常」，
+  // path/status 维度会把行数放大数十倍，改为点击 KEY 后再按需查（后续可扩展）
+  const sql = [
+    'SELECT index1 AS key_hash, blob3 AS ip, count() AS calls, max(timestamp) AS last_seen',
+    `FROM ${USAGE_DATASET}`,
+    `WHERE timestamp >= NOW() - INTERVAL '${days}' DAY${keyFilter}`,
+    'GROUP BY key_hash, ip',
+    'ORDER BY calls DESC',
+    'LIMIT 1000',
+  ].join(' ')
+
+  const cfRes = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.CF_API_TOKEN}`,
+        'Content-Type': 'text/plain',
+      },
+      body: sql,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    },
+  )
+  if (!cfRes.ok) {
+    const text = await cfRes.text().catch(() => '')
+    console.error('[usage] Analytics Engine SQL API failed:', cfRes.status, text.slice(0, 300))
+    return jsonError(502, 'analytics query failed')
+  }
+  const payload = await cfRes.json().catch(() => ({ data: [] }))
+  return jsonOk({ rows: payload.data || [], window_days: days, key_hash: keyHash })
+}
+
 /** 上游请求超时（毫秒）：Supabase/文档站 hang 住时及时失败，不挂到平台 wall-clock 上限白占并发 */
 const FETCH_TIMEOUT_MS = 8000
 
@@ -206,6 +389,17 @@ const API_KEYS_KV_KEY = 'active_api_keys' // KV 中 active key hash 列表的 ke
 const API_KEYS_CACHE_TTL = 300 // active key 列表 KV 缓存 TTL（5min，兜底用，正常靠主动删即时生效）
 const CATALOG_KV_KEY = 'catalog_snapshot' // KV 中 catalog 数据本体的 key
 const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
+
+// ============ IP 黑名单 + 用量统计（2026-11 升级）============
+// 环境变量（wrangler secret 设置）：
+//   CF_ACCOUNT_ID    Cloudflare 账户 ID
+//   CF_API_TOKEN     Cloudflare API Token（权限：Account Analytics Read）
+// 绑定（wrangler.toml）：
+//   ANALYTICS        Analytics Engine dataset（写入点用；本地 dev 无此绑定时跳过）
+const BANNED_IPS_KV_KEY = 'banned_ips' // KV 中生效中封禁 IP 列表的 key
+const BANNED_IPS_CACHE_TTL = 300 // 封禁 IP 列表 KV 缓存 TTL（5min，兜底用，正常靠主动删即时生效）
+const USAGE_DATASET = 'lrcshare_api_usage' // Analytics Engine 数据集名（与 wrangler.toml 一致）
+const USAGE_MAX_DAYS = 30 // AE 免费版数据保留上限（天）
 
 /** 中间表嵌入行 → 各角色 id 列表 */
 const singerIdsOf = row => ((row && row.song_contributors) || []).filter(r => r.role === 'singer').map(r => r.artist_id)
@@ -1869,47 +2063,73 @@ export default {
     const url = new URL(request.url)
     const reqHost = url.hostname
 
+    // ===== 用量上报上下文 =====
+    // traceKeyHash 在鉴权段写入（未通过鉴权时保持 'none'，仍上报，便于看到被拒请求）；
+    // 所有出口统一走 finish()，保证每个请求只上报一次且状态码准确。
+    let traceKeyHash = 'none'
+    const finish = (response) => {
+      reportUsage(env, request, response.status, traceKeyHash)
+      return response
+    }
+
     // api 域名下的文档路径（https://api.lrcshare.com/docs/，文档站入口）
     if (reqHost === `api.${SITE_DOMAIN}` && (url.pathname === '/docs' || url.pathname.startsWith('/docs/'))) {
-      return proxyDocs(url, request)
+      return finish(proxyDocs(url, request))
     }
 
     // 未知子域兜底：返回 HTML 404 页；api 域名与 workers.dev 默认域名正常放行
     if (reqHost !== `api.${SITE_DOMAIN}` && !reqHost.endsWith('.workers.dev')) {
-      return html404(reqHost)
+      return finish(html404(reqHost))
     }
 
     const path = url.pathname.replace(/\/+$/, '') // 去尾斜杠
 
-    // ===== 内部管理接口（POST /internal/refresh-keys）：封禁 Key 后主动清 KV 缓存 =====
+    // ===== 内部管理接口（POST）：后台操作后主动清对应 KV 缓存 / 查用量 =====
     if (path === '/internal/refresh-keys' && request.method === 'POST') {
-      return handleRefreshKeys(env, request)
+      return finish(await handleRefreshKeys(env, request))
+    }
+    if (path === '/internal/refresh-ips' && request.method === 'POST') {
+      return finish(await handleRefreshIps(env, request))
+    }
+    if (path === '/internal/usage' && request.method === 'POST') {
+      return finish(await handleUsage(env, request))
     }
 
     // CORS 预检
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() })
+      return finish(new Response(null, { status: 204, headers: corsHeaders() }))
     }
     if (request.method !== 'GET') {
-      return jsonError(405, 'method not allowed, GET only')
+      return finish(jsonError(405, 'method not allowed, GET only'))
     }
 
     if (path !== '/v1' && !path.startsWith('/v1/')) {
-      return jsonError(404, 'not found, see /v1/ for available endpoints')
+      return finish(jsonError(404, 'not found, see /v1/ for available endpoints'))
+    }
+
+    // ===== 鉴权 0：IP 黑名单（纯 IP 粒度；被封 IP 直接拒绝，不影响同 KEY 下其他 IP） =====
+    // 归一化必须与 sql/23-banned-ips.sql 的存储格式一致（IPv4 原样 / IPv6 取 /64 段）
+    const clientIp = normalizeIpForBan(request.headers.get('CF-Connecting-IP') || '')
+    if (clientIp) {
+      const bannedIps = await getBannedIps(env)
+      if (bannedIps.has(clientIp)) {
+        return finish(jsonError(403, 'your ip has been blocked'))
+      }
     }
 
     // ===== 鉴权 1：API Key 校验（所有 /v1/* 端点都需要） =====
     if (!env.SESSION_SECRET) {
-      return jsonError(500, 'worker not configured: missing SESSION_SECRET')
+      return finish(jsonError(500, 'worker not configured: missing SESSION_SECRET'))
     }
     const apiKey = request.headers.get('X-API-Key')
     if (!apiKey) {
-      return jsonError(401, 'missing X-API-Key header')
+      return finish(jsonError(401, 'missing X-API-Key header'))
     }
     const keyHash = await sha256Hex(apiKey)
+    traceKeyHash = keyHash // 供上报使用（含后续 403/419 的被拒请求）
     const activeHashes = await getActiveApiKeyHashes(env)
     if (!activeHashes.has(keyHash)) {
-      return jsonError(403, 'invalid or banned api key')
+      return finish(jsonError(403, 'invalid or banned api key'))
     }
 
     // ===== 鉴权 2：catalog-first session 校验（/v1 和 /v1/catalog 不需要 session） =====
@@ -1917,7 +2137,7 @@ export default {
       const sessionToken = request.headers.get('X-LrcShare-Session')
       const ok = await verifySession(sessionToken, env.SESSION_SECRET, keyHash)
       if (!ok) {
-        return jsonError(419, 'session expired, call GET /v1/catalog first')
+        return finish(jsonError(419, 'session expired, call GET /v1/catalog first'))
       }
     }
 
@@ -1931,7 +2151,7 @@ export default {
         const headers = corsHeaders({ 'Content-Type': cached.headers.get('Content-Type') || 'application/json' })
         const cc = cached.headers.get('Cache-Control')
         if (cc) headers['Cache-Control'] = cc
-        return new Response(cached.body, { status: cached.status, headers })
+        return finish(new Response(cached.body, { status: cached.status, headers }))
       }
     }
 
@@ -1939,7 +2159,7 @@ export default {
     let res
     try {
       if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
-        return jsonError(500, 'worker not configured: missing SUPABASE_URL / SUPABASE_ANON_KEY')
+        return finish(jsonError(500, 'worker not configured: missing SUPABASE_URL / SUPABASE_ANON_KEY'))
       }
       if (path === '/v1') {
         res = apiIndex()
@@ -1990,6 +2210,6 @@ export default {
     if (!isCatalog && res.status === 200 && res.headers.get('Cache-Control')) {
       ctx.waitUntil(cache.put(cacheKey, res.clone()))
     }
-    return res
+    return finish(res)
   },
 }

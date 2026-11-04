@@ -163,6 +163,30 @@ export interface ApiKey {
   updated_at: string
 }
 
+/** 封禁 IP（开放 API 滥用防护） */
+export interface BannedIp {
+  id: string
+  /** 归一化 IP：IPv4 原样 / IPv6 取 /64 段（如 2001:db8:0:0::/64） */
+  ip: string
+  /** 封禁原因（如「KEY xxx 单日调用 1.5 万次」） */
+  reason: string | null
+  /** 到期时间；null = 永久封禁 */
+  expires_at: string | null
+  created_at: string
+}
+
+/** API 用量聚合行（Analytics Engine 按 KEY + IP 分组） */
+export interface ApiUsageRow {
+  /** 调用方 KEY 的 SHA-256 哈希（64 位 hex，对应 api_keys.key_hash） */
+  key_hash: string
+  /** 归一化后的客户端 IP（IPv4 原样 / IPv6 取 /64 段） */
+  ip: string
+  /** 该组合在时间窗口内的调用次数 */
+  calls: number
+  /** 最近一次调用时间 */
+  last_seen: string
+}
+
 /** 投稿（song_data 的多艺术家结构） */
 export interface SongSubmissionData {
   type: string
