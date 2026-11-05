@@ -16,8 +16,8 @@ Key 发放后请妥善保管，若被滥用站长有权随时封禁。
 X-API-Key: ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-- 缺失 Key → HTTP **401**
-- Key 无效或已被封禁 → HTTP **403**
+- 未携带 Key，或 Key 不在 WAF 白名单内 → 在 Cloudflare 边缘直接拦截，返回 HTTP **403** + HTML 拦截页（不是 JSON 响应）
+- Key 已在白名单内、但被后台封禁 → HTTP **403**（JSON，`message: invalid or banned api key`）
 - 滥用 API Key 会被封禁，封禁后立即失效
 
 ## Catalog-First（必须先拉目录）
@@ -34,7 +34,7 @@ X-LrcShare-Session: <catalog 返回的 session_token>
 
 ## 速率限制
 
-单个 IP 超过 **100 次 / 10 秒** 会被临时阻止（HTTP 429），约 10 秒后自动解封。
+单个 IP 超过 **300 次 / 10 秒** 会被临时阻止（HTTP 429），约 10 秒后自动解封。
 
 - 正常手动使用远达不到阈值
 - 批量工具请控制并发、串行处理，别开并发轰炸
@@ -69,4 +69,4 @@ LrcShare 是小众人工整理曲库，命中是概率事件。`items: []` 不�
 
 ## 错误码
 
-鉴权相关：401（缺 Key）/ 403（Key 无效或封禁）/ 419（Session 过期）。完整错误码对照表见[错误码](/api/errors)。
+鉴权相关：403（未携带 Key 或不在白名单，边缘拦截返回 HTML）/ 403（白名单内但已封禁，返回 JSON）/ 419（Session 过期）。完整错误码对照表见[错误码](/api/errors)。

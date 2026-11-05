@@ -20,6 +20,15 @@
             <code class="text-xs bg-gray-50 px-2 py-1 rounded text-gray-600">{{ row.key_prefix }}...</code>
           </template>
         </el-table-column>
+        <el-table-column label="完整 Key" min-width="300">
+          <template #default="{ row }">
+            <div v-if="row.key_plain" class="flex items-center gap-2">
+              <code class="text-xs bg-gray-50 px-2 py-1 rounded text-gray-600 break-all">{{ row.key_plain }}</code>
+              <el-button link type="primary" size="small" @click="copyText(row.key_plain)">复制</el-button>
+            </div>
+            <span v-else class="text-xs text-gray-400">—（历史 Key 明文已丢失）</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'active'" type="success" size="small">正常</el-tag>
@@ -65,6 +74,7 @@
             </div>
           </div>
           <div class="mt-2 pt-2 border-t border-gray-50 flex gap-1">
+            <el-button v-if="row.key_plain" link type="primary" size="small" @click="copyText(row.key_plain)">复制</el-button>
             <el-button
               v-if="row.status === 'active'"
               link type="warning" size="small"
@@ -96,12 +106,12 @@
         </el-form-item>
       </el-form>
 
-      <!-- 生成结果（只显示一次） -->
+      <!-- 生成结果（明文已入库，可随时在列表查看） -->
       <div v-if="generatedKey" class="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-        <div class="text-sm text-green-700 font-medium mb-2">Key 已生成（请立即复制，关闭后不再显示）</div>
+        <div class="text-sm text-green-700 font-medium mb-2">Key 已生成（明文已入库，可随时在列表查看）</div>
         <div class="flex items-center gap-2">
           <code class="flex-1 bg-white px-3 py-2 rounded border border-green-200 text-sm break-all">{{ generatedKey }}</code>
-          <el-button size="small" type="primary" @click="copyKey">复制</el-button>
+          <el-button size="small" type="primary" @click="copyText(generatedKey)">复制</el-button>
         </div>
       </div>
 
@@ -123,7 +133,7 @@ import { adminApi } from '@/lib/adminApi'
 import AdminTable from '@/components/admin/AdminTable.vue'
 import type { ApiKey } from '@/lib/types'
 
-/** API Key 管理：签发（明文只显示一次）/ 封禁启用 / 删除 */
+/** API Key 管理：签发（明文同时入库，可随时在列表查看）/ 封禁启用 / 删除 */
 
 const list = ref<ApiKey[]>([])
 const loading = ref(false)
@@ -180,14 +190,15 @@ async function save() {
   }
   saving.value = true
   try {
-    // 1. 前端生成 key（明文只此一次）
+    // 1. 前端生成 key
     const { key, hash, prefix } = await adminApi.generateApiKey()
-    // 2. 存库（只存 hash + prefix，不存明文）
+    // 2. 存库（hash 用于 Worker 校验，明文供后台展示与 WAF 白名单维护）
     await adminApi.insert('api_keys', {
       id: crypto.randomUUID(),
       name: form.name.trim(),
       key_hash: hash,
       key_prefix: prefix,
+      key_plain: key,
       status: 'active',
       note: form.note.trim() || null,
     })
@@ -196,7 +207,7 @@ async function save() {
       // 刷新缓存失败不阻断（兜底 5min 自动生效），提示一下
       ElMessage.warning('Key 已创建，但缓存刷新失败，最长 5 分钟后生效')
     })
-    // 4. 显示明文 key（只此一次）
+    // 4. 显示明文 key
     generatedKey.value = key
     ElMessage.success('Key 已生成')
     await load()
@@ -207,9 +218,9 @@ async function save() {
   }
 }
 
-async function copyKey() {
+async function copyText(text: string) {
   try {
-    await navigator.clipboard.writeText(generatedKey.value)
+    await navigator.clipboard.writeText(text)
     ElMessage.success('已复制')
   } catch {
     ElMessage.warning('复制失败，请手动选择复制')

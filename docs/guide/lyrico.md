@@ -8,7 +8,7 @@ Lyrico 是安卓平台的音乐标签编辑器，支持通过插件接入自定�
 
 > https://github.com/Replica0110/Lyrico/releases
 
-认准最新版本（**v1.5.0 或更高**，插件协议需 API 4）下的 `.apk` 文件：
+认准最新版本下的 `.apk` 文件：
 
 | 文件 | 适用设备 |
 | --- | --- |
@@ -45,7 +45,7 @@ Lyrico 是安卓平台的音乐标签编辑器，支持通过插件接入自定�
 
 ![在手机中找到插件 zip 所在目录并选中](https://i0.hdslb.com/bfs/openplatform/9c4735f3dd2e1eedc60ed7c1734a28d1f7bf0b63.png){.lyrico-shot}
 
-在文件选择器中找到你存放插件 zip 的目录，选中 `com.lrcshare.source-x.x.x.zip`，插件就导入完成了。无需任何配置——LrcShare API 匿名调用，没有 API Key 要填。
+在文件选择器中找到你存放插件 zip 的目录，选中 `com.lrcshare.source-x.x.x.zip`，插件就导入完成了。无需任何配置——插件已内置 API Key 并会自动换取会话凭证，你不需要手动填写。
 
 ## 第四步：搜索并应用标签
 
