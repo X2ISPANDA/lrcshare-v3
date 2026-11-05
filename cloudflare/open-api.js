@@ -24,6 +24,9 @@
  *   phase5 起署名按歌词版本（lyric_versions）各自携带，顶层 comment = 默认版本署名
  * - 缓存：详情 1h / 列表搜索 10min（Cache API，GET 才缓存）；另有 zone 级 Cache Rule
  *   让 JSON 进 CDN 缓存（命中不进 Worker，不消耗请求额度）、WAF 速率限制拦单 IP 洪峰
+ * - CORS：预检头带 Access-Control-Max-Age 24h。OPTIONS 预检按规范不带 X-API-Key，
+ *   因此 WAF 白名单规则必须豁免 OPTIONS（`method ne "OPTIONS"`），否则浏览器跨域调用全部失败；
+ *   缓存预检结果可避免 OPTIONS 反复进 Worker 白名单豁免路径消耗配额
  * - 目录快照 /v1/catalog：全库可搜索文本，供调用方本地负向预过滤（批量工具省无效请求）
  * - 子域治理：通配符 Route（*.lrcshare.com/*）接住任意子域。未知子域返回 HTML
  *   404 页；灰云（仅 DNS）子域不进 CF 网络，不受影响
@@ -412,6 +415,9 @@ function corsHeaders(extra = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': '*',
+    // 预检结果缓存 24h：否则每次跨域调用都要多发一次 OPTIONS，
+    // 而 OPTIONS 不携带 X-API-Key，在边缘白名单规则中被豁免放行，可被用来消耗 Worker 配额
+    'Access-Control-Max-Age': '86400',
     ...extra,
   }
 }

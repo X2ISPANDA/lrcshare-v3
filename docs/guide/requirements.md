@@ -20,6 +20,12 @@ X-API-Key: ls_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 - Key 已在白名单内、但被后台封禁 → HTTP **403**（JSON，`message: invalid or banned api key`）
 - 滥用 API Key 会被封禁，封禁后立即失效
 
+## 浏览器调用
+
+浏览器跨域调用（`fetch`）会自动先发 `OPTIONS` 预检。预检请求按 CORS 规范**不携带** `X-API-Key`，因此服务端对 `OPTIONS` 不做 Key 校验，直接放行并返回 CORS 头。预检结果缓存 24 小时（`Access-Control-Max-Age`），同一页面重复调用不会反复触发预检。
+
+注意：在浏览器地址栏直接打开接口地址**无法携带** `X-API-Key`，会被边缘拦截。调试请使用 curl、Apifox / Postman，或在浏览器控制台用 `fetch` 发起跨域请求。
+
 ## Catalog-First（必须先拉目录）
 
 除 `/v1/catalog` 本身外，访问其他端点前必须先调用 `GET /v1/catalog`，从响应中获取 `session_token`，并在后续请求中携带 `X-LrcShare-Session` 头：
