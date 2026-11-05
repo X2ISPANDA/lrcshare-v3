@@ -21,6 +21,15 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-11-05",
+    "entries": [
+      {
+        "title": "开放 API 转为边缘鉴权拦截，限流阈值放宽至 300 次/10 秒",
+        "body": "所有 `/v1/*` 请求改由 Cloudflare 边缘校验 `X-API-Key`：未携带或不在白名单内的请求直接返回 403 拦截页（HTML，不再是 JSON），不进入 Worker，进一步节省免费额度。单 IP 限流从 100 次/10 秒调整为 300 次/10 秒，适配批量打标场景；超限返回 429，约 10 秒后自动恢复。后台 API Key 管理新增明文存档，管理员可随时查看已签发的 Key（历史 Key 明文不可恢复）。"
+      }
+    ]
+  },
+  {
     "date": "2026-11-04",
     "entries": [
       {

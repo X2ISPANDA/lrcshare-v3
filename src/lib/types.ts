@@ -157,6 +157,8 @@ export interface ApiKey {
   key_hash: string
   /** Key 前 8 位，后台列表识别用 */
   key_prefix: string
+  /** Key 明文（24 号脚本追加；历史 Key 明文已丢失为 null） */
+  key_plain: string | null
   status: 'active' | 'banned'
   note: string | null
   created_at: string
