@@ -182,7 +182,31 @@ BEGIN
   END LOOP;
   ddl := ddl || E'\n';
 
-  -- ── 7. RLS ──────────────────────────────────────────────
+  -- ── 7. 函数（必须在 RLS 之前：策略表达式会引用 is_admin() 等函数，
+  --        CREATE POLICY 创建时立即校验表达式，函数不存在会直接报错）───
+  ddl := ddl || '-- Functions' || E'\n';
+  FOR r IN
+    SELECT
+      p.oid,
+      n.nspname,
+      p.proname,
+      pg_get_function_identity_arguments(p.oid) AS args,
+      p.prokind
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname <> 'export_schema'  -- 不导出自己
+      AND p.oid NOT IN (SELECT objid FROM pg_depend WHERE deptype = 'e')  -- 排除扩展自带函数
+    ORDER BY p.proname, p.oid
+  LOOP
+    BEGIN
+      ddl := ddl || pg_get_functiondef(r.oid) || ';' || E'\n\n';
+    EXCEPTION WHEN OTHERS THEN
+      ddl := ddl || format('-- WARNING: could not dump function %s(%s)', r.proname, r.args) || E'\n\n';
+    END;
+  END LOOP;
+
+  -- ── 8. RLS ──────────────────────────────────────────────
   ddl := ddl || '-- Row Level Security' || E'\n';
   FOR r IN
     SELECT c.relname AS table_name, c.relrowsecurity AS rls_enabled
@@ -220,29 +244,6 @@ BEGIN
     ddl := ddl || ';' || E'\n';
   END LOOP;
   ddl := ddl || E'\n';
-
-  -- ── 8. 函数 ─────────────────────────────────────────────
-  ddl := ddl || '-- Functions' || E'\n';
-  FOR r IN
-    SELECT
-      p.oid,
-      n.nspname,
-      p.proname,
-      pg_get_function_identity_arguments(p.oid) AS args,
-      p.prokind
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public'
-      AND p.proname <> 'export_schema'  -- 不导出自己
-      AND p.oid NOT IN (SELECT objid FROM pg_depend WHERE deptype = 'e')  -- 排除扩展自带函数
-    ORDER BY p.proname, p.oid
-  LOOP
-    BEGIN
-      ddl := ddl || pg_get_functiondef(r.oid) || ';' || E'\n\n';
-    EXCEPTION WHEN OTHERS THEN
-      ddl := ddl || format('-- WARNING: could not dump function %s(%s)', r.proname, r.args) || E'\n\n';
-    END;
-  END LOOP;
 
   -- ── 9. 触发器 ───────────────────────────────────────────
   ddl := ddl || '-- Triggers' || E'\n';
