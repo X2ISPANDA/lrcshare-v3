@@ -21,6 +21,15 @@ export interface ChangelogDate {
 
 export const changelog: ChangelogDate[] = [
   {
+    "date": "2026-11-06",
+    "entries": [
+      {
+        "title": "开放 API 稳定性加固：边缘缓存故障时自动回源，缓存写入量降至约 1/8",
+        "body": "开放 API 的鉴权与 IP 黑名单缓存（Cloudflare KV）读取链路增加容错：当 KV 免费配额超限或服务出现故障时，请求会自动回源数据库完成校验，接口不再整体返回错误，仅响应略微变慢，KV 从硬性依赖降级为纯加速层。同时缓存兜底刷新周期从 5 分钟延长到 1 小时，KV 每日写入量从约 600 次降到约 72 次，远离免费额度上限，消除此前触发的配额预警；后台封禁 Key / IP 依然是即时生效，不受影响。"
+      }
+    ]
+  },
+  {
     "date": "2026-11-05",
     "entries": [
       {

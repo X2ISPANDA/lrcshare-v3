@@ -12,7 +12,7 @@
  * 设计要点：
  * - 鉴权（2026-10 升级）：所有 /v1/* 端点强制要求 X-API-Key 头（注册制，后台手动签发）；
  *   除 /v1 和 /v1/catalog 外，还要求 X-LrcShare-Session 头（从 /v1/catalog 响应获取，24h 有效）。
- *   API Key 校验走 KV 缓存（兜底 5min），封禁后调 POST /internal/refresh-keys 主动清缓存即时生效。
+ *   API Key 校验走 KV 缓存（兜底 1h），封禁后调 POST /internal/refresh-keys 主动清缓存即时生效。
  * - catalog-first：调用方必须先调 GET /v1/catalog 获取 session_token，才能访问其他端点。
  *   catalog 数据本体缓存到 KV（1h），响应附带 per-client token，不走边缘缓存（no-store）。
  * - 两段式流程：搜索/列表只返回轻量歌曲摘要（id/歌名/歌手/专辑名+年份/风格/封面），
@@ -111,9 +111,14 @@ async function verifySession(token, secret, expectedClientId) {
 async function getActiveApiKeyHashes(env) {
   const kv = env.API_KV
   if (kv) {
-    const cached = await kv.get(API_KEYS_KV_KEY, { type: 'json' })
-    if (cached && Array.isArray(cached.hashes)) {
-      return new Set(cached.hashes)
+    try {
+      const cached = await kv.get(API_KEYS_KV_KEY, { type: 'json' })
+      if (cached && Array.isArray(cached.hashes)) {
+        return new Set(cached.hashes)
+      }
+    } catch (e) {
+      // KV 读失败（配额 429 / 服务故障）→ 视为未命中，回源 Supabase，避免 API 整体 500
+      console.error('[api] kv.get active_api_keys failed, fallback to supabase', e)
     }
   }
   // KV 未命中 → 回源 Supabase RPC（SECURITY DEFINER，anon 可调用）
@@ -121,7 +126,7 @@ async function getActiveApiKeyHashes(env) {
   const hashes = (res && res.data) || []
   const set = new Set(hashes)
   if (kv) {
-    // 写回 KV（TTL 兜底 5min）；不阻塞当前请求
+    // 写回 KV（TTL 兜底 1h）；不阻塞当前请求
     ctxWaitUntilSafe(env, kv.put(API_KEYS_KV_KEY, JSON.stringify({ hashes }), { expirationTtl: API_KEYS_CACHE_TTL }))
   }
   return set
@@ -138,7 +143,7 @@ function ctxWaitUntilSafe(env, promise) {
 /**
  * 内部接口：POST /internal/refresh-keys
  * 后台封禁/启用 API Key 后调用，主动删除 KV 中的 active key 缓存，
- * 使封禁立即生效（否则要等 5min TTL 兜底）。
+ * 使封禁立即生效（否则要等 1h TTL 兜底）。
  * 鉴权：Authorization Bearer <Supabase admin JWT>，调 Supabase /auth/v1/user 验证。
  */
 async function handleRefreshKeys(env, request) {
@@ -229,14 +234,19 @@ function normalizeIpForBan(ip) {
 /**
  * 获取生效中的封禁 IP 列表（Set<string>）。
  * 优先读 KV 缓存；KV 无值则调 Supabase RPC（get_banned_ips，SECURITY DEFINER）并写回 KV。
- * 与 getActiveApiKeyHashes 同一套缓存策略：正常靠后台主动删 KV 即时生效，TTL 5min 兜底。
+ * 与 getActiveApiKeyHashes 同一套缓存策略：正常靠后台主动删 KV 即时生效，TTL 1h 兜底。
  */
 async function getBannedIps(env) {
   const kv = env.API_KV
   if (kv) {
-    const cached = await kv.get(BANNED_IPS_KV_KEY, { type: 'json' })
-    if (cached && Array.isArray(cached.ips)) {
-      return new Set(cached.ips)
+    try {
+      const cached = await kv.get(BANNED_IPS_KV_KEY, { type: 'json' })
+      if (cached && Array.isArray(cached.ips)) {
+        return new Set(cached.ips)
+      }
+    } catch (e) {
+      // KV 读失败（配额 429 / 服务故障）→ 视为未命中，回源 Supabase，避免 API 整体 500
+      console.error('[api] kv.get banned_ips failed, fallback to supabase', e)
     }
   }
   const res = await pgRpc(env, 'get_banned_ips', {})
@@ -251,7 +261,7 @@ async function getBannedIps(env) {
 /**
  * 内部接口：POST /internal/refresh-ips
  * 后台封禁/解封 IP 后调用，主动删除 KV 中的封禁 IP 缓存，使变更立即生效
- * （否则要等 5min TTL 兜底）。
+ * （否则要等 1h TTL 兜底）。
  */
 async function handleRefreshIps(env, request) {
   const auth = await verifyAdminJwt(env, request)
@@ -389,7 +399,7 @@ const TTL_LIST = 600 // 列表/搜索缓存 10min
 //   API_KV           存 active key hash 列表 + catalog 数据本体
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // session_token 有效期 24h
 const API_KEYS_KV_KEY = 'active_api_keys' // KV 中 active key hash 列表的 key
-const API_KEYS_CACHE_TTL = 300 // active key 列表 KV 缓存 TTL（5min，兜底用，正常靠主动删即时生效）
+const API_KEYS_CACHE_TTL = 3600 // active key 列表 KV 缓存 TTL（1h，兜底用，正常靠主动删即时生效）
 const CATALOG_KV_KEY = 'catalog_snapshot' // KV 中 catalog 数据本体的 key
 const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
 
@@ -400,7 +410,7 @@ const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
 // 绑定（wrangler.toml）：
 //   ANALYTICS        Analytics Engine dataset（写入点用；本地 dev 无此绑定时跳过）
 const BANNED_IPS_KV_KEY = 'banned_ips' // KV 中生效中封禁 IP 列表的 key
-const BANNED_IPS_CACHE_TTL = 300 // 封禁 IP 列表 KV 缓存 TTL（5min，兜底用，正常靠主动删即时生效）
+const BANNED_IPS_CACHE_TTL = 3600 // 封禁 IP 列表 KV 缓存 TTL（1h，兜底用，正常靠主动删即时生效）
 const USAGE_DATASET = 'lrcshare_api_usage' // Analytics Engine 数据集名（与 wrangler.toml 一致）
 const USAGE_MAX_DAYS = 30 // AE 免费版数据保留上限（天）
 
@@ -842,7 +852,12 @@ async function handleCatalog(env, clientKeyHash) {
   const kv = env.API_KV
   let snapshot = null
   if (kv) {
-    snapshot = await kv.get(CATALOG_KV_KEY, { type: 'json' })
+    try {
+      snapshot = await kv.get(CATALOG_KV_KEY, { type: 'json' })
+    } catch (e) {
+      // KV 读失败（配额 429 / 服务故障）→ 视为未命中，回源 Supabase，避免 API 整体 500
+      console.error('[api] kv.get catalog_snapshot failed, fallback to supabase', e)
+    }
   }
   if (!snapshot) {
     const [songs, artists, albums] = await Promise.all([
