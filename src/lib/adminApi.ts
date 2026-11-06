@@ -1,6 +1,6 @@
 import { ElMessage } from 'element-plus'
 import { supabaseAdmin as supabase } from './supabase'
-import type { ApiUsageRow } from './types'
+import type { ApiUsageDailyRow, ApiUsageRow } from './types'
 
 /**
  * 封禁用的 IP 归一化（必须与 Worker 端 normalizeIpForBan、sql/23-banned-ips.sql 的
@@ -24,6 +24,25 @@ export function normalizeIpForBan(ip: string): string {
   if (groups.length !== 8) return ''
   const head = groups.slice(0, 4).map(g => g.replace(/^0+(?=.)/, '')).join(':')
   return `${head}::/64`
+}
+
+/**
+ * 调 Worker /internal/usage 并取回 rows（daily / detail 两种模式共用）。
+ * 鉴权走当前管理员 session 的 access_token；失败统一抛中文错误由页面提示。
+ */
+async function postUsage(body: Record<string, unknown>): Promise<unknown[]> {
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.lrcshare.com'
+  const { data: { session } } = await supabase.auth.getSession()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+  const res = await fetch(`${base}/internal/usage`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.message || '用量查询失败')
+  return (json.data && json.data.rows) || []
 }
 
 /**
@@ -437,25 +456,27 @@ export const adminApi = {
   },
 
   /**
-   * 查 API 用量（Cloudflare Analytics Engine 聚合，按 KEY + IP 分组）。
-   * 调 POST /internal/usage，带管理员 JWT 鉴权。
+   * 查逐日 API 用量（Cloudflare Analytics Engine，按 UTC 自然日 × KEY 分组）。
+   * 调 POST /internal/usage（mode=daily），带管理员 JWT 鉴权。
    * 注意：AE 写入有约 1 分钟延迟，免费版数据只保留 30 天。
-   * @param days 时间窗口（1..30）
+   * @param start 起始 UTC 日 YYYY-MM-DD（含）
+   * @param end 结束 UTC 日 YYYY-MM-DD（含，与 start 跨度上限 30 天）
    * @param keyHash 可选，只查某个 KEY（64 位 hex，走 AE index 最快）
    */
-  async queryApiUsage(days = 7, keyHash?: string): Promise<ApiUsageRow[]> {
-    const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.lrcshare.com'
-    const { data: { session } } = await supabase.auth.getSession()
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
-    const res = await fetch(`${base}/internal/usage`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ days, keyHash: keyHash || undefined }),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(json.message || '用量查询失败')
-    return ((json.data && json.data.rows) || []) as ApiUsageRow[]
+  async queryApiUsageDaily(start: string, end: string, keyHash?: string): Promise<ApiUsageDailyRow[]> {
+    const rows = await postUsage({ mode: 'daily', start, end, keyHash: keyHash || undefined })
+    return rows as ApiUsageDailyRow[]
+  },
+
+  /**
+   * 查单个 UTC 自然日的 API 用量明细（按 KEY + IP 分组）。
+   * 调 POST /internal/usage（mode=detail），带管理员 JWT 鉴权。
+   * @param date UTC 日 YYYY-MM-DD，统计范围为该日 00:00:00–24:00:00
+   * @param keyHash 可选，只查某个 KEY（64 位 hex，走 AE index 最快）
+   */
+  async queryApiUsageDetail(date: string, keyHash?: string): Promise<ApiUsageRow[]> {
+    const rows = await postUsage({ mode: 'detail', date, keyHash: keyHash || undefined })
+    return rows as ApiUsageRow[]
   },
 
   /**

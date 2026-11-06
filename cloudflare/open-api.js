@@ -304,42 +304,30 @@ function reportUsage(env, request, status, keyHash) {
   }
 }
 
+/** 校验用量查询的日期参数：只接受真实存在的 YYYY-MM-DD，非法返回 ''（日期要拼进 SQL，必须在边界拦死） */
+function normalizeUsageDate(v) {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return ''
+  const t = Date.parse(`${s}T00:00:00Z`)
+  if (!Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== s) return ''
+  return s
+}
+
+/** start→end 的 UTC 自然日跨度（含首尾）；非法或倒序返回 0 */
+function usageDaySpan(start, end) {
+  const s = Date.parse(`${start}T00:00:00Z`)
+  const e = Date.parse(`${end}T00:00:00Z`)
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return 0
+  return Math.round((e - s) / 86400000) + 1
+}
+
 /**
- * 内部接口：POST /internal/usage
- * 管理员查 API 用量（按 IP / 路径 / 状态码聚合），数据源为 Analytics Engine SQL API。
- * body: { days?: 1..30, keyHash?: 64 位 hex }
- * 返回: { code: 200, data: { rows: [{ key_hash, ip, calls, last_seen }], window_days, key_hash } }
- * 注意：AE 写入有约 1 分钟延迟，免费版只保留 30 天；查询失败返回 502 由后台提示。
+ * 执行 Analytics Engine SQL。
+ * 成功返回 { rows }；失败返回 { response }（已构造好的错误响应）。
+ * 502 的 message 里附带上游报错片段，方便管理员在页面上直接看到 SQL 哪一句不合法
+ * （AE 函数是 ClickHouse 子集，不支持的函数只在运行时才会暴露）。
  */
-async function handleUsage(env, request) {
-  const auth = await verifyAdminJwt(env, request)
-  if (!auth.ok) return jsonError(401, auth.message)
-
-  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
-    return jsonError(500, 'usage analytics not configured: missing CF_ACCOUNT_ID / CF_API_TOKEN')
-  }
-
-  let body = {}
-  try { body = await request.json() } catch { body = {} }
-  const days = Math.min(USAGE_MAX_DAYS, Math.max(1, Number(body.days) || 7))
-  const keyHash = typeof body.keyHash === 'string' ? body.keyHash.trim() : ''
-  // SQL 注入防护：key_hash 只允许 64 位十六进制，非法直接拒绝（不拼进 SQL）
-  if (keyHash && !/^[a-f0-9]{64}$/i.test(keyHash)) {
-    return jsonError(400, 'invalid keyHash format')
-  }
-
-  const keyFilter = keyHash ? ` AND index1 = '${keyHash}'` : ''
-  // 按 KEY + IP 聚合：后台核心诉求是「哪个 KEY 下的哪个 IP 调用量异常」，
-  // path/status 维度会把行数放大数十倍，改为点击 KEY 后再按需查（后续可扩展）
-  const sql = [
-    'SELECT index1 AS key_hash, blob3 AS ip, count() AS calls, max(timestamp) AS last_seen',
-    `FROM ${USAGE_DATASET}`,
-    `WHERE timestamp >= NOW() - INTERVAL '${days}' DAY${keyFilter}`,
-    'GROUP BY key_hash, ip',
-    'ORDER BY calls DESC',
-    'LIMIT 1000',
-  ].join(' ')
-
+async function execUsageSql(env, sql) {
   const cfRes = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`,
     {
@@ -355,10 +343,88 @@ async function handleUsage(env, request) {
   if (!cfRes.ok) {
     const text = await cfRes.text().catch(() => '')
     console.error('[usage] Analytics Engine SQL API failed:', cfRes.status, text.slice(0, 300))
-    return jsonError(502, 'analytics query failed')
+    return { response: jsonError(502, `analytics query failed: ${text.slice(0, 200) || cfRes.status}`) }
   }
   const payload = await cfRes.json().catch(() => ({ data: [] }))
-  return jsonOk({ rows: payload.data || [], window_days: days, key_hash: keyHash })
+  return { rows: payload.data || [] }
+}
+
+/**
+ * 内部接口：POST /internal/usage
+ * 管理员查 API 用量，数据源为 Analytics Engine SQL API。
+ * 统计口径统一为 UTC 自然日 0-24 点（与 Cloudflare 免费额度按 UTC 零点重置的口径一致），
+ * 而非「从当前时刻往前推 N×24 小时」的滚动窗口。
+ * 两种模式：
+ *   mode='daily'  body: { start, end }            → 逐日 × KEY 的调用量（柱状图）
+ *                 返回 { rows: [{ date, key_hash, calls }], start, end }
+ *   mode='detail' body: { date, keyHash? }        → 指定 UTC 日的 KEY+IP 明细
+ *                 返回 { rows: [{ key_hash, ip, calls, last_seen }], date }
+ * 两种模式都可带 keyHash（64 位 hex）只查单个 KEY。
+ * 注意：AE 写入有约 1 分钟延迟，免费版只保留 30 天；查询失败返回 502 由后台提示。
+ */
+async function handleUsage(env, request) {
+  const auth = await verifyAdminJwt(env, request)
+  if (!auth.ok) return jsonError(401, auth.message)
+
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
+    return jsonError(500, 'usage analytics not configured: missing CF_ACCOUNT_ID / CF_API_TOKEN')
+  }
+
+  let body = {}
+  try { body = await request.json() } catch { body = {} }
+
+  const keyHash = typeof body.keyHash === 'string' ? body.keyHash.trim() : ''
+  // SQL 注入防护：key_hash 只允许 64 位十六进制，非法直接拒绝（不拼进 SQL）
+  if (keyHash && !/^[a-f0-9]{64}$/i.test(keyHash)) {
+    return jsonError(400, 'invalid keyHash format')
+  }
+  const keyFilter = keyHash ? ` AND index1 = '${keyHash}'` : ''
+
+  if (body.mode === 'detail') {
+    // 单日明细：同一 UTC 日内的 KEY + IP 聚合，用于定位异常 IP 后直接封禁
+    const date = normalizeUsageDate(body.date)
+    if (!date) return jsonError(400, 'invalid date format')
+    const sql = [
+      'SELECT index1 AS key_hash, blob3 AS ip, count() AS calls, max(timestamp) AS last_seen',
+      `FROM ${USAGE_DATASET}`,
+      `WHERE timestamp >= toDateTime('${date} 00:00:00', 'Etc/UTC') AND timestamp < toDateTime('${date} 00:00:00', 'Etc/UTC') + INTERVAL '1' DAY${keyFilter}`,
+      'GROUP BY key_hash, ip',
+      'ORDER BY calls DESC',
+      'LIMIT 1000',
+    ].join(' ')
+    const { rows, response } = await execUsageSql(env, sql)
+    if (response) return response
+    return jsonOk({ rows, mode: 'detail', date, key_hash: keyHash })
+  }
+
+  // 逐日 × KEY 分桶：日期边界用 toDateTime 对齐 UTC 零点，保证 0-24 点一个桶。
+  // 注意 AE SQL 是 ClickHouse 子集：没有 toDate()，且 GROUP BY 只接受列名（不接受表达式），
+  // 所以先 SELECT 出别名 day，再 GROUP BY day。
+  const start = normalizeUsageDate(body.start)
+  const end = normalizeUsageDate(body.end)
+  if (!start || !end) return jsonError(400, 'invalid date format')
+  const span = usageDaySpan(start, end)
+  if (span < 1 || span > USAGE_MAX_DAYS) {
+    return jsonError(400, `date range must be 1-${USAGE_MAX_DAYS} days`)
+  }
+  const sql = [
+    "SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Etc/UTC') AS day, index1 AS key_hash, count() AS calls",
+    `FROM ${USAGE_DATASET}`,
+    `WHERE timestamp >= toDateTime('${start} 00:00:00', 'Etc/UTC') AND timestamp < toDateTime('${end} 00:00:00', 'Etc/UTC') + INTERVAL '1' DAY${keyFilter}`,
+    'GROUP BY day, key_hash',
+    'ORDER BY day, calls DESC',
+    'LIMIT 10000',
+  ].join(' ')
+  const { rows, response } = await execUsageSql(env, sql)
+  if (response) return response
+  // 对外契约仍用 date 字段，前端无需感知 SQL 内部别名
+  return jsonOk({
+    rows: rows.map(r => ({ date: r.day, key_hash: r.key_hash, calls: r.calls })),
+    mode: 'daily',
+    start,
+    end,
+    key_hash: keyHash,
+  })
 }
 
 /** 上游请求超时（毫秒）：Supabase/文档站 hang 住时及时失败，不挂到平台 wall-clock 上限白占并发 */

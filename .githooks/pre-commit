@@ -2,11 +2,14 @@
 # pre-commit：本次提交包含 src/data/changelog.ts 时，
 # 自动把更新日志同步进 CHANGELOG.md 并并入本次提交（唯一数据源 = changelog.ts，无需手跑 npm run changelog:sync）
 if git diff --cached --name-only | grep -q '^src/data/changelog\.ts$'; then
-  echo "[pre-commit] 检测到 changelog.ts 变更，自动同步 CHANGELOG.md..."
+  # 注意：Windows 下 MSYS sh 的 echo 可能写 stdout 失败并返回非零，
+  # 用 || true 兜底，避免提示语句把整个钩子拖成失败（同步逻辑不受影响）
+  echo "[pre-commit] changelog.ts changed, syncing CHANGELOG.md..." || true
   node scripts/sync-readme-changelog.mjs || {
-    echo "[pre-commit] 同步脚本执行失败，提交已中止（修复后重新 commit 即可）"
+    echo "[pre-commit] sync script failed, commit aborted (fix and re-commit)" || true
     exit 1
   }
-  git add CHANGELOG.md
-  echo "[pre-commit] CHANGELOG.md 已同步并加入本次提交"
+  git add CHANGELOG.md || exit 1
+  echo "[pre-commit] CHANGELOG.md synced and staged" || true
 fi
+exit 0

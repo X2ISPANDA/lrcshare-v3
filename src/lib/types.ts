@@ -177,6 +177,16 @@ export interface BannedIp {
   created_at: string
 }
 
+/** API 逐日用量行（Analytics Engine 按 UTC 自然日 + KEY 分组，柱状图用） */
+export interface ApiUsageDailyRow {
+  /** UTC 自然日 YYYY-MM-DD */
+  date: string
+  /** 调用方 KEY 的 SHA-256 哈希（64 位 hex，对应 api_keys.key_hash） */
+  key_hash: string
+  /** 该日该 KEY 的调用次数 */
+  calls: number
+}
+
 /** API 用量聚合行（Analytics Engine 按 KEY + IP 分组） */
 export interface ApiUsageRow {
   /** 调用方 KEY 的 SHA-256 哈希（64 位 hex，对应 api_keys.key_hash） */
