@@ -22,6 +22,7 @@
     "@unhead/vue": "^2.1.17",
     "@vueuse/core": "^14.4.0",
     "@xmldom/xmldom": "^0.9.12",
+    "echarts": "^6.1.0",
     "element-plus": "^2.14.5",
     "fflate": "^0.8.3",
     "isomorphic-dompurify": "^3.19.0",
