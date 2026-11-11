@@ -1248,7 +1248,7 @@ BEGIN
   IF v_vid IS NULL THEN
     INSERT INTO public.lyric_versions (id, song_id, format, source, status, is_primary, contributor_id)
     VALUES (public.legacy_version_id(p_song_id), p_song_id,
-            CASE WHEN v_lrc ~ '<\d{1,6}>' THEN 'enhanced' ELSE 'lrc' END,
+            CASE WHEN v_lrc ~ '<\d{1,6}>' OR v_lrc ~ '<\d{1,3}:\d{2}[.:]\d{2,3}>' THEN 'enhanced' ELSE 'lrc' END,
             'user', 'published', true,
             (SELECT contributor_id FROM public.songs WHERE id = p_song_id))
     ON CONFLICT (id) DO NOTHING;

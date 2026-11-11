@@ -98,8 +98,8 @@
         :placeholder="isTtml ? '已识别为 TTML 源代码' : '粘贴 TTML 源代码 或 逐字 LRC 歌词'"
         class="font-mono!"
       />
-      <div class="text-xs mt-1" :class="lyrics ? (isTtml ? 'text-blue-500' : 'text-green-600') : 'text-gray-400'">
-        {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : '✓ 识别为 LRC') : '支持自动识别格式' }}
+      <div class="text-xs mt-1" :class="lyrics ? (isTtml ? 'text-blue-500' : isWordLevel ? 'text-emerald-600' : 'text-green-600') : 'text-gray-400'">
+        {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : isWordLevel ? '✓ 识别为逐字 LRC（词级时间轴完整保留）' : '✓ 识别为逐行 LRC') : '支持自动识别格式' }}
       </div>
       <div v-if="lyricParsed && lyricVersions.length" class="mt-3">
         <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑）：</div>
@@ -129,6 +129,7 @@ import {
   loadLyricVersionMetas,
   detectTimestampDuplicate,
   parseLrcToRows,
+  rowsHaveWordTags,
   type ExistingLyricVersion,
   type LyricLineRow,
   type LyricVersion,
@@ -221,6 +222,8 @@ function onContributorChange() { /* el-select 选择/新建后响应式自动处
 const lyrics = ref('')
 // 含音译标记：勾选后 LRC 同戳组末行按音译拆分（2 行组也生效）；TTML 不涉及
 const hasRoman = ref(false)
+/** 本次粘贴是否为词级（enhanced/verbatim）LRC：由拆分结果判定，仅用于格式提示文案 */
+const isWordLevel = ref(false)
 const email = ref('')
 const isTtml = computed(() => {
   const raw = lyrics.value.trim()
@@ -233,13 +236,15 @@ const lyricParsed = ref(false)
 
 function parseLyrics(silent = false) {
   const raw = lyrics.value.trim()
-  if (!raw || isTtml.value) { lyricVersions.value = []; lyricParsed.value = false; return }
+  if (!raw || isTtml.value) { lyricVersions.value = []; lyricParsed.value = false; isWordLevel.value = false; return }
   const versions = splitLrcToVersions(raw, { hasRoman: hasRoman.value })
   if (!versions.some(v => v.rows.length > 0)) {
     if (!silent) ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
     return
   }
-  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  // 词级数据往返无损：拆分结果以 enhanced 回填，词标签不丢，提交 payload 与落库 format 才能保持逐字
+  isWordLevel.value = versions.some(v => rowsHaveWordTags(v.rows))
+  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
   lyricParsed.value = true
 }
 
@@ -247,7 +252,7 @@ function parseLyrics(silent = false) {
 let parseTimer: ReturnType<typeof setTimeout> | null = null
 watch(lyrics, (val) => {
   if (parseTimer) clearTimeout(parseTimer)
-  if (!(val || '').trim()) { lyricVersions.value = []; lyricParsed.value = false; return }
+  if (!(val || '').trim()) { lyricVersions.value = []; lyricParsed.value = false; isWordLevel.value = false; return }
   parseTimer = setTimeout(() => parseLyrics(true), 600)
 })
 // 「含音译」勾选切换：已有粘贴内容时按新规则静默重拆
@@ -314,7 +319,7 @@ async function handleSubmit() {
     if (!vers.length) { ElMessage.warning('LRC 解析失败：未识别到带时间戳的歌词行'); return }
     const parsed = vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) }))
     versions = vers
-    lrcText = composeMixedLrc(parsed, 'line')
+    lrcText = composeMixedLrc(parsed, 'enhanced')
     parsedGroups = parsed
   }
 

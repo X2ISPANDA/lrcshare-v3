@@ -896,7 +896,7 @@ function resplitSdVersions(sd: any, hasRoman: boolean) {
   const text = (sd?.lrc_text || '').trim()
   if (!text) { ElMessage.info('该投稿无 LRC 全文，无法自动重拆，请手动调整各轨类型/语言'); return }
   const vers = splitLrcToVersions(text, { hasRoman })
-  sd.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  sd.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
 }
 
 /** 深拷贝 song_data 并规范化：补数组字段、_new 标记、按名自动绑定已入库艺术家/专辑（大小写不敏感，
@@ -918,7 +918,7 @@ function normalizeSubmission(row: any): any {
   // 投稿未带多语言版本（批量传 LRC 文件 / 老投稿）→ 从 lrc_text 自动拆分，审核人只需核对、无需逐首手动拆
   if (!edited.versions.length && edited.lrc_text?.trim()) {
     const vers = splitLrcToVersions(edited.lrc_text.trim())
-    edited.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+    edited.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
   }
   for (const f of ARTIST_FIELDS) {
     edited[f.key].forEach((item: any) => {
