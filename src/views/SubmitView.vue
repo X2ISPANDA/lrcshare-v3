@@ -260,12 +260,14 @@
             rows="8"
             required
             class="w-full px-4 py-2 border border-gray-200 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
-            placeholder="在此粘贴 LRC 或 TTML 歌词..."
+            :placeholder="isTtmlInput ? '已识别为 TTML 源代码' : '粘贴 TTML 源代码 或 逐字 LRC 歌词'"
           ></textarea>
+          <div class="text-xs mt-1" :class="song.lrcText ? (isTtmlInput ? 'text-blue-500' : isWordLevel ? 'text-emerald-600' : 'text-green-600') : 'text-gray-400'">
+            {{ song.lrcText ? (isTtmlInput ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : isWordLevel ? '✓ 识别为逐字 LRC（词级时间轴完整保留）' : '✓ 识别为逐行 LRC') : '支持自动识别格式' }}
+          </div>
 
           <div v-if="lyricParsed" class="mt-3">
-            <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑；如需修改请返回上方编辑总 LRC）：</div>
-            <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" />
+            <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" hint />
           </div>
         </div>
 
@@ -307,7 +309,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { CONTACT_TYPES, VALIDATION_ABORT } from '@/lib/constants'
-import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, type LyricKind } from '@/lib/lyricLines'
+import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, rowsHaveWordTags, type LyricKind } from '@/lib/lyricLines'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
 import type { Artist } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
@@ -376,6 +378,12 @@ const lyricVersions = ref<LyricVersionForm[]>([])
 const lyricParsed = ref(false)
 // 含音译标记：投稿人勾选后，同戳组末行按音译拆分（2 行组也生效）；切换即重拆
 const hasRoman = ref(false)
+// 格式提示：TTML 用正则即时判断；LRC 是否逐字由拆分结果判定（与补充版本页保持一致）
+const isTtmlInput = computed(() => {
+  const raw = song.lrcText.trim()
+  return /^<\s*tt\b/i.test(raw) || /<p\s+begin=/i.test(raw)
+})
+const isWordLevel = ref(false)
 
 function parseLyrics(silent = false) {
   const raw = song.lrcText.trim()
@@ -400,6 +408,7 @@ function parseLyrics(silent = false) {
     return
   }
   // 词级数据往返无损：以 enhanced 回填，词标签不丢，提交 payload 与落库 format 才能保持逐字
+  isWordLevel.value = versions.some(v => rowsHaveWordTags(v.rows))
   lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
   lyricParsed.value = true
 }
@@ -411,6 +420,7 @@ watch(() => song.lrcText, (val) => {
   if (!(val || '').trim()) {
     lyricVersions.value = []
     lyricParsed.value = false
+    isWordLevel.value = false
     return
   }
   parseTimer = setTimeout(() => parseLyrics(true), 600)

@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-3">
+    <div v-if="hint" class="text-sm text-gray-600">识别到 {{ model.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑）：</div>
     <el-checkbox v-model="hasRoman" size="small">含音译（勾选后同戳组最后一行按音译拆分，2 行组也生效；不勾则除首行外均为翻译）</el-checkbox>
     <div v-for="(v, i) in model" :key="i" class="border border-gray-200 rounded-lg p-3 bg-gray-50/50">
       <div class="flex items-center gap-2 mb-2">
@@ -46,11 +47,14 @@ const props = withDefaults(defineProps<{
   addDefaultKind?: LyricKind
   /** 内容只读：仅允许选语言/类型，不允许改 LRC 内容（投稿端：用户只提交总 LRC，分轨自动生成） */
   readonlyContent?: boolean
+  /** 显示「识别到 N 个语言版本」提示（投稿端统一文案，避免各页面各写一份） */
+  hint?: boolean
 }>(), {
   addDisabled: false,
   addDefaultLang: 'en',
   addDefaultKind: 'translation',
   readonlyContent: false,
+  hint: false,
 })
 
 const model = defineModel<LyricVersionForm[]>({ required: true })

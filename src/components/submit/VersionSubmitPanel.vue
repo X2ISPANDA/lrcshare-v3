@@ -102,8 +102,7 @@
         {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : isWordLevel ? '✓ 识别为逐字 LRC（词级时间轴完整保留）' : '✓ 识别为逐行 LRC') : '支持自动识别格式' }}
       </div>
       <div v-if="lyricParsed && lyricVersions.length" class="mt-3">
-        <div class="text-sm text-gray-600 mb-2">识别到 {{ lyricVersions.length }} 个语言版本，请确认语言（内容由总 LRC 自动拆分，不可编辑）：</div>
-        <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" />
+        <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" hint />
       </div>
     </div>
 
