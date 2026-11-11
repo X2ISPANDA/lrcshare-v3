@@ -95,12 +95,10 @@
         v-model="lyrics"
         type="textarea"
         :rows="10"
-        :placeholder="isTtml ? '已识别为 TTML 源代码' : '粘贴 TTML 源代码 或 逐字 LRC 歌词'"
+        :placeholder="lyricInputPlaceholder(lyrics)"
         class="font-mono!"
       />
-      <div class="text-xs mt-1" :class="lyrics ? (isTtml ? 'text-blue-500' : isWordLevel ? 'text-emerald-600' : 'text-green-600') : 'text-gray-400'">
-        {{ lyrics ? (isTtml ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : isWordLevel ? '✓ 识别为逐字 LRC（词级时间轴完整保留）' : '✓ 识别为逐行 LRC') : '支持自动识别格式' }}
-      </div>
+      <LyricFormatHint :text="lyrics" />
       <div v-if="lyricParsed && lyricVersions.length" class="mt-3">
         <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" hint />
       </div>
@@ -118,6 +116,7 @@ import { ElMessage } from 'element-plus'
 import { api } from '@/lib/api'
 import type { Contributor, SongWithNames } from '@/lib/types'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
+import LyricFormatHint from '@/components/common/LyricFormatHint.vue'
 import {
   parseTtmlToRows,
   rowsToLrcText,
@@ -129,6 +128,7 @@ import {
   detectTimestampDuplicate,
   parseLrcToRows,
   rowsHaveWordTags,
+  lyricInputPlaceholder,
   type ExistingLyricVersion,
   type LyricLineRow,
   type LyricVersion,
