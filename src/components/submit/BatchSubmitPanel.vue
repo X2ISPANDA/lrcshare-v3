@@ -344,7 +344,7 @@ function pushRow(lrcText: string, fileName: string) {
     duration: '',
     lrcText: text,
     fileName,
-    versions: vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) })),
+    versions: vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') })),
     hasRoman: false,
     overrides: emptyOverrides(),
   })
@@ -358,7 +358,7 @@ function resplitRowVersions(row: any, hasRoman: boolean) {
   const text = (row.lrcText || '').trim()
   if (!text) return
   const vers = splitLrcToVersions(text, { hasRoman })
-  row.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  row.versions = vers.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
 }
 
 async function onFilesChosen(e: Event) {
@@ -421,7 +421,7 @@ function buildSongData(row: BatchRow) {
   // 多语言版本：合成 lrc_text + 存 versions（投稿人调整过的版本精确入库，发布链优先用 versions）
   const vers = (row.versions || []).filter(v => v.lrc.trim())
   const lrcText = vers.length
-    ? composeMixedLrc(vers.map(v => ({ lang: v.lang || 'zh', kind: v.kind, rows: parseLrcToRows(v.lrc) })), 'line')
+    ? composeMixedLrc(vers.map(v => ({ lang: v.lang || 'zh', kind: v.kind, rows: parseLrcToRows(v.lrc) })), 'enhanced')
     : row.lrcText.trim()
   return {
     type: 'song',

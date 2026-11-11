@@ -399,7 +399,8 @@ function parseLyrics(silent = false) {
     if (!silent) ElMessage.warning('未解析出歌词行，请检查 LRC 格式')
     return
   }
-  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows) }))
+  // 词级数据往返无损：以 enhanced 回填，词标签不丢，提交 payload 与落库 format 才能保持逐字
+  lyricVersions.value = versions.map(v => ({ lang: v.lang, kind: v.kind, lrc: rowsToLrcText(v.rows, 'enhanced') }))
   lyricParsed.value = true
 }
 
@@ -525,7 +526,7 @@ async function handleSubmit() {
       return
     }
     versions = vers
-    lrcText = composeMixedLrc(vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) })), 'line')
+    lrcText = composeMixedLrc(vers.map(v => ({ lang: v.lang, kind: v.kind as LyricKind, rows: parseLrcToRows(v.lrc) })), 'enhanced')
   } else if (isTtml) {
     const rows = parseTtmlToRows(rawLyrics)
     if (!rows.length) {
