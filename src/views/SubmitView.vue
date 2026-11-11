@@ -260,11 +260,9 @@
             rows="8"
             required
             class="w-full px-4 py-2 border border-gray-200 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
-            :placeholder="isTtmlInput ? '已识别为 TTML 源代码' : '粘贴 TTML 源代码 或 逐字 LRC 歌词'"
+            :placeholder="lyricInputPlaceholder(song.lrcText)"
           ></textarea>
-          <div class="text-xs mt-1" :class="song.lrcText ? (isTtmlInput ? 'text-blue-500' : isWordLevel ? 'text-emerald-600' : 'text-green-600') : 'text-gray-400'">
-            {{ song.lrcText ? (isTtmlInput ? '✓ 识别为 TTML（对唱/样式数据完整保留）' : isWordLevel ? '✓ 识别为逐字 LRC（词级时间轴完整保留）' : '✓ 识别为逐行 LRC') : '支持自动识别格式' }}
-          </div>
+          <LyricFormatHint :text="song.lrcText" />
 
           <div v-if="lyricParsed" class="mt-3">
             <LyricVersionsEditor v-model="lyricVersions" v-model:has-roman="hasRoman" :readonly-content="true" hint />
@@ -309,8 +307,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useHead } from '@unhead/vue'
 import { api } from '@/lib/api'
 import { CONTACT_TYPES, VALIDATION_ABORT } from '@/lib/constants'
-import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, rowsHaveWordTags, type LyricKind } from '@/lib/lyricLines'
+import { parseTtmlToRows, rowsToLrcText, splitLrcToVersions, parseLrcToRows, composeMixedLrc, rowsHaveWordTags, lyricInputPlaceholder, type LyricKind } from '@/lib/lyricLines'
 import LyricVersionsEditor, { type LyricVersionForm } from '@/components/common/LyricVersionsEditor.vue'
+import LyricFormatHint from '@/components/common/LyricFormatHint.vue'
 import type { Artist } from '@/lib/types'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
 import DurationInput from '@/components/common/DurationInput.vue'
@@ -378,11 +377,7 @@ const lyricVersions = ref<LyricVersionForm[]>([])
 const lyricParsed = ref(false)
 // 含音译标记：投稿人勾选后，同戳组末行按音译拆分（2 行组也生效）；切换即重拆
 const hasRoman = ref(false)
-// 格式提示：TTML 用正则即时判断；LRC 是否逐字由拆分结果判定（与补充版本页保持一致）
-const isTtmlInput = computed(() => {
-  const raw = song.lrcText.trim()
-  return /^<\s*tt\b/i.test(raw) || /<p\s+begin=/i.test(raw)
-})
+// 逐字判定：格式提示由 LyricFormatHint 统一渲染，这里保留判定供拆分结果使用
 const isWordLevel = ref(false)
 
 function parseLyrics(silent = false) {

@@ -477,6 +477,22 @@ export function rowsHaveWordTags(rows: Pick<LyricRow, 'text'>[]): boolean {
   return rows.some(r => /<\d{1,6}>/.test(String(r.text || '')))
 }
 
+/** 投稿输入格式（唯一判定来源：投稿端各页面共用，避免各自手写正则/提示文案） */
+export type LyricInputFormat = 'ttml' | 'enhanced' | 'line' | 'empty'
+
+/** 判定用户粘贴的歌词格式：TTML 原文 / 逐字 LRC / 逐行 LRC / 空 */
+export function detectLyricInput(raw: string): LyricInputFormat {
+  const text = (raw || '').trim()
+  if (!text) return 'empty'
+  if (/^<\s*tt\b/i.test(text) || /<p\s+begin=/i.test(text)) return 'ttml'
+  return rowsHaveWordTags(parseLrcToRows(text)) ? 'enhanced' : 'line'
+}
+
+/** 歌词输入框 placeholder：TTML 识别成功后提示已识别，其余引导粘贴两种格式 */
+export function lyricInputPlaceholder(raw: string): string {
+  return detectLyricInput(raw) === 'ttml' ? '已识别为 TTML 源代码' : '粘贴 TTML 源代码 或 逐字 LRC 歌词'
+}
+
 /** 多版本合成 LRC（元数据头部去重 + 同戳同文本行去重 + 全部版本歌词合并稳定排序 + 格式化），供写回 lrc_text。
  *  同时间戳+剥标签文本相同的行只保留排序最前者（original rank 最高→公共行/重复堆行以原文为准），
  *  兜底「同一版本内补翻译/音译时连头部公共行一起贴入」造成的重复 */

@@ -181,8 +181,15 @@
         </div>
 
         <!-- 歌词只读预览（审核把关：不合格直接拒绝，不提供编辑） -->
-        <div class="text-xs text-gray-400 mb-1">{{ review.edited_data?.ttml_text?.trim() ? 'TTML 原文（对唱/样式数据完整保留，发布后运行时解析）' : 'LRC 歌词（发布后写入行表，独立成版本）' }}</div>
-        <pre class="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs leading-relaxed overflow-auto" style="max-height: 46vh; white-space: pre-wrap; word-break: break-all;">{{ review.edited_data?.ttml_text?.trim() ? review.edited_data.ttml_text : review.edited_data?.lrc_text }}</pre>
+        <LyricReviewPreview
+          :format="versionReviewFormat"
+          :ttml-text="review.edited_data?.ttml_text"
+          :lrc-text="review.edited_data?.lrc_text"
+        />
+        <details class="mt-2">
+          <summary class="cursor-pointer text-xs text-blue-600 select-none">原文（{{ versionReviewFormat === 'ttml' ? 'TTML' : 'LRC' }}，只读）</summary>
+          <pre class="mt-1 bg-gray-900 text-gray-100 rounded-lg p-3 text-xs leading-relaxed overflow-auto" style="max-height: 46vh; white-space: pre-wrap; word-break: break-all;">{{ review.edited_data?.ttml_text?.trim() ? review.edited_data.ttml_text : review.edited_data?.lrc_text }}</pre>
+        </details>
       </template>
 
       <template #footer>
@@ -600,6 +607,7 @@ import { syncSongContributors, syncAlbumContributors } from '@/lib/contribRelati
 import { contactLabel, GENRE_OPTIONS } from '@/lib/constants'
 import { useUiStore } from '@/stores/ui'
 import { splitLrcToVersions, rowsToLrcText, parseLrcToRows, detectTtmlLangs, saveLyricLines, rowsHaveWordTags } from '@/lib/lyricLines'
+import LyricReviewPreview from '@/components/common/LyricReviewPreview.vue'
 import LyricVersionsEditor from '@/components/common/LyricVersionsEditor.vue'
 import DurationInput from '@/components/common/DurationInput.vue'
 import ArtistTagInput from '@/components/submit/ArtistTagInput.vue'
@@ -863,6 +871,14 @@ function onReviewReject() {
 const isProfileReview = computed(() => review.value?.song_data?.type === 'profile')
 /** 补充歌词版本投稿（song_data.type === 'song_version'）：精简弹窗，通过时只写版本不建歌 */
 const isVersionReview = computed(() => review.value?.song_data?.type === 'song_version')
+
+/** 补充版本投稿的歌词格式：由数据字段直接决定（有 ttml_text 即 TTML；LRC 再看是否带词级），不做输入猜测 */
+const versionReviewFormat = computed<'ttml' | 'enhanced' | 'lrc'>(() => {
+  const d = review.value?.edited_data
+  if (!d) return 'lrc'
+  if ((d.ttml_text || '').trim()) return 'ttml'
+  return rowsHaveWordTags(parseLrcToRows(d.lrc_text || '')) ? 'enhanced' : 'lrc'
+})
 
 /** contact_value（JSONB）→ 可展示的键值列表（过滤空值） */
 function contactEntries(row: any): { k: string; v: string }[] {
