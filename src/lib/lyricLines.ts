@@ -1674,6 +1674,49 @@ export function parseTtmlStructure(xml: string): TtmlStructure {
   return { lines, agentMeta, hasAgent, hasWordTiming, hasRuby }
 }
 
+/** 展示用行分组：original 为一行，translation/未配对音译作随行（同 begin 关联）；
+ *  音译逐字配对成功（romanUnits）时挂原文行做逐字注音 */
+export interface TtmlGroup {
+  line: TtmlRenderLine
+  translations: TtmlRenderLine[]
+  romanUnits?: TtmlRomanUnit[]
+}
+
+/** TTML 结构化结果 → 展示分组（唯一实现：歌曲详情文本歌词页与审核预览共用） */
+export function groupTtmlLines(
+  st: TtmlStructure,
+  filter: 'all' | LyricKind = 'all',
+  lang = 'all',
+): TtmlGroup[] {
+  const groups: TtmlGroup[] = []
+  const beginIndex = new Map<number, number>()
+  for (const l of st.lines) {
+    if (filter !== 'all' && l.kind !== filter) continue
+    // 语言筛选：「全部类型」视图下原文行始终保留（锚点）；译文行按语言过滤；
+    // 音译轨是原文的注音层、不参与语言过滤（跟随原文行，其显隐另由注音开关控制）
+    if (lang !== 'all' && l.kind !== 'romanization' && l.lang !== lang && !(l.kind === 'original' && filter === 'all')) continue
+    if (l.kind === 'original') {
+      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
+      if (gi != null) {
+        groups[gi].translations.push(l)
+      } else {
+        if (l.begin != null && !beginIndex.has(l.begin)) beginIndex.set(l.begin, groups.length)
+        groups.push({ line: l, translations: [] })
+      }
+    } else {
+      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
+      if (gi != null) {
+        // 配对成功的音译轨永远挂原文行做逐字注音；译文/配对失败音译入随行（灰字）
+        if (l.kind === 'romanization' && l.romanUnits && !groups[gi].romanUnits) groups[gi].romanUnits = l.romanUnits
+        else groups[gi].translations.push(l)
+      } else {
+        groups.push({ line: l, translations: [] })
+      }
+    }
+  }
+  return groups
+}
+
 /** 从 TTML 原文提取语言集合（供入库 langs 摘要）。
  *  规则（与 LRC 侧「整体判定」对齐，零星外语 punchline/和声不产生独立语言标签）：
  *  1. 主体语言优先取根 xml:lang（BCP47 经 ttmlLangToLrc 归一为站内码，zh-Hans→zh）；

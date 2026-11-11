@@ -419,6 +419,7 @@ import {
   loadLyricLines,
   loadLyricVersionMetas,
   parseTtmlStructure,
+  groupTtmlLines,
   parseTtmlToRows,
   parseTtmlToVersions,
   composeMixedLrc,
@@ -430,8 +431,7 @@ import {
   type LyricLineRow,
   type LyricVersion,
   type LyricVersionMeta,
-  type TtmlRenderLine,
-  type TtmlRomanUnit,
+  type TtmlGroup,
   type TtmlStructure,
 } from '@/lib/lyricLines'
 import RewardModal from '@/components/common/RewardModal.vue'
@@ -862,42 +862,11 @@ watch(ttmlLangOptions, opts => {
   if (ttmlLangFilter.value !== 'all' && !opts.includes(ttmlLangFilter.value)) ttmlLangFilter.value = 'all'
 })
 
-/** 渲染分组：original 为一行，translation 作随行（同 begin 关联）；
- *  音译逐字配对成功（romanUnits）时始终挂在原文行做逐字注音（唯一排版，显隐由「注音」
- *  开关在模板控制，分组阶段不再受开关影响）；配对失败的音译行降级入随行灰字（开关关时由模板隐藏） */
-interface TtmlGroup { line: TtmlRenderLine; translations: TtmlRenderLine[]; romanUnits?: TtmlRomanUnit[] }
+/** 渲染分组：分组规则统一由 lyricLines.groupTtmlLines 提供（审核预览同一实现） */
 const ttmlGroups = computed<TtmlGroup[]>(() => {
   const st = ttmlStructure.value
   if (!st) return []
-  const filter = ttmlKindFilter.value
-  const lang = ttmlLangFilter.value
-  const groups: TtmlGroup[] = []
-  const beginIndex = new Map<number, number>()
-  for (const l of st.lines) {
-    if (filter !== 'all' && l.kind !== filter) continue
-    // 语言筛选：「全部类型」视图下原文行始终保留（锚点）；译文行按语言过滤；
-    // 音译轨是原文的注音层、不参与语言过滤（跟随原文行，其显隐另由注音开关控制）
-    if (lang !== 'all' && l.kind !== 'romanization' && l.lang !== lang && !(l.kind === 'original' && filter === 'all')) continue
-    if (l.kind === 'original') {
-      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
-      if (gi != null) {
-        groups[gi].translations.push(l)
-      } else {
-        if (l.begin != null && !beginIndex.has(l.begin)) beginIndex.set(l.begin, groups.length)
-        groups.push({ line: l, translations: [] })
-      }
-    } else {
-      const gi = l.begin != null ? beginIndex.get(l.begin) : undefined
-      if (gi != null) {
-        // 配对成功的音译轨永远挂原文行做逐字注音；译文/配对失败音译入随行（灰字）
-        if (l.kind === 'romanization' && l.romanUnits && !groups[gi].romanUnits) groups[gi].romanUnits = l.romanUnits
-        else groups[gi].translations.push(l)
-      } else {
-        groups.push({ line: l, translations: [] })
-      }
-    }
-  }
-  return groups
+  return groupTtmlLines(st, ttmlKindFilter.value, ttmlLangFilter.value)
 })
 
 /** TTML 结构化视图当前筛选下的纯文本（「全部复制」导出与显示同源；和声行带（合）前缀）。
