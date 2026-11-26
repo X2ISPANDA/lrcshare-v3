@@ -3,7 +3,6 @@
  *
  * 使用方：
  *   - cloudflare/open-api.js        （CF Worker，wrangler esbuild 打包）
- *   - cloudflare/ttml-sync/worker.js（CF Worker + Node/GHA 脚本共用）
  *   - src/lib/lyricLines.ts         （前端，类型经同名 lang.d.mts 提供）
  *
  * 规则变更只改本文件（历史上三端手抄已发生过漂移：detectLang 的汉字/拉丁
@@ -17,15 +16,12 @@
  * - 简体组 → 'zh'；繁体组（zh-Hant/HK/MO/TW 及无 script 的 zh-HK/zh-MO/zh-TW）
  *   统一 → 'zh-Hant'（不再按地区细分：下游播放器按 Apple 标准粗标签精确匹配，细分会 miss）；
  *   粤语 'yue'/'zh-yue' 正文 → 'zh-Hant'（Apple 生态惯例，粤语身份由 Cantopop 曲风承载）；
- * - foldToBase=false（默认）：其余标签原样保留——含 zh-Latn-jyutping / ja-Latn 等
- *   BCP47 拉丁化音译标签（跟随国际标准，不折叠站内码），open-api 合成端用；
- * - foldToBase=true：未知标签折叠到主子标签（en-US → en），ttml-sync langs 摘要用
- *   （已知组先匹配再折叠，与折叠端原实现行为一致）。
+ * - 其余标签原样保留——含 zh-Latn-jyutping / ja-Latn 等 BCP47 拉丁化音译标签
+ *   （跟随国际标准，不折叠站内码），open-api 合成端用。
  * @param {string} raw 原始语言标签（可含 xml: 前缀）
- * @param {{ foldToBase?: boolean }} [opts]
  * @returns {string | null}
  */
-export function normalizeTtmlLang(raw, opts = {}) {
+export function normalizeTtmlLang(raw) {
   const v = String(raw || '').replace(/^xml:/i, '').trim()
   if (!v) return null
   const low = v.toLowerCase()
@@ -35,10 +31,6 @@ export function normalizeTtmlLang(raw, opts = {}) {
   if (['zh-hant', 'zh-hant-hk', 'zh-hk', 'zh-hant-mo', 'zh-mo', 'zh-hant-tw', 'zh-tw'].includes(low)) return 'zh-Hant'
   // 粤语正文统一归 zh-Hant（Apple 生态粤语 TTML 即标繁体中文；粤语身份由 Cantopop 曲风和粤拼音译轨承载）
   if (low === 'yue' || low === 'zh-yue') return 'zh-Hant'
-  if (opts.foldToBase) {
-    const base = v.split('-')[0]
-    return base || null
-  }
   return v
 }
 

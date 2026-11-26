@@ -306,33 +306,6 @@ CREATE TABLE submissions (
   PRIMARY KEY (id)
 );
 
-CREATE TABLE ttml_hub_pending (
-  id text NOT NULL,
-  title text NOT NULL,
-  artists text[] DEFAULT '{}'::text[] NOT NULL,
-  album text,
-  source_ids jsonb DEFAULT '{}'::jsonb NOT NULL,
-  path text NOT NULL,
-  sha256 text,
-  reason text NOT NULL,
-  candidates jsonb,
-  resolution text,
-  resolved_song text,
-  created_at timestamp with time zone DEFAULT now() NOT NULL,
-  resolved_at timestamp with time zone,
-  PRIMARY KEY (id)
-);
-
-CREATE TABLE ttml_hub_state (
-  id text DEFAULT 'singleton'::text NOT NULL,
-  revision text,
-  etag text,
-  last_check timestamp with time zone,
-  last_sync timestamp with time zone,
-  snapshot jsonb,
-  PRIMARY KEY (id)
-);
-
 -- Constraints (FK / Unique / Check)
 ALTER TABLE album_contributors ADD CONSTRAINT album_contributors_album_id_fkey FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE;
 ALTER TABLE album_contributors ADD CONSTRAINT album_contributors_artist_id_fkey FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE RESTRICT;
@@ -381,8 +354,6 @@ ALTER TABLE songs ADD CONSTRAINT songs_album_id_fkey FOREIGN KEY (album_id) REFE
 ALTER TABLE songs ADD CONSTRAINT songs_contributor_id_fkey FOREIGN KEY (contributor_id) REFERENCES contributors(id) ON DELETE SET NULL;
 ALTER TABLE submissions ADD CONSTRAINT submissions_status_chk CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'withdrawn'::text])));
 ALTER TABLE submissions ADD CONSTRAINT submissions_contributor_id_fkey FOREIGN KEY (contributor_id) REFERENCES contributors(id) ON DELETE SET NULL;
-ALTER TABLE ttml_hub_pending ADD CONSTRAINT ttml_hub_pending_reason_check CHECK ((reason = ANY (ARRAY['multi_candidate'::text, 'low_confidence'::text, 'conflict'::text])));
-ALTER TABLE ttml_hub_pending ADD CONSTRAINT ttml_hub_pending_resolution_check CHECK (((resolution IS NULL) OR (resolution = ANY (ARRAY['merged'::text, 'created'::text, 'ignored'::text]))));
 
 -- Indexes
 CREATE INDEX idx_album_contributors_artist ON public.album_contributors USING btree (artist_id);
@@ -418,7 +389,6 @@ CREATE INDEX idx_sponsors_amount ON public.sponsors USING btree (amount DESC);
 CREATE INDEX idx_sponsors_datatime ON public.sponsors USING btree (datatime DESC);
 CREATE INDEX idx_submissions_batch_id ON public.submissions USING btree (batch_id) WHERE (batch_id IS NOT NULL);
 CREATE INDEX idx_submissions_status ON public.submissions USING btree (status);
-CREATE INDEX ttml_hub_pending_open_idx ON public.ttml_hub_pending USING btree (created_at) WHERE (resolution IS NULL);
 
 -- Comments
 COMMENT ON TABLE albums IS '专辑表：存储音乐专辑信息';
@@ -560,8 +530,6 @@ ALTER TABLE song_secrets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE songs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sponsors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ttml_hub_pending ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ttml_hub_state ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "专辑贡献：所有人可读" ON public.album_contributors AS PERMISSIVE FOR SELECT TO public USING (true);
 CREATE POLICY "专辑贡献：管理员可删" ON public.album_contributors AS PERMISSIVE FOR DELETE TO public USING ((auth.role() = 'authenticated'::text));
 CREATE POLICY "专辑贡献：管理员可增" ON public.album_contributors AS PERMISSIVE FOR INSERT TO public WITH CHECK ((auth.role() = 'authenticated'::text));
@@ -630,8 +598,6 @@ CREATE POLICY "投稿：任何人可提交" ON public.submissions AS PERMISSIVE 
 CREATE POLICY "投稿：管理员可删除" ON public.submissions AS PERMISSIVE FOR DELETE TO public USING ((auth.role() = 'authenticated'::text));
 CREATE POLICY "投稿：管理员可更新" ON public.submissions AS PERMISSIVE FOR UPDATE TO public USING ((auth.role() = 'authenticated'::text)) WITH CHECK ((auth.role() = 'authenticated'::text));
 CREATE POLICY "投稿：管理员可查看所有" ON public.submissions AS PERMISSIVE FOR SELECT TO public USING ((auth.role() = 'authenticated'::text));
-CREATE POLICY "待匹配：管理员全权" ON public.ttml_hub_pending AS PERMISSIVE FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "同步状态：管理员只读" ON public.ttml_hub_state AS PERMISSIVE FOR SELECT TO authenticated USING (true);
 
 -- Functions
 CREATE OR REPLACE FUNCTION public.admin_merge_contributors(p_source text, p_target text, p_profile jsonb)

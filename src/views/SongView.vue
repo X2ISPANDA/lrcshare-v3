@@ -439,6 +439,7 @@ import RichContentView from '@/components/common/RichContentView.vue'
 import CreditLinks from '@/components/song/CreditLinks.vue'
 import VersionSubmitPanel from '@/components/submit/VersionSubmitPanel.vue'
 import type { Artist, Contributor, Song, SongWithNames } from '@/lib/types'
+import { escapeHtml } from '@/lib/highlight'
 
 const route = useRoute()
 const router = useRouter()
@@ -749,7 +750,7 @@ const textLyricsHtml = computed(() => {
   const src = textLyricsSource.value
   if (!src) return ''
   if (song.value?.lyrics_text) return mdToHtml(src)
-  return src.split('\n').map(line => line || '&nbsp;').join('<br>')
+  return src.split('\n').map(line => escapeHtml(line) || '&nbsp;').join('<br>')
 })
 
 // ============ 多语言歌词（LRC tab：版本源 → 语言 tab → 格式切换） ============

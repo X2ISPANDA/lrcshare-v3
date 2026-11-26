@@ -7,7 +7,7 @@
  *   SUPABASE_ANON_KEY  anon key（仅 anon，service_role 禁止配置）
  *   SESSION_SECRET     HMAC 签名密钥，用于签发/校验 session_token（随机长字符串）
  * KV 绑定（wrangler.toml kv_namespaces）：
- *   API_KV             存 active key hash 列表 + catalog 数据本体
+ *   API_KV             存鉴权快照（active key hash 列表 + 封禁 IP 列表）+ catalog 数据本体
  *
  * 设计要点：
  * - 鉴权（2026-10 升级）：所有 /v1/* 端点强制要求 X-API-Key 头（注册制，后台手动签发）；
@@ -104,32 +104,36 @@ async function verifySession(token, secret, expectedClientId) {
 }
 
 /**
- * 获取 active API Key 的 hash 列表（Set<string>）。
- * 优先读 KV 缓存；KV 无值则调 Supabase RPC（get_active_api_key_hashes，SECURITY DEFINER）
- * 并写回 KV。
+ * 获取鉴权快照（active API Key hash 列表 + 封禁 IP 列表）。
+ * 两个列表合并进同一个 KV 键，使每个 /v1 请求只需 1 次 KV 读（原先鉴权要读 2 次）。
+ * 优先读 KV 缓存；未命中则并行回源两个 Supabase RPC（SECURITY DEFINER）并写回。
+ * @returns {Promise<{ hashes: Set<string>, ips: Set<string> }>}
  */
-async function getActiveApiKeyHashes(env) {
+async function getAuthSnapshot(env) {
   const kv = env.API_KV
   if (kv) {
     try {
-      const cached = await kv.get(API_KEYS_KV_KEY, { type: 'json' })
-      if (cached && Array.isArray(cached.hashes)) {
-        return new Set(cached.hashes)
+      const cached = await kv.get(AUTH_SNAPSHOT_KV_KEY, { type: 'json' })
+      if (cached && Array.isArray(cached.hashes) && Array.isArray(cached.ips)) {
+        return { hashes: new Set(cached.hashes), ips: new Set(cached.ips) }
       }
     } catch (e) {
       // KV 读失败（配额 429 / 服务故障）→ 视为未命中，回源 Supabase，避免 API 整体 500
-      console.error('[api] kv.get active_api_keys failed, fallback to supabase', e)
+      console.error('[api] kv.get auth_snapshot failed, fallback to supabase', e)
     }
   }
-  // KV 未命中 → 回源 Supabase RPC（SECURITY DEFINER，anon 可调用）
-  const res = await pgRpc(env, 'get_active_api_key_hashes', {})
-  const hashes = (res && res.data) || []
-  const set = new Set(hashes)
+  // KV 未命中 → 并行回源两个 RPC（原先串行两次，改并行后总耗时不增反降）
+  const [keyRes, ipRes] = await Promise.all([
+    pgRpc(env, 'get_active_api_key_hashes', {}),
+    pgRpc(env, 'get_banned_ips', {}),
+  ])
+  const hashes = (keyRes && keyRes.data) || []
+  const ips = (ipRes && ipRes.data) || []
   if (kv) {
     // 写回 KV（TTL 兜底 1h）；不阻塞当前请求
-    ctxWaitUntilSafe(env, kv.put(API_KEYS_KV_KEY, JSON.stringify({ hashes }), { expirationTtl: API_KEYS_CACHE_TTL }))
+    ctxWaitUntilSafe(env, kv.put(AUTH_SNAPSHOT_KV_KEY, JSON.stringify({ hashes, ips }), { expirationTtl: AUTH_SNAPSHOT_TTL }))
   }
-  return set
+  return { hashes: new Set(hashes), ips: new Set(ips) }
 }
 
 /** ctx.waitUntil 的安全包装：某些环境（如本地 dev）ctx 可能不可用 */
@@ -142,8 +146,8 @@ function ctxWaitUntilSafe(env, promise) {
 
 /**
  * 内部接口：POST /internal/refresh-keys
- * 后台封禁/启用 API Key 后调用，主动删除 KV 中的 active key 缓存，
- * 使封禁立即生效（否则要等 1h TTL 兜底）。
+ * 后台封禁/启用 API Key 后调用，主动删除 KV 中的鉴权快照缓存，
+ * 使封禁立即生效（否则要等 1h TTL 兜底）。快照已与封禁 IP 合并，两者会一并重建。
  * 鉴权：Authorization Bearer <Supabase admin JWT>，调 Supabase /auth/v1/user 验证。
  */
 async function handleRefreshKeys(env, request) {
@@ -165,7 +169,7 @@ async function handleRefreshKeys(env, request) {
   // JWT 有效（Supabase 返回了用户信息），执行清缓存
   const kv = env.API_KV
   if (kv) {
-    await kv.delete(API_KEYS_KV_KEY)
+    await kv.delete(AUTH_SNAPSHOT_KV_KEY)
   }
   return new Response(
     JSON.stringify({ code: 200, data: { refreshed: true } }),
@@ -232,43 +236,16 @@ function normalizeIpForBan(ip) {
 }
 
 /**
- * 获取生效中的封禁 IP 列表（Set<string>）。
- * 优先读 KV 缓存；KV 无值则调 Supabase RPC（get_banned_ips，SECURITY DEFINER）并写回 KV。
- * 与 getActiveApiKeyHashes 同一套缓存策略：正常靠后台主动删 KV 即时生效，TTL 1h 兜底。
- */
-async function getBannedIps(env) {
-  const kv = env.API_KV
-  if (kv) {
-    try {
-      const cached = await kv.get(BANNED_IPS_KV_KEY, { type: 'json' })
-      if (cached && Array.isArray(cached.ips)) {
-        return new Set(cached.ips)
-      }
-    } catch (e) {
-      // KV 读失败（配额 429 / 服务故障）→ 视为未命中，回源 Supabase，避免 API 整体 500
-      console.error('[api] kv.get banned_ips failed, fallback to supabase', e)
-    }
-  }
-  const res = await pgRpc(env, 'get_banned_ips', {})
-  const ips = (res && res.data) || []
-  const set = new Set(ips)
-  if (kv) {
-    ctxWaitUntilSafe(env, kv.put(BANNED_IPS_KV_KEY, JSON.stringify({ ips }), { expirationTtl: BANNED_IPS_CACHE_TTL }))
-  }
-  return set
-}
-
-/**
  * 内部接口：POST /internal/refresh-ips
- * 后台封禁/解封 IP 后调用，主动删除 KV 中的封禁 IP 缓存，使变更立即生效
- * （否则要等 1h TTL 兜底）。
+ * 后台封禁/解封 IP 后调用，主动删除 KV 中的鉴权快照缓存，使变更立即生效
+ * （否则要等 1h TTL 兜底）。快照已与 API Key 列表合并，两者会一并重建。
  */
 async function handleRefreshIps(env, request) {
   const auth = await verifyAdminJwt(env, request)
   if (!auth.ok) return jsonError(401, auth.message)
   const kv = env.API_KV
   if (kv) {
-    await kv.delete(BANNED_IPS_KV_KEY)
+    await kv.delete(AUTH_SNAPSHOT_KV_KEY)
   }
   return new Response(
     JSON.stringify({ code: 200, data: { refreshed: true } }),
@@ -462,10 +439,10 @@ const TTL_LIST = 600 // 列表/搜索缓存 10min
 // 环境变量（wrangler secret 设置）：
 //   SESSION_SECRET   HMAC 签名密钥，用于签发/校验 session_token
 // KV 绑定（wrangler.toml 的 kv_namespaces）：
-//   API_KV           存 active key hash 列表 + catalog 数据本体
+//   API_KV           存鉴权快照（active key hash 列表 + 封禁 IP 列表）+ catalog 数据本体
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // session_token 有效期 24h
-const API_KEYS_KV_KEY = 'active_api_keys' // KV 中 active key hash 列表的 key
-const API_KEYS_CACHE_TTL = 3600 // active key 列表 KV 缓存 TTL（1h，兜底用，正常靠主动删即时生效）
+const AUTH_SNAPSHOT_KV_KEY = 'auth_snapshot' // KV 中鉴权快照（active key hash 列表 + 封禁 IP 列表）
+const AUTH_SNAPSHOT_TTL = 3600 // 鉴权快照 KV 缓存 TTL（1h，兜底用，正常靠主动删即时生效）
 const CATALOG_KV_KEY = 'catalog_snapshot' // KV 中 catalog 数据本体的 key
 const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
 
@@ -475,8 +452,6 @@ const CATALOG_KV_TTL = 3600 // catalog 数据本体 KV 缓存 TTL（1h）
 //   CF_API_TOKEN     Cloudflare API Token（权限：Account Analytics Read）
 // 绑定（wrangler.toml）：
 //   ANALYTICS        Analytics Engine dataset（写入点用；本地 dev 无此绑定时跳过）
-const BANNED_IPS_KV_KEY = 'banned_ips' // KV 中生效中封禁 IP 列表的 key
-const BANNED_IPS_CACHE_TTL = 3600 // 封禁 IP 列表 KV 缓存 TTL（1h，兜底用，正常靠主动删即时生效）
 const USAGE_DATASET = 'lrcshare_api_usage' // Analytics Engine 数据集名（与 wrangler.toml 一致）
 const USAGE_MAX_DAYS = 30 // AE 免费版数据保留上限（天）
 
@@ -2194,14 +2169,16 @@ export default {
       return finish(jsonError(404, 'not found, see /v1/ for available endpoints'))
     }
 
+    // ===== 鉴权 0/1：鉴权快照（封禁 IP + API Key），单次 KV 读同时覆盖两道检查 =====
+    // 快照把两个列表合并到同一个 KV 键，每个请求只需 1 次 KV 读（原先 2 次）；
+    // 任一列表为空都按「无匹配」处理，语义与合并前一致。
+    const auth = await getAuthSnapshot(env)
+
     // ===== 鉴权 0：IP 黑名单（纯 IP 粒度；被封 IP 直接拒绝，不影响同 KEY 下其他 IP） =====
     // 归一化必须与 sql/23-banned-ips.sql 的存储格式一致（IPv4 原样 / IPv6 取 /64 段）
     const clientIp = normalizeIpForBan(request.headers.get('CF-Connecting-IP') || '')
-    if (clientIp) {
-      const bannedIps = await getBannedIps(env)
-      if (bannedIps.has(clientIp)) {
-        return finish(jsonError(403, 'your ip has been blocked'))
-      }
+    if (clientIp && auth.ips.has(clientIp)) {
+      return finish(jsonError(403, 'your ip has been blocked'))
     }
 
     // ===== 鉴权 1：API Key 校验（所有 /v1/* 端点都需要） =====
@@ -2214,8 +2191,7 @@ export default {
     }
     const keyHash = await sha256Hex(apiKey)
     traceKeyHash = keyHash // 供上报使用（含后续 403/419 的被拒请求）
-    const activeHashes = await getActiveApiKeyHashes(env)
-    if (!activeHashes.has(keyHash)) {
+    if (!auth.hashes.has(keyHash)) {
       return finish(jsonError(403, 'invalid or banned api key'))
     }
 

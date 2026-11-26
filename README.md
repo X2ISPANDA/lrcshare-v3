@@ -41,11 +41,10 @@
 
 ### 管理后台
 
-歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 歌词投稿审核 / 歌曲分享审核 / TTML Hub 队列 / 歌词存疑 / 邮件日志 / 站点设置，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
+歌曲 / 专辑 / 艺术家 / 贡献者 / 文章 / 友链 / 赞赏 / 歌词投稿审核 / 歌曲分享审核 / 歌词存疑 / 邮件日志 / 站点设置，桌面表格 + 移动端卡片双形态自适应，见 `src/views/admin/`。
 
 - **批量审核**：批量投稿按批折叠一键整审；Excel 式表格逐列统一填充（可指定仅勾选行）、单元格逐行微调、行级通过 / 拒绝混合决定；移动端自动切折叠卡片，顶部吸附工具条
 - **歌词版本管理**：「版本」弹框列出全部已发布版本，填位次或置顶即可调整前台顺序，保存批量归一化写回 `sort_order`
-- **TTML Hub 待确认队列**：抓回条目按 multi_candidate / low_confidence / conflict 分档，人工「挂到歌」/「新建展示」/「忽略」；已导入版本仅原文哈希变化时自动更新，Hub 侧删除跟随回收
 - **歌曲管理服务端分页**：10/20/50 条每页 + 跨歌名 / 别名 / 歌手 / 专辑名搜索下推数据库（专用 RPC，执行权已从 anon 收回）
 - **合并贡献者**：单事务 RPC 完成「字段 8 项左右二选一 → 转移三类作品外键（含歌曲分享）→ 删除源账号」，四道守卫 + 动态外键扫描，任一步失败整体回滚
 - **歌曲分享管理**：手动识别添加、审核通过 / 拒绝（带邮件通知）、编辑、撤回、删除、查重提示，通过后幂等追加「歌曲分享」标签
@@ -119,7 +118,6 @@ npm run docs:dev       # API 文档站（可选）
 | `npm run docs:dev` / `docs:build` / `docs:preview` | API 文档站开发 / 构建 / 预览 |
 | `npm run changelog:sync` | 更新日志同步：`src/data/changelog.ts` → `CHANGELOG.md`（通常无需手跑——提交含 changelog.ts 时 git pre-commit 钩子自动执行，钩子由 postinstall 自动启用） |
 | `node scripts/backup-images.mjs` | OSS 图片灾备存量回填 / 异常补救（日常新增图片自动转存，无需手跑） |
-| `node scripts/run-ttml-sync.mjs` | 本地手动触发 TTML Hub 同步 |
 
 ## 部署架构
 
@@ -132,7 +130,6 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
    ├─► Supabase（Postgres / Auth / RLS / RPC）——主数据源
    │
    ├─► Cloudflare Worker · open-api（api.lrcshare.com）——开放 API，边缘缓存 + 限流
-   ├─► Cloudflare Worker · ttml-sync——Cron 抓取 LunaBeat TTML Hub，人工队列入库
    ├─► Cloudflare Pages · VitePress 文档站（/docs 由 open-api Worker 反代）
    │
    ├─► Netlify Functions 函数站（VITE_MAIL_BASE）：
@@ -151,7 +148,6 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
 
 - **前台主站**：构建流程见 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)，需在 Actions Secrets 配置 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` / `VITE_MAIL_BASE` / `VITE_IMAGE_BACKUP_URL`；数据库新增内容最迟 6 小时随定时重建上线
 - **开放 API**：源码 [cloudflare/open-api.js](cloudflare/open-api.js)，在 `cloudflare/` 目录执行 `wrangler deploy`（共享模块经 esbuild 打包），密钥用 `wrangler secret put` 配置
-- **TTML Hub 同步**：[cloudflare/ttml-sync/](cloudflare/ttml-sync/)，Cron 定时 + `X-Sync-Token` 请求头手动触发，外部地址强制同源校验防 SSRF
 - **API 文档站**：Cloudflare Pages，构建命令 `npm run docs:build`，输出 `docs/.vitepress/dist`
 - **Netlify 函数站**：独立站点仅部署函数（[netlify.toml](netlify.toml)），需配置 `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 及 SMTP 变量
 - **图片灾备转存（阿里云 FC）**：源码 [cloud-fn/image-backup/](cloud-fn/image-backup/)，Node.js 18+ HTTP 触发器，需配置 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `OSS_REGION` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`；FC 每月 100 万次调用免费
@@ -161,7 +157,7 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
 
 ```
 ├── .github/workflows/   # deploy.yml：SSG 构建 → GitHub Pages（push + 6h cron + 手动）
-├── cloudflare/          # open-api（开放 API）· ttml-sync（曲库同步）· shared/（三端共享语言规则）
+├── cloudflare/          # open-api（开放 API）· shared/（三端共享语言规则）
 ├── cloud-fn/            # 阿里云函数计算：image-backup（图片灾备转存）· netease-stream（网易云取链·SCF备用）
 ├── docs/                # API 文档站（VitePress → api.lrcshare.com/docs/）
 │   ├── api/             # 六组端点文档 + 数据对象字段表
@@ -170,7 +166,7 @@ GitHub Pages（lrcshare.com）◄── GitHub Actions：push 到 main 即构建
 │   ├── functions/       # mailer / resolve-music / music-stream / music-lyric
 │   └── functions/_lib/  # oss.mjs（转存/SHA-256 寻址，FC 版见 cloud-fn/image-backup/）· netease-public.mjs（公益 Meting）
 ├── public/              # robots.txt 等静态文件
-├── scripts/             # changelog 同步 · git 钩子安装 · OSS 回填 · TTML 同步触发
+├── scripts/             # changelog 同步 · git 钩子安装 · OSS 回填
 ├── sql/                 # 数据库迁移脚本 + 架构演进文档（站内 /docs 数据源）
 ├── src/
 │   ├── assets/icons/    # 社交/平台 SVG 图标

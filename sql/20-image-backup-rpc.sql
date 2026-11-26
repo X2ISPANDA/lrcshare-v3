@@ -303,7 +303,8 @@ as $function$
     group by contributor_id
   )
   select
-    c.id, c.name, c.avatar, c.avatar_backup, c.bio, c.public_bio, c.contact_value,
+    c.id, c.name, c.avatar, c.avatar_backup, c.bio, c.public_bio,
+    case when c.public_contact then c.contact_value::text else null end,
     c.public_contact, c.is_owner, c.created_at, c.sort, c.tags,
     coalesce(cc.cnt, 0) as song_count
   from contributors c
